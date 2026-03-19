@@ -1,0 +1,18 @@
+package com.code.aigateway.core.error;
+
+/**
+ * 错误码
+ */
+public enum ErrorCode {
+    INVALID_REQUEST,
+    AUTH_FAILED,
+    MODEL_NOT_FOUND,
+    PROVIDER_NOT_FOUND,
+    PROVIDER_DISABLED,
+    CAPABILITY_NOT_SUPPORTED,
+    PROVIDER_TIMEOUT,
+    PROVIDER_RATE_LIMIT,
+    PROVIDER_ERROR,
+    STREAM_PARSE_ERROR,
+    INTERNAL_ERROR
+}
