@@ -6,11 +6,26 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
- * 全局异常处理
+ * 全局异常处理器
+ * <p>
+ * 统一处理网关中抛出的异常，将其转换为 OpenAI 格式的错误响应。
+ * 确保所有错误都以一致的格式返回给客户端。
+ * </p>
+ *
+ * @author sst
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    /**
+     * 处理网关业务异常
+     * <p>
+     * 根据错误码映射 HTTP 状态码，并返回 OpenAI 格式的错误响应
+     * </p>
+     *
+     * @param ex 网关异常
+     * @return OpenAI 格式的错误响应
+     */
     @ExceptionHandler(GatewayException.class)
     public org.springframework.http.ResponseEntity<OpenAiErrorResponse> handleGatewayException(GatewayException ex) {
         HttpStatus status = mapStatus(ex.getErrorCode());
@@ -24,6 +39,15 @@ public class GlobalExceptionHandler {
                 ));
     }
 
+    /**
+     * 处理未知异常
+     * <p>
+     * 对于未预期的异常，返回 500 内部服务器错误
+     * </p>
+     *
+     * @param ex 异常
+     * @return OpenAI 格式的错误响应
+     */
     @ExceptionHandler(Exception.class)
     public org.springframework.http.ResponseEntity<OpenAiErrorResponse> handleException(Exception ex) {
         return org.springframework.http.ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -36,6 +60,12 @@ public class GlobalExceptionHandler {
                 ));
     }
 
+    /**
+     * 将错误码映射为 HTTP 状态码
+     *
+     * @param errorCode 错误码
+     * @return 对应的 HTTP 状态码
+     */
     private HttpStatus mapStatus(ErrorCode errorCode) {
         return switch (errorCode) {
             case INVALID_REQUEST, MODEL_NOT_FOUND, CAPABILITY_NOT_SUPPORTED -> HttpStatus.BAD_REQUEST;

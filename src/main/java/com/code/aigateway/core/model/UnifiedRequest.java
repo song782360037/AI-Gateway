@@ -6,23 +6,74 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 统一的请求
+ * 统一的请求模型
+ * <p>
+ * 作为不同 AI 提供商请求格式的中间表示，解耦 API 层与提供商层。
+ * 包含聊天请求的所有核心要素。
+ * </p>
+ *
+ * @author sst
  */
 @Data
 public class UnifiedRequest {
+
+    /**
+     * 请求协议类型（如 openai-chat）
+     */
     private String requestProtocol;
+
+    /**
+     * 期望的响应协议类型
+     */
     private String responseProtocol;
+
+    /**
+     * 目标提供商名称
+     */
     private String provider;
+
+    /**
+     * 模型名称（实际模型名，非别名）
+     */
     private String model;
+
+    /**
+     * 系统提示词
+     */
     private String systemPrompt;
 
+    /**
+     * 消息列表
+     */
     private List<UnifiedMessage> messages;
+
+    /**
+     * 工具定义列表
+     */
     private List<UnifiedTool> tools;
+
+    /**
+     * 工具选择配置
+     */
     private UnifiedToolChoice toolChoice;
 
+    /**
+     * 生成配置参数
+     */
     private UnifiedGenerationConfig generationConfig;
+
+    /**
+     * 响应格式配置
+     */
     private UnifiedResponseFormat responseFormat;
 
+    /**
+     * 是否启用流式输出
+     */
     private Boolean stream;
+
+    /**
+     * 元数据（扩展字段）
+     */
     private Map<String, Object> metadata;
 }

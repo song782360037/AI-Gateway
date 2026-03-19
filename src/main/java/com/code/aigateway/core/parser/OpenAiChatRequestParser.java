@@ -13,26 +13,51 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * OpenAI 聊天请求解析器
+ * <p>
+ * 将 OpenAI 格式的聊天请求转换为统一的请求模型，支持以下特性：
+ * <ul>
+ *   <li>System Prompt 提取：将 messages 中 role=system 的消息提取为 systemPrompt</li>
+ *   <li>多模态内容：支持 content 为字符串或数组格式</li>
+ *   <li>图片输入：支持 image_url 类型的多模态内容</li>
+ *   <li>工具调用：支持 tools 和 tool_choice 参数</li>
+ * </ul>
+ * </p>
+ *
+ * @author sst
+ */
 @Component
 public class OpenAiChatRequestParser implements RequestParser<OpenAiChatCompletionRequest, UnifiedRequest> {
 
     /**
-     * 将OpenAI的请求转换为统一的请求
-     *     // 支持 system prompt 提取，即 messages[0].role = system，会将 messages[0].content 提取为 system prompt
-     *     // 支持 content 为 string 或 array，即 messages[].content 可以是 string 或 array
-     *     // 支持 image_url 多模态，即 messages[].content 中包含 type = image_url
-     *     // 支持 tools 和 tool_choice
-     * @param request
-     * @return
+     * 将 OpenAI 格式的请求转换为统一格式
+     * <p>
+     * 转换内容包括：
+     * <ul>
+     *   <li>设置请求/响应协议为 openai-chat</li>
+     *   <li>提取模型名称和流式标志</li>
+     *   <li>转换生成配置（temperature、topP、maxTokens、stop）</li>
+     *   <li>提取 system prompt（第一条 role=system 的消息）</li>
+     *   <li>转换消息列表（支持多模态内容）</li>
+     *   <li>转换工具定义和工具选择配置</li>
+     * </ul>
+     * </p>
+     *
+     * @param request OpenAI 格式的聊天请求
+     * @return 统一格式的请求
      */
     @Override
     public UnifiedRequest parse(OpenAiChatCompletionRequest request) {
         UnifiedRequest unifiedRequest = new UnifiedRequest();
+
+        // 设置协议类型
         unifiedRequest.setRequestProtocol("openai-chat");
         unifiedRequest.setResponseProtocol("openai-chat");
         unifiedRequest.setModel(request.getModel());
         unifiedRequest.setStream(Boolean.TRUE.equals(request.getStream()));
 
+        // 转换生成配置
         UnifiedGenerationConfig config = new UnifiedGenerationConfig();
         config.setTemperature(request.getTemperature());
         config.setTopP(request.getTopP());
@@ -40,10 +65,12 @@ public class OpenAiChatRequestParser implements RequestParser<OpenAiChatCompleti
         config.setStopSequences(request.getStop());
         unifiedRequest.setGenerationConfig(config);
 
+        // 处理消息列表
         List<UnifiedMessage> unifiedMessages = new ArrayList<>();
         String systemPrompt = null;
 
         for (OpenAiChatCompletionRequest.OpenAiMessage msg : request.getMessages()) {
+            // 提取第一条 system 消息作为 systemPrompt
             if ("system".equalsIgnoreCase(msg.getRole()) && msg.getContent() instanceof String str) {
                 if (systemPrompt == null) {
                     systemPrompt = str;
@@ -51,6 +78,7 @@ public class OpenAiChatRequestParser implements RequestParser<OpenAiChatCompleti
                 }
             }
 
+            // 转换普通消息
             UnifiedMessage unifiedMessage = new UnifiedMessage();
             unifiedMessage.setRole(msg.getRole());
             unifiedMessage.setToolCallId(msg.getToolCallId());
@@ -60,18 +88,34 @@ public class OpenAiChatRequestParser implements RequestParser<OpenAiChatCompleti
 
         unifiedRequest.setSystemPrompt(systemPrompt);
         unifiedRequest.setMessages(unifiedMessages);
+
+        // 转换工具配置
         unifiedRequest.setTools(parseTools(request.getTools()));
         unifiedRequest.setToolChoice(parseToolChoice(request.getToolChoice()));
 
         return unifiedRequest;
     }
 
+    /**
+     * 解析消息内容
+     * <p>
+     * 支持两种格式：
+     * <ul>
+     *   <li>字符串：直接作为文本内容</li>
+     *   <li>数组：支持 text 和 image_url 两种类型</li>
+     * </ul>
+     * </p>
+     *
+     * @param content 消息内容（字符串或数组）
+     * @return 统一的内容部分列表
+     */
     private List<UnifiedPart> parseContent(Object content) {
         List<UnifiedPart> parts = new ArrayList<>();
         if (content == null) {
             return parts;
         }
 
+        // 处理字符串格式内容
         if (content instanceof String str) {
             UnifiedPart part = new UnifiedPart();
             part.setType("text");
@@ -80,16 +124,21 @@ public class OpenAiChatRequestParser implements RequestParser<OpenAiChatCompleti
             return parts;
         }
 
+        // 处理数组格式内容（多模态）
         if (content instanceof List<?> list) {
             for (Object item : list) {
                 if (item instanceof Map<?, ?> map) {
                     Object type = map.get("type");
+
+                    // 文本内容
                     if ("text".equals(type)) {
                         UnifiedPart part = new UnifiedPart();
                         part.setType("text");
                         part.setText((String) map.get("text"));
                         parts.add(part);
-                    } else if ("image_url".equals(type)) {
+                    }
+                    // 图片 URL
+                    else if ("image_url".equals(type)) {
                         UnifiedPart part = new UnifiedPart();
                         part.setType("image");
                         Object imageUrlObj = map.get("image_url");
@@ -108,6 +157,12 @@ public class OpenAiChatRequestParser implements RequestParser<OpenAiChatCompleti
         return parts;
     }
 
+    /**
+     * 解析工具定义列表
+     *
+     * @param tools OpenAI 格式的工具列表
+     * @return 统一格式的工具列表
+     */
     private List<UnifiedTool> parseTools(List<OpenAiChatCompletionRequest.OpenAiTool> tools) {
         if (tools == null || tools.isEmpty()) {
             return List.of();
@@ -118,6 +173,7 @@ public class OpenAiChatRequestParser implements RequestParser<OpenAiChatCompleti
             if (tool.getFunction() == null) {
                 continue;
             }
+
             UnifiedTool unifiedTool = new UnifiedTool();
             unifiedTool.setName(tool.getFunction().getName());
             unifiedTool.setDescription(tool.getFunction().getDescription());
@@ -127,6 +183,19 @@ public class OpenAiChatRequestParser implements RequestParser<OpenAiChatCompleti
         return result;
     }
 
+    /**
+     * 解析工具选择配置
+     * <p>
+     * 支持两种格式：
+     * <ul>
+     *   <li>字符串：如 "auto"、"none"、"required"</li>
+     *   <li>对象：指定特定工具，如 {"type": "function", "function": {"name": "xxx"}}</li>
+     * </ul>
+     * </p>
+     *
+     * @param toolChoiceObj 工具选择配置
+     * @return 统一格式的工具选择
+     */
     private UnifiedToolChoice parseToolChoice(Object toolChoiceObj) {
         if (toolChoiceObj == null) {
             return null;
@@ -134,11 +203,13 @@ public class OpenAiChatRequestParser implements RequestParser<OpenAiChatCompleti
 
         UnifiedToolChoice choice = new UnifiedToolChoice();
 
+        // 字符串格式：auto、none、required
         if (toolChoiceObj instanceof String str) {
             choice.setType(str);
             return choice;
         }
 
+        // 对象格式：指定特定工具
         if (toolChoiceObj instanceof Map<?, ?> map) {
             Object type = map.get("type");
             choice.setType(type == null ? "specific" : String.valueOf(type));
