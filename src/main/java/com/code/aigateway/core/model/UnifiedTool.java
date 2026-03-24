@@ -29,6 +29,16 @@ public class UnifiedTool {
     private String description;
 
     /**
+     * 工具类型
+     */
+    private String type;
+
+    /**
+     * 是否启用严格模式
+     */
+    private Boolean strict;
+
+    /**
      * 输入参数的 JSON Schema
      * <p>
      * 定义函数参数的结构和类型

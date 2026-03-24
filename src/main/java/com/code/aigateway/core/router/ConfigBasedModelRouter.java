@@ -37,6 +37,7 @@ public class ConfigBasedModelRouter implements ModelRouter {
      * <ul>
      *   <li>模型名称不能为空</li>
      *   <li>模型别名必须存在</li>
+     *   <li>别名中的 provider 和 model 必须合法</li>
      *   <li>提供商配置必须存在</li>
      *   <li>提供商必须处于启用状态</li>
      * </ul>
@@ -62,6 +63,16 @@ public class ConfigBasedModelRouter implements ModelRouter {
             throw new GatewayException(ErrorCode.MODEL_NOT_FOUND,
                     "model alias not found: " + request.getModel());
         }
+        if (alias.getProvider() == null || alias.getProvider().isBlank()) {
+            throw new GatewayException(ErrorCode.PROVIDER_NOT_FOUND,
+                    "provider alias is blank for model: " + request.getModel());
+        }
+        if (alias.getModel() == null || alias.getModel().isBlank()) {
+            throw new GatewayException(ErrorCode.MODEL_NOT_FOUND,
+                    "target model is blank for alias: " + request.getModel());
+        }
+
+        ProviderType providerType = resolveProviderType(alias.getProvider());
 
         // 4. 查找提供商配置
         GatewayProperties.ProviderProperties providerProperties =
@@ -81,9 +92,28 @@ public class ConfigBasedModelRouter implements ModelRouter {
 
         // 7. 构建并返回路由结果
         return RouteResult.builder()
-                .providerType(ProviderType.from(alias.getProvider()))
+                .providerType(providerType)
+                .providerName(alias.getProvider())
                 .targetModel(alias.getModel())
                 .providerBaseUrl(providerProperties.getBaseUrl())
+                .providerVersion(providerProperties.getVersion())
+                .providerTimeoutSeconds(providerProperties.getTimeoutSeconds())
                 .build();
+    }
+
+    /**
+     * 解析 provider 类型，并把底层枚举异常转换为网关异常，
+     * 避免把配置错误暴露成通用 500。
+     *
+     * @param providerName provider 名称
+     * @return provider 类型
+     */
+    private ProviderType resolveProviderType(String providerName) {
+        try {
+            return ProviderType.from(providerName);
+        } catch (IllegalArgumentException ex) {
+            throw new GatewayException(ErrorCode.PROVIDER_NOT_FOUND,
+                    "unsupported provider type: " + providerName);
+        }
     }
 }

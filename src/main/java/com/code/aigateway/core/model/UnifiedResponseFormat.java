@@ -29,6 +29,16 @@ public class UnifiedResponseFormat {
     private String type;
 
     /**
+     * JSON Schema 名称
+     */
+    private String name;
+
+    /**
+     * 是否启用严格模式
+     */
+    private Boolean strict;
+
+    /**
      * JSON Schema（当 type 为 json_schema 时使用）
      */
     private Map<String, Object> schema;

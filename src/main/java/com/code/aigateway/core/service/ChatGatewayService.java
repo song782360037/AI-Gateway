@@ -1,6 +1,7 @@
 package com.code.aigateway.core.service;
 
 import com.code.aigateway.api.request.OpenAiChatCompletionRequest;
+import com.code.aigateway.api.response.OpenAiChatCompletionChunkResponse;
 import com.code.aigateway.api.response.OpenAiChatCompletionResponse;
 import com.code.aigateway.core.capability.CapabilityChecker;
 import com.code.aigateway.core.encoder.OpenAiChatResponseEncoder;
@@ -11,6 +12,8 @@ import com.code.aigateway.core.router.ModelRouter;
 import com.code.aigateway.core.router.RouteResult;
 import com.code.aigateway.provider.ProviderClient;
 import com.code.aigateway.provider.ProviderClientFactory;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
@@ -18,6 +21,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -53,6 +57,9 @@ public class ChatGatewayService {
     /** OpenAI 响应编码器 */
     private final OpenAiChatResponseEncoder responseEncoder;
 
+    /** JSON 序列化工具 */
+    private final ObjectMapper objectMapper;
+
     /**
      * 处理非流式聊天请求
      * <p>
@@ -75,6 +82,7 @@ public class ChatGatewayService {
         // 4. 设置请求参数
         unifiedRequest.setProvider(routeResult.getProviderType().name().toLowerCase());
         unifiedRequest.setModel(routeResult.getTargetModel());
+        unifiedRequest.setExecutionContext(buildExecutionContext(routeResult));
 
         // 5. 获取提供商客户端并调用
         ProviderClient providerClient = providerClientFactory.getClient(routeResult.getProviderType());
@@ -106,6 +114,7 @@ public class ChatGatewayService {
         // 4. 设置请求参数
         unifiedRequest.setProvider(routeResult.getProviderType().name().toLowerCase());
         unifiedRequest.setModel(routeResult.getTargetModel());
+        unifiedRequest.setExecutionContext(buildExecutionContext(routeResult));
 
         // 5. 获取提供商客户端
         ProviderClient providerClient = providerClientFactory.getClient(routeResult.getProviderType());
@@ -131,60 +140,78 @@ public class ChatGatewayService {
      * @return SSE 事件
      */
     private ServerSentEvent<String> toSse(UnifiedStreamEvent event, String responseId, long created, String model) {
-        // 处理完成事件
         if ("done".equals(event.getType())) {
-            String json = """
-                    {
-                      "id":"%s",
-                      "object":"chat.completion.chunk",
-                      "created":%d,
-                      "model":"%s",
-                      "choices":[
-                        {
-                          "index":0,
-                          "delta":{},
-                          "finish_reason":"%s"
-                        }
-                      ]
-                    }
-                    """.formatted(responseId, created, model,
-                    event.getFinishReason() == null ? "stop" : event.getFinishReason());
-            return ServerSentEvent.builder(json.replaceAll("\\s+", " ")).build();
+            OpenAiChatCompletionChunkResponse chunkResponse = OpenAiChatCompletionChunkResponse.builder()
+                    .id(responseId)
+                    .object("chat.completion.chunk")
+                    .created(created)
+                    .model(model)
+                    .choices(List.of(
+                            OpenAiChatCompletionChunkResponse.Choice.builder()
+                                    .index(resolveOutputIndex(event))
+                                    .delta(OpenAiChatCompletionChunkResponse.Delta.builder().build())
+                                    .finishReason(event.getFinishReason() == null ? "stop" : event.getFinishReason())
+                                    .build()
+                    ))
+                    .build();
+            return ServerSentEvent.builder(toJson(chunkResponse)).build();
         }
 
-        // 处理文本增量事件
-        String content = event.getTextDelta() == null ? "" : escapeJson(event.getTextDelta());
-        String json = """
-                {
-                  "id":"%s",
-                  "object":"chat.completion.chunk",
-                  "created":%d,
-                  "model":"%s",
-                  "choices":[
-                    {
-                      "index":0,
-                      "delta":{
-                        "content":"%s"
-                      },
-                      "finish_reason":null
-                    }
-                  ]
-                }
-                """.formatted(responseId, created, model, content);
-
-        return ServerSentEvent.builder(json.replaceAll("\\s+", " ")).build();
+        OpenAiChatCompletionChunkResponse chunkResponse = OpenAiChatCompletionChunkResponse.builder()
+                .id(responseId)
+                .object("chat.completion.chunk")
+                .created(created)
+                .model(model)
+                .choices(List.of(
+                        OpenAiChatCompletionChunkResponse.Choice.builder()
+                                .index(resolveOutputIndex(event))
+                                .delta(OpenAiChatCompletionChunkResponse.Delta.builder()
+                                        .role("assistant")
+                                        .content(event.getTextDelta() == null ? "" : event.getTextDelta())
+                                        .build())
+                                .finishReason(null)
+                                .build()
+                ))
+                .build();
+        return ServerSentEvent.builder(toJson(chunkResponse)).build();
     }
 
     /**
-     * 转义 JSON 字符串中的特殊字符
+     * 构建 Provider 运行时上下文
      *
-     * @param text 原始文本
-     * @return 转义后的文本
+     * @param routeResult 路由结果
+     * @return Provider 运行时上下文
      */
-    private String escapeJson(String text) {
-        return text.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r");
+    private UnifiedRequest.ProviderExecutionContext buildExecutionContext(RouteResult routeResult) {
+        UnifiedRequest.ProviderExecutionContext executionContext = new UnifiedRequest.ProviderExecutionContext();
+        executionContext.setProviderName(routeResult.getProviderName());
+        executionContext.setProviderBaseUrl(routeResult.getProviderBaseUrl());
+        executionContext.setProviderVersion(routeResult.getProviderVersion());
+        executionContext.setProviderTimeoutSeconds(routeResult.getProviderTimeoutSeconds());
+        return executionContext;
+    }
+
+    /**
+     * 解析输出索引
+     *
+     * @param event 统一流式事件
+     * @return 输出索引
+     */
+    private int resolveOutputIndex(UnifiedStreamEvent event) {
+        return event.getOutputIndex() == null ? 0 : event.getOutputIndex();
+    }
+
+    /**
+     * 将对象序列化为 JSON 字符串
+     *
+     * @param value 待序列化对象
+     * @return JSON 字符串
+     */
+    private String toJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("failed to serialize sse chunk", e);
+        }
     }
 }

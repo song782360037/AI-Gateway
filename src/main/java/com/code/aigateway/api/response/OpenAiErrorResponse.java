@@ -41,5 +41,10 @@ public class OpenAiErrorResponse {
          * 错误码
          */
         private String code;
+
+        /**
+         * 出错参数路径
+         */
+        private String param;
     }
 }

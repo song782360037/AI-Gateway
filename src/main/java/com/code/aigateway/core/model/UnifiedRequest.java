@@ -76,4 +76,40 @@ public class UnifiedRequest {
      * 元数据（扩展字段）
      */
     private Map<String, Object> metadata;
+
+    /**
+     * Provider 运行时上下文
+     * <p>
+     * 用于在不修改 ProviderClient 接口签名的前提下，
+     * 将路由后的 provider 运行参数传递给具体 provider 实现。
+     * </p>
+     */
+    private ProviderExecutionContext executionContext;
+
+    /**
+     * Provider 运行时上下文
+     */
+    @Data
+    public static class ProviderExecutionContext {
+
+        /**
+         * Provider 名称
+         */
+        private String providerName;
+
+        /**
+         * Provider 基础地址
+         */
+        private String providerBaseUrl;
+
+        /**
+         * Provider 版本号
+         */
+        private String providerVersion;
+
+        /**
+         * Provider 请求超时时间（秒）
+         */
+        private Integer providerTimeoutSeconds;
+    }
 }

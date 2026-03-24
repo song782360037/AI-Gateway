@@ -1,5 +1,6 @@
 package com.code.aigateway.api.response;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Builder;
 import lombok.Data;
@@ -49,6 +50,7 @@ public class OpenAiChatCompletionChunkResponse {
      */
     @Data
     @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Choice {
 
         /**
@@ -76,6 +78,7 @@ public class OpenAiChatCompletionChunkResponse {
      */
     @Data
     @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Delta {
 
         /**

@@ -40,4 +40,9 @@ public class UnifiedMessage {
      * 工具名称
      */
     private String toolName;
+
+    /**
+     * assistant 历史消息中的工具调用列表
+     */
+    private List<UnifiedToolCall> toolCalls;
 }

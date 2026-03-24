@@ -22,6 +22,11 @@ public class RouteResult {
     private ProviderType providerType;
 
     /**
+     * 提供商名称
+     */
+    private String providerName;
+
+    /**
      * 目标模型名称（实际的模型名，非别名）
      */
     private String targetModel;
@@ -30,4 +35,14 @@ public class RouteResult {
      * 提供商 API 基础地址
      */
     private String providerBaseUrl;
+
+    /**
+     * 提供商版本号
+     */
+    private String providerVersion;
+
+    /**
+     * 提供商请求超时时间（秒）
+     */
+    private Integer providerTimeoutSeconds;
 }
