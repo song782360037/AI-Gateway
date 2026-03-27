@@ -1,6 +1,7 @@
 package com.code.aigateway.core.router;
 
 import com.code.aigateway.provider.ProviderType;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Builder;
 import lombok.Data;
 
@@ -45,4 +46,14 @@ public class RouteResult {
      * 提供商请求超时时间（秒）
      */
     private Integer providerTimeoutSeconds;
+
+    /**
+     * 运行时提供商 API Key。
+     * <p>
+     * 该字段仅在服务内部透传给 provider client，
+     * 绝不能参与日志打印或序列化输出。
+     * </p>
+     */
+    @JsonIgnore
+    private String providerApiKey;
 }

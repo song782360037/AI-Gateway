@@ -111,5 +111,14 @@ public class UnifiedRequest {
          * Provider 请求超时时间（秒）
          */
         private Integer providerTimeoutSeconds;
+
+        /**
+         * Provider 运行时 API Key。
+         * <p>
+         * 该字段由路由阶段写入，只在 provider 调用链路内部使用，
+         * 避免 provider client 再回查静态 YAML 配置。
+         * </p>
+         */
+        private String providerApiKey;
     }
 }

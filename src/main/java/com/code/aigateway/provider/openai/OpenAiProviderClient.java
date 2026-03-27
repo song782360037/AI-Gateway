@@ -146,31 +146,32 @@ public class OpenAiProviderClient implements ProviderClient {
             throw new GatewayException(ErrorCode.PROVIDER_NOT_FOUND, "provider name is missing");
         }
 
+        // 优先从 executionContext 获取运行时参数（由持久化路由写入），
+        // 若不存在则回退到 YAML 静态配置。
         GatewayProperties.ProviderProperties providerProperties = gatewayProperties.getProviders() == null
                 ? null
                 : gatewayProperties.getProviders().get(providerName);
-        if (providerProperties == null) {
-            throw new GatewayException(ErrorCode.PROVIDER_NOT_FOUND, "provider config not found: " + providerName);
-        }
-        if (!providerProperties.isEnabled()) {
-            throw new GatewayException(ErrorCode.PROVIDER_DISABLED, "provider is disabled: " + providerName);
-        }
 
-        String apiKey = providerProperties.getApiKey();
+        // API Key：运行时参数优先，YAML 配置兜底
+        String apiKey = executionContext != null && executionContext.getProviderApiKey() != null
+                ? executionContext.getProviderApiKey()
+                : (providerProperties != null ? providerProperties.getApiKey() : null);
         if (apiKey == null || apiKey.isBlank()) {
             throw new GatewayException(ErrorCode.PROVIDER_ERROR, "provider api key is missing: " + providerName);
         }
 
+        // baseUrl：运行时参数优先，YAML 配置兜底
         String baseUrl = executionContext != null && executionContext.getProviderBaseUrl() != null
                 ? executionContext.getProviderBaseUrl()
-                : providerProperties.getBaseUrl();
+                : (providerProperties != null ? providerProperties.getBaseUrl() : null);
         if (baseUrl == null || baseUrl.isBlank()) {
             throw new GatewayException(ErrorCode.PROVIDER_ERROR, "provider base url is missing: " + providerName);
         }
 
+        // timeoutSeconds：运行时参数优先，YAML 配置兜底
         Integer timeoutSeconds = executionContext != null && executionContext.getProviderTimeoutSeconds() != null
                 ? executionContext.getProviderTimeoutSeconds()
-                : providerProperties.getTimeoutSeconds();
+                : (providerProperties != null ? providerProperties.getTimeoutSeconds() : null);
         if (timeoutSeconds == null || timeoutSeconds <= 0) {
             timeoutSeconds = 60;
         }

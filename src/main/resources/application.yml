@@ -2,7 +2,39 @@ spring:
   application:
     name: AI-Gateway
 
+  # MySQL 数据源（管理接口 + Flyway 使用）
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:ai_gateway}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${DB_USER:root}
+    password: ${DB_PASS:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      idle-timeout: 300000
+      max-lifetime: 1800000
+
+  # Flyway 数据库迁移
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    encoding: UTF-8
+
+  # Redis
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASS:}
+      database: 0
+      timeout: 5000ms
+
+# API Key 加密密钥（32 字节 hex 编码，64 个十六进制字符）
 gateway:
+  security:
+    api-key-secret: ${GATEWAY_API_KEY_SECRET:}
+
   auth:
     enabled: false # 当前仓库仅定义了鉴权配置结构，尚未真正接入鉴权链路
 
@@ -17,6 +49,13 @@ gateway:
       base-url: ${OPENAI_BASE_URL:} # 仅允许通过环境变量注入，避免默认地址误投递到未知或不安全端点
       api-key: ${OPENAI_API_KEY:} # 仅允许通过环境变量注入，避免本地默认值看起来像真实密钥
       timeout-seconds: ${OPENAI_TIMEOUT_SECONDS:60}
+
+# MyBatis
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 
 management:
   endpoints:

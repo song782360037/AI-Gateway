@@ -188,6 +188,8 @@ public class ChatGatewayService {
         executionContext.setProviderBaseUrl(routeResult.getProviderBaseUrl());
         executionContext.setProviderVersion(routeResult.getProviderVersion());
         executionContext.setProviderTimeoutSeconds(routeResult.getProviderTimeoutSeconds());
+        // 透传运行时 API Key，供 provider client 直接使用，避免回查 YAML 配置
+        executionContext.setProviderApiKey(routeResult.getProviderApiKey());
         return executionContext;
     }
 
