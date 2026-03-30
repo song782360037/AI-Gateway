@@ -1,6 +1,8 @@
 spring:
   application:
     name: AI-Gateway
+  profiles:
+    active: local
 
   # MySQL 数据源（管理接口 + Flyway 使用）
   datasource:

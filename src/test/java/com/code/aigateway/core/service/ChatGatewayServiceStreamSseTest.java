@@ -11,6 +11,7 @@ import com.code.aigateway.core.router.RouteResult;
 import com.code.aigateway.provider.ProviderClient;
 import com.code.aigateway.provider.ProviderClientFactory;
 import com.code.aigateway.provider.ProviderType;
+import com.code.aigateway.core.stats.RequestStatsCollector;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,7 +46,7 @@ class ChatGatewayServiceStreamSseTest {
         providerClientFactory = Mockito.mock(ProviderClientFactory.class);
         responseEncoder = Mockito.mock(OpenAiChatResponseEncoder.class);
         providerClient = Mockito.mock(ProviderClient.class);
-        chatGatewayService = new ChatGatewayService(requestParser, modelRouter, capabilityChecker, providerClientFactory, responseEncoder, objectMapper);
+        chatGatewayService = new ChatGatewayService(requestParser, modelRouter, capabilityChecker, providerClientFactory, responseEncoder, objectMapper, Mockito.mock(RequestStatsCollector.class));
 
         Mockito.when(providerClientFactory.getClient(ProviderType.OPENAI)).thenReturn(providerClient);
     }
@@ -74,7 +75,7 @@ class ChatGatewayServiceStreamSseTest {
         Mockito.when(modelRouter.route(unifiedRequest)).thenReturn(routeResult);
         Mockito.when(providerClient.streamChat(unifiedRequest)).thenReturn(Flux.just(textEvent, doneEvent));
 
-        StepVerifier.create(chatGatewayService.streamChat(request))
+        StepVerifier.create(chatGatewayService.streamChat(request, null))
                 .assertNext(first -> assertTextChunk(first, "你好", "gpt-5.4"))
                 .assertNext(this::assertDoneChunk)
                 .assertNext(last -> assertEquals("[DONE]", last.data()))
@@ -100,7 +101,7 @@ class ChatGatewayServiceStreamSseTest {
         Mockito.when(modelRouter.route(unifiedRequest)).thenReturn(routeResult);
         Mockito.when(providerClient.streamChat(unifiedRequest)).thenReturn(Flux.just(doneEvent));
 
-        StepVerifier.create(chatGatewayService.streamChat(request))
+        StepVerifier.create(chatGatewayService.streamChat(request, null))
                 .assertNext(event -> {
                     JsonNode jsonNode = parseJson(event.data());
                     assertEquals("stop", jsonNode.path("choices").get(0).path("finish_reason").asText());
@@ -133,7 +134,7 @@ class ChatGatewayServiceStreamSseTest {
         Mockito.when(modelRouter.route(unifiedRequest)).thenReturn(routeResult);
         Mockito.when(providerClient.streamChat(unifiedRequest)).thenReturn(Flux.just(textEvent, doneEvent));
 
-        StepVerifier.create(chatGatewayService.streamChat(request))
+        StepVerifier.create(chatGatewayService.streamChat(request, null))
                 .assertNext(event -> {
                     JsonNode jsonNode = parseJson(event.data());
                     assertEquals("包含\"引号\"、反斜杠\\以及\n换行", jsonNode.path("choices").get(0).path("delta").path("content").asText());

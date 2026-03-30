@@ -511,7 +511,7 @@ public class OpenAiProviderClient implements ProviderClient {
                                 message.isBlank() ? "provider rate limited" : message);
                     }
                     return new GatewayException(ErrorCode.PROVIDER_ERROR,
-                            message.isBlank() ? "provider request failed" : "provider request failed");
+                            message.isBlank() ? "provider request failed" : message);
                 });
     }
 
@@ -539,7 +539,7 @@ public class OpenAiProviderClient implements ProviderClient {
      */
     private String extractErrorMessage(String body) {
         if (body == null || body.isBlank()) {
-            return "provider request failed";
+            return "";
         }
         try {
             JsonNode jsonNode = objectMapper.readTree(body);
@@ -548,9 +548,9 @@ public class OpenAiProviderClient implements ProviderClient {
                 return messageNode.asText();
             }
         } catch (JsonProcessingException ignored) {
-            // 忽略上游错误体解析失败，直接回退到原始文本。
+            // 非 JSON 响应体，不泄露上游内部细节
         }
-        return body;
+        return "";
     }
 
     /**

@@ -171,7 +171,8 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         record.setApiVersion(req.getApiVersion());
         record.setTimeoutSeconds(req.getTimeoutSeconds());
         record.setPriority(req.getPriority());
-        record.setExtConfigJson(req.getExtConfigJson());
+        // 空白字符串不是合法 JSON，MySQL JSON 列写入空串会报 Data truncation
+        record.setExtConfigJson(normalizeToJson(req.getExtConfigJson()));
         record.setDeleted(false);
         record.setCreateTime(LocalDateTime.now());
         record.setUpdateTime(LocalDateTime.now());
@@ -190,9 +191,21 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         record.setApiVersion(req.getApiVersion());
         record.setTimeoutSeconds(req.getTimeoutSeconds());
         record.setPriority(req.getPriority());
-        record.setExtConfigJson(req.getExtConfigJson());
+        record.setExtConfigJson(normalizeToJson(req.getExtConfigJson()));
         record.setUpdateTime(LocalDateTime.now());
         return record;
+    }
+
+    /**
+     * 将 extConfigJson 归一化：空白字符串 → null，合法 JSON 保留原样。
+     *
+     * <p>MySQL JSON 列不接受空字符串，只接受合法 JSON 或 NULL。</p>
+     */
+    private String normalizeToJson(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value;
     }
 
     /**

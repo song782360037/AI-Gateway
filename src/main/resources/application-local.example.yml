@@ -1,0 +1,31 @@
+spring:
+  config:
+    activate:
+      on-profile: local
+
+  # 本地 MySQL 数据源配置
+  datasource:
+    url: jdbc:mysql://localhost:3306/ai_gateway?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: root
+
+  # 本地 Redis 配置
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+      database: 0
+
+# 本地 API Key 加密密钥（示例值，仅用于本地开发）
+gateway:
+  security:
+    api-key-secret: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+  # 本地默认 OpenAI 配置，可按需替换
+  providers:
+    openai:
+      enabled: true
+      base-url: https://api.openai.com
+      api-key: your-local-openai-api-key
+      timeout-seconds: 60

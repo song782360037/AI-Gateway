@@ -7,9 +7,12 @@ import com.code.aigateway.core.capability.CapabilityChecker;
 import com.code.aigateway.core.encoder.OpenAiChatResponseEncoder;
 import com.code.aigateway.core.model.UnifiedRequest;
 import com.code.aigateway.core.model.UnifiedStreamEvent;
+import com.code.aigateway.core.model.UnifiedUsage;
 import com.code.aigateway.core.parser.OpenAiChatRequestParser;
 import com.code.aigateway.core.router.ModelRouter;
 import com.code.aigateway.core.router.RouteResult;
+import com.code.aigateway.core.stats.RequestStatsCollector;
+import com.code.aigateway.core.stats.RequestStatsContext;
 import com.code.aigateway.provider.ProviderClient;
 import com.code.aigateway.provider.ProviderClientFactory;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -23,6 +26,8 @@ import reactor.core.publisher.Mono;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 聊天网关核心服务
@@ -60,6 +65,9 @@ public class ChatGatewayService {
     /** JSON 序列化工具 */
     private final ObjectMapper objectMapper;
 
+    /** 请求统计采集器 */
+    private final RequestStatsCollector requestStatsCollector;
+
     /**
      * 处理非流式聊天请求
      * <p>
@@ -67,29 +75,27 @@ public class ChatGatewayService {
      * </p>
      *
      * @param request OpenAI 格式的聊天请求
+     * @param context 当前请求统计上下文
      * @return 包含 OpenAI 格式响应的 Mono
      */
-    public Mono<OpenAiChatCompletionResponse> chat(OpenAiChatCompletionRequest request) {
-        // 1. 解析请求：将 OpenAI 格式转换为统一格式
+    public Mono<OpenAiChatCompletionResponse> chat(OpenAiChatCompletionRequest request, RequestStatsContext context) {
         UnifiedRequest unifiedRequest = requestParser.parse(request);
-
-        // 2. 路由：根据模型别名确定目标提供商和模型
         RouteResult routeResult = modelRouter.route(unifiedRequest);
-
-        // 3. 能力检查：验证请求参数与目标模型的能力兼容性
         capabilityChecker.validate(unifiedRequest, routeResult);
 
-        // 4. 设置请求参数
+        if (context != null) {
+            context.setRouteResult(routeResult);
+        }
+
         unifiedRequest.setProvider(routeResult.getProviderType().name().toLowerCase());
         unifiedRequest.setModel(routeResult.getTargetModel());
         unifiedRequest.setExecutionContext(buildExecutionContext(routeResult));
 
-        // 5. 获取提供商客户端并调用
         ProviderClient providerClient = providerClientFactory.getClient(routeResult.getProviderType());
 
-        // 6. 调用客户端并将统一响应编码为 OpenAI 格式
         return providerClient.chat(unifiedRequest)
-                .map(responseEncoder::encode);
+                .map(responseEncoder::encode)
+                .doOnNext(response -> requestStatsCollector.collectSuccess(context, response));
     }
 
     /**
@@ -99,47 +105,50 @@ public class ChatGatewayService {
      * </p>
      *
      * @param request OpenAI 格式的聊天请求
+     * @param context 当前请求统计上下文
      * @return 包含 SSE 事件的 Flux 流
      */
-    public Flux<ServerSentEvent<String>> streamChat(OpenAiChatCompletionRequest request) {
-        // 1. 解析请求
+    public Flux<ServerSentEvent<String>> streamChat(OpenAiChatCompletionRequest request, RequestStatsContext context) {
         UnifiedRequest unifiedRequest = requestParser.parse(request);
-
-        // 2. 路由
         RouteResult routeResult = modelRouter.route(unifiedRequest);
-
-        // 3. 能力检查
         capabilityChecker.validate(unifiedRequest, routeResult);
 
-        // 4. 设置请求参数
+        if (context != null) {
+            context.setRouteResult(routeResult);
+        }
+
         unifiedRequest.setProvider(routeResult.getProviderType().name().toLowerCase());
         unifiedRequest.setModel(routeResult.getTargetModel());
         unifiedRequest.setExecutionContext(buildExecutionContext(routeResult));
 
-        // 5. 获取提供商客户端
         ProviderClient providerClient = providerClientFactory.getClient(routeResult.getProviderType());
-
-        // 6. 生成响应 ID 和时间戳
         String responseId = "chatcmpl-" + UUID.randomUUID();
         long created = Instant.now().getEpochSecond();
         String model = routeResult.getTargetModel();
+        AtomicReference<UnifiedUsage> finalUsageRef = new AtomicReference<>();
+        // 标记是否为首个 content chunk，用于在 SSE 首包中携带 role 字段
+        AtomicBoolean firstContentSent = new AtomicBoolean(false);
 
-        // 7. 调用流式接口并转换为 SSE 格式，最后追加 [DONE] 事件
         return providerClient.streamChat(unifiedRequest)
-                .map(event -> toSse(event, responseId, created, model))
-                .concatWith(Flux.just(ServerSentEvent.builder("[DONE]").build()));
+                .doOnNext(event -> {
+                    if ("done".equals(event.getType()) && event.getUsage() != null) {
+                        finalUsageRef.set(event.getUsage());
+                    }
+                })
+                .map(event -> toSse(event, responseId, created, model, firstContentSent))
+                .concatWith(Flux.just(ServerSentEvent.builder("[DONE]").build()))
+                .doOnComplete(() -> requestStatsCollector.collectStreamSuccess(context, finalUsageRef.get()))
+                .doOnError(ex -> requestStatsCollector.collectError(context, ex));
     }
 
     /**
      * 将统一流式事件转换为 OpenAI 格式的 SSE 事件
-     *
-     * @param event      统一流式事件
-     * @param responseId 响应 ID
-     * @param created    创建时间戳
-     * @param model      模型名称
-     * @return SSE 事件
+     * <p>
+     * 按照 OpenAI 协议，role 字段仅在首个 content chunk 中出现。
+     * </p>
      */
-    private ServerSentEvent<String> toSse(UnifiedStreamEvent event, String responseId, long created, String model) {
+    private ServerSentEvent<String> toSse(UnifiedStreamEvent event, String responseId, long created,
+                                          String model, AtomicBoolean firstContentSent) {
         if ("done".equals(event.getType())) {
             OpenAiChatCompletionChunkResponse chunkResponse = OpenAiChatCompletionChunkResponse.builder()
                     .id(responseId)
@@ -157,6 +166,13 @@ public class ChatGatewayService {
             return ServerSentEvent.builder(toJson(chunkResponse)).build();
         }
 
+        // 仅首个 content chunk 携带 role 字段，符合 OpenAI SSE 协议
+        OpenAiChatCompletionChunkResponse.Delta.DeltaBuilder deltaBuilder = OpenAiChatCompletionChunkResponse.Delta.builder()
+                .content(event.getTextDelta() == null ? "" : event.getTextDelta());
+        if (firstContentSent.compareAndSet(false, true)) {
+            deltaBuilder.role("assistant");
+        }
+
         OpenAiChatCompletionChunkResponse chunkResponse = OpenAiChatCompletionChunkResponse.builder()
                 .id(responseId)
                 .object("chat.completion.chunk")
@@ -165,10 +181,7 @@ public class ChatGatewayService {
                 .choices(List.of(
                         OpenAiChatCompletionChunkResponse.Choice.builder()
                                 .index(resolveOutputIndex(event))
-                                .delta(OpenAiChatCompletionChunkResponse.Delta.builder()
-                                        .role("assistant")
-                                        .content(event.getTextDelta() == null ? "" : event.getTextDelta())
-                                        .build())
+                                .delta(deltaBuilder.build())
                                 .finishReason(null)
                                 .build()
                 ))
@@ -178,9 +191,6 @@ public class ChatGatewayService {
 
     /**
      * 构建 Provider 运行时上下文
-     *
-     * @param routeResult 路由结果
-     * @return Provider 运行时上下文
      */
     private UnifiedRequest.ProviderExecutionContext buildExecutionContext(RouteResult routeResult) {
         UnifiedRequest.ProviderExecutionContext executionContext = new UnifiedRequest.ProviderExecutionContext();
@@ -188,16 +198,12 @@ public class ChatGatewayService {
         executionContext.setProviderBaseUrl(routeResult.getProviderBaseUrl());
         executionContext.setProviderVersion(routeResult.getProviderVersion());
         executionContext.setProviderTimeoutSeconds(routeResult.getProviderTimeoutSeconds());
-        // 透传运行时 API Key，供 provider client 直接使用，避免回查 YAML 配置
         executionContext.setProviderApiKey(routeResult.getProviderApiKey());
         return executionContext;
     }
 
     /**
      * 解析输出索引
-     *
-     * @param event 统一流式事件
-     * @return 输出索引
      */
     private int resolveOutputIndex(UnifiedStreamEvent event) {
         return event.getOutputIndex() == null ? 0 : event.getOutputIndex();
@@ -205,9 +211,6 @@ public class ChatGatewayService {
 
     /**
      * 将对象序列化为 JSON 字符串
-     *
-     * @param value 待序列化对象
-     * @return JSON 字符串
      */
     private String toJson(Object value) {
         try {

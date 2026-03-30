@@ -2,6 +2,7 @@ package com.code.aigateway.core.controller;
 
 import com.code.aigateway.api.request.OpenAiChatCompletionRequest;
 import com.code.aigateway.core.service.ChatGatewayService;
+import com.code.aigateway.core.stats.RequestStatsContext;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -42,20 +44,27 @@ public class OpenAiChatController {
      * </p>
      *
      * @param request OpenAI 格式的聊天完成请求
+     * @param exchange 当前 WebFlux 请求上下文，用于透传统计上下文
      * @return 流式返回 SSE Flux 或非流式返回 JSON Mono
      */
     @PostMapping("/chat/completions")
-    public Mono<ResponseEntity<?>> chatCompletions(@Valid @RequestBody OpenAiChatCompletionRequest request) {
+    public Mono<ResponseEntity<?>> chatCompletions(@Valid @RequestBody OpenAiChatCompletionRequest request,
+                                                   ServerWebExchange exchange) {
+        RequestStatsContext context = exchange.getAttribute(RequestStatsContext.ATTRIBUTE_KEY);
+        if (context != null) {
+            context.setRequest(request);
+        }
+
         // 流式请求：返回 SSE 格式
         if (Boolean.TRUE.equals(request.getStream())) {
-            Flux<ServerSentEvent<String>> flux = chatGatewayService.streamChat(request);
+            Flux<ServerSentEvent<String>> flux = chatGatewayService.streamChat(request, context);
             return Mono.just(ResponseEntity.ok()
                     .contentType(MediaType.TEXT_EVENT_STREAM)
                     .body(flux));
         }
 
         // 非流式请求：返回 JSON 格式
-        return chatGatewayService.chat(request)
+        return chatGatewayService.chat(request, context)
                 .map(ResponseEntity::ok);
     }
 }

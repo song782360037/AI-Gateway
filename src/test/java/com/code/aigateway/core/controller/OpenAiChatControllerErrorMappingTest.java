@@ -5,6 +5,7 @@ import com.code.aigateway.core.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.error.GlobalExceptionHandler;
 import com.code.aigateway.core.service.ChatGatewayService;
+import com.code.aigateway.core.stats.RequestStatsCollector;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -22,7 +23,7 @@ class OpenAiChatControllerErrorMappingTest {
         chatGatewayService = Mockito.mock(ChatGatewayService.class);
         OpenAiChatController controller = new OpenAiChatController(chatGatewayService);
         webTestClient = WebTestClient.bindToController(controller)
-                .controllerAdvice(new GlobalExceptionHandler())
+                .controllerAdvice(new GlobalExceptionHandler(Mockito.mock(RequestStatsCollector.class)))
                 .build();
     }
 
@@ -69,7 +70,7 @@ class OpenAiChatControllerErrorMappingTest {
 
     @Test
     void chatCompletions_gatewayTimeoutFromService_returnsOpenAi504Error() {
-        Mockito.when(chatGatewayService.chat(Mockito.any()))
+        Mockito.when(chatGatewayService.chat(Mockito.any(), Mockito.any()))
                 .thenReturn(Mono.error(new GatewayException(ErrorCode.PROVIDER_TIMEOUT, "provider timeout")));
 
         webTestClient.post()
@@ -86,7 +87,7 @@ class OpenAiChatControllerErrorMappingTest {
 
     @Test
     void chatCompletions_unexpectedExceptionFromService_returnsOpenAi500Error() {
-        Mockito.when(chatGatewayService.chat(Mockito.any()))
+        Mockito.when(chatGatewayService.chat(Mockito.any(), Mockito.any()))
                 .thenReturn(Mono.error(new IllegalStateException("boom")));
 
         webTestClient.post()
@@ -109,7 +110,7 @@ class OpenAiChatControllerErrorMappingTest {
                 .created(1L)
                 .model("gpt-4o-mini")
                 .build();
-        Mockito.when(chatGatewayService.chat(Mockito.any())).thenReturn(Mono.just(response));
+        Mockito.when(chatGatewayService.chat(Mockito.any(), Mockito.any())).thenReturn(Mono.just(response));
 
         webTestClient.post()
                 .uri("/v1/chat/completions")
