@@ -11,6 +11,19 @@ export function formatJsonText(value?: string | null): string {
   }
 }
 
+export function isValidJsonText(value?: string | null): boolean {
+  if (!value || !value.trim()) {
+    return true
+  }
+
+  try {
+    JSON.parse(value)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function normalizeJsonText(value?: string | null): string {
   if (!value || !value.trim()) {
     return ''

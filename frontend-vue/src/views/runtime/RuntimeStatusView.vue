@@ -1,67 +1,60 @@
 <template>
   <ConsoleLayout>
-    <template #hero-actions>
-      <el-button type="warning" plain @click="loadStatus">刷新状态</el-button>
-      <el-button type="primary" @click="reloadRuntime">重载运行时快照</el-button>
-    </template>
-
-    <section class="panel-grid focus-panel">
-      <article class="stat-card stat-card-accent">
-        <span class="stat-label">快照状态</span>
-        <strong>{{ status.hasSnapshot ? 'ACTIVE' : 'EMPTY' }}</strong>
-        <p>source: {{ status.source || '--' }}</p>
-      </article>
-      <article class="stat-card">
-        <span class="stat-label">版本号</span>
-        <strong>{{ status.version || '--' }}</strong>
-        <p>createdAt: {{ status.createdAt || '--' }}</p>
-      </article>
-      <article class="stat-card">
-        <span class="stat-label">Provider 数量</span>
-        <strong>{{ status.providerCount || 0 }}</strong>
-        <p>当前内存快照中的可用提供商数量</p>
-      </article>
-      <article class="stat-card">
-        <span class="stat-label">Alias 数量</span>
-        <strong>{{ status.aliasCount || 0 }}</strong>
-        <p>当前路由候选的模型别名总数</p>
-      </article>
-    </section>
-
-    <section class="single-panel">
-      <article class="panel-frame focus-panel runtime-board">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">runtime snapshot</p>
-            <h3>运行时健康概览</h3>
-          </div>
-          <el-tag :type="status.dirty ? 'danger' : 'success'" size="large">
-            {{ status.dirty ? 'DIRTY' : 'CLEAN' }}
-          </el-tag>
+    <!-- 状态概览 -->
+    <div class="page-card">
+      <div class="card-header">
+        <span class="card-header__title">运行时快照状态</span>
+        <div class="card-header__actions">
+          <el-button size="small" :loading="loading" @click="loadStatus">刷新状态</el-button>
+          <el-button type="primary" size="small" :loading="loading" @click="reloadRuntime">重载运行时快照</el-button>
         </div>
+      </div>
 
-        <div class="status-ribbon">
-          <div>
-            <span>内存快照</span>
-            <strong>{{ status.hasSnapshot ? '已加载' : '未加载' }}</strong>
+      <!-- 加载失败提示 -->
+      <div v-if="loadError && !loading" style="padding: 20px; text-align: center; color: var(--text-secondary);">
+        <p>无法获取运行时状态，请检查后端服务后重试。</p>
+        <el-button type="primary" size="small" style="margin-top: 12px;" @click="loadStatus">重试</el-button>
+      </div>
+
+      <template v-else>
+        <div class="status-grid">
+          <div class="status-item">
+            <div class="status-item__label">快照状态</div>
+            <div :class="['status-item__value', status.hasSnapshot ? 'status-item__value--success' : 'status-item__value--warning']">
+              {{ status.hasSnapshot ? '已加载' : '未初始化' }}
+            </div>
           </div>
-          <div>
-            <span>脏标记</span>
-            <strong>{{ status.dirty ? '存在' : '无' }}</strong>
+          <div class="status-item">
+            <div class="status-item__label">快照版本</div>
+            <div class="status-item__value">{{ status.version || '--' }}</div>
           </div>
-          <div>
-            <span>刷新来源</span>
-            <strong>{{ status.source || '--' }}</strong>
+          <div class="status-item">
+            <div class="status-item__label">接入通道</div>
+            <div class="status-item__value">{{ status.providerCount || 0 }}</div>
+          </div>
+          <div class="status-item">
+            <div class="status-item__label">模型规则</div>
+            <div class="status-item__value">{{ status.aliasCount || 0 }}</div>
+          </div>
+          <div class="status-item">
+            <div class="status-item__label">刷新来源</div>
+            <div class="status-item__value">{{ status.source || '--' }}</div>
+          </div>
+          <div class="status-item">
+            <div class="status-item__label">同步状态</div>
+            <div :class="['status-item__value', status.dirty ? 'status-item__value--danger' : 'status-item__value--success']">
+              {{ status.dirty ? '待排查' : '正常' }}
+            </div>
           </div>
         </div>
-      </article>
-    </section>
+      </template>
+    </div>
   </ConsoleLayout>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive } from 'vue'
-import { ElMessage } from 'element-plus'
+import { onMounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import ConsoleLayout from '../../layout/ConsoleLayout.vue'
 import { fetchRuntimeStatus, reloadRuntimeConfig } from '../../api/runtime-config'
 import type { RuntimeStatus } from '../../types/runtime'
@@ -70,19 +63,47 @@ const status = reactive<RuntimeStatus>({
   hasSnapshot: false,
   dirty: false,
 })
+const loading = ref(false)
+const loadError = ref(false)
 
 async function loadStatus() {
-  Object.assign(status, await fetchRuntimeStatus())
+  loading.value = true
+  loadError.value = false
+
+  try {
+    Object.assign(status, await fetchRuntimeStatus())
+  } catch {
+    loadError.value = true
+  } finally {
+    loading.value = false
+  }
 }
 
 async function reloadRuntime() {
-  const success = await reloadRuntimeConfig()
-  if (success) {
-    ElMessage.success('运行时快照重载成功')
-  } else {
-    ElMessage.warning('运行时快照重载失败')
+  try {
+    await ElMessageBox.confirm(
+      '重载将从数据库重新读取全部配置并刷新内存快照与缓存，是否继续？',
+      '重载运行时快照',
+      { type: 'warning' },
+    )
+  } catch {
+    return
   }
-  await loadStatus()
+
+  loading.value = true
+
+  try {
+    const success = await reloadRuntimeConfig()
+    if (success) {
+      ElMessage.success('运行时快照重载成功')
+    } else {
+      ElMessage.warning('运行时快照重载失败')
+    }
+  } catch {
+    // 请求层已统一处理错误提示
+  } finally {
+    await loadStatus()
+  }
 }
 
 onMounted(loadStatus)
