@@ -56,6 +56,11 @@ public enum ErrorCode {
     PROVIDER_ERROR,
 
     /**
+     * 提供商服务端错误（5xx），可重试
+     */
+    PROVIDER_SERVER_ERROR,
+
+    /**
      * 流式解析错误
      */
     STREAM_PARSE_ERROR,

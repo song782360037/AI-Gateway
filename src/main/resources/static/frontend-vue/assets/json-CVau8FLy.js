@@ -1,0 +1,1 @@
+function e(e){if(!e)return``;try{return JSON.stringify(JSON.parse(e),null,2)}catch{return e}}function t(e){if(!e||!e.trim())return!0;try{return JSON.parse(e),!0}catch{return!1}}function n(e){if(!e||!e.trim())return``;try{return JSON.stringify(JSON.parse(e))}catch{return e.trim()}}export{t as n,n as r,e as t};

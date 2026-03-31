@@ -38,19 +38,20 @@ gateway:
     api-key-secret: ${GATEWAY_API_KEY_SECRET:}
 
   auth:
-    enabled: false # 当前仓库仅定义了鉴权配置结构，尚未真正接入鉴权链路
+    enabled: true # API Key 认证开关，true 时对 /v1/** 路径强制校验
 
-  model-aliases:
-    gpt-5:
-      provider: openai
-      model: gpt-5.4 # 将对外模型别名映射到内部目标模型
+  # 管理后台 JWT 认证
+  admin-auth:
+    username: ${ADMIN_USERNAME:admin}
+    password: ${ADMIN_PASSWORD:admin123}
+    jwt-expiration-ms: 86400000       # Token 有效期（毫秒），默认 24 小时
 
-  providers:
-    openai:
-      enabled: true
-      base-url: ${OPENAI_BASE_URL:} # 仅允许通过环境变量注入，避免默认地址误投递到未知或不安全端点
-      api-key: ${OPENAI_API_KEY:} # 仅允许通过环境变量注入，避免本地默认值看起来像真实密钥
-      timeout-seconds: ${OPENAI_TIMEOUT_SECONDS:60}
+  # 全局重试配置（流式和非流式统一）
+  # 流式请求仅在首个 token 到达前重试，避免数据重复
+  retry:
+    max-retries: 3 # 最大重试次数（不含首次请求）
+    initial-interval-ms: 1000 # 初始退避间隔
+    max-interval-ms: 30000 # 最大退避间隔
 
 # MyBatis
 mybatis:

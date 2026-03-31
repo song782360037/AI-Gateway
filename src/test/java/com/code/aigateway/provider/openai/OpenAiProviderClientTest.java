@@ -23,11 +23,14 @@ import reactor.test.StepVerifier;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.ConnectException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -282,14 +285,282 @@ class OpenAiProviderClientTest {
                 .expectErrorSatisfies(error -> {
                     assertTrue(error instanceof GatewayException);
                     GatewayException gatewayException = (GatewayException) error;
-                    assertEquals(ErrorCode.PROVIDER_ERROR, gatewayException.getErrorCode());
-                    assertEquals("provider request failed", gatewayException.getMessage());
+                    assertEquals(ErrorCode.PROVIDER_SERVER_ERROR, gatewayException.getErrorCode());
+                    assertEquals("provider server error", gatewayException.getMessage());
                 })
                 .verify();
     }
 
+    @Test
+    void chat_5xxRetry_thenSuccess_returnsResponse() {
+        // 前 2 次返回 500，第 3 次成功
+        AtomicInteger requestCount = new AtomicInteger(0);
+        startServer(exchange -> {
+            captureRequest(exchange);
+            int count = requestCount.incrementAndGet();
+            if (count <= 2) {
+                writeResponse(exchange, 500, MediaType.APPLICATION_JSON_VALUE,
+                        "{\"error\":{\"message\":\"internal server error\"}}");
+            } else {
+                writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
+                        {
+                          "id": "chatcmpl-retry-ok",
+                          "model": "gpt-5.4",
+                          "choices": [{"index":0,"message":{"role":"assistant","content":"重试成功"},"finish_reason":"stop"}],
+                          "usage": {"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}
+                        }
+                        """);
+            }
+        });
+        // 配置 3 次重试，短退避间隔加快测试
+        providerClient = newProviderClientWithRetry(5, 3, 100, 1000);
+
+        StepVerifier.create(providerClient.chat(buildRequest(false)))
+                .assertNext(response -> {
+                    assertEquals("chatcmpl-retry-ok", response.getId());
+                    assertEquals("重试成功", response.getOutputs().get(0).getParts().get(0).getText());
+                })
+                .verifyComplete();
+
+        assertEquals(3, requestCount.get());
+    }
+
+    @Test
+    void chat_5xxRetry_exhausted_throwsServerError() {
+        // 所有请求都返回 500
+        AtomicInteger requestCount = new AtomicInteger(0);
+        startServer(exchange -> {
+            requestCount.incrementAndGet();
+            writeResponse(exchange, 500, MediaType.APPLICATION_JSON_VALUE,
+                    "{\"error\":{\"message\":\"persistent failure\"}}");
+        });
+        providerClient = newProviderClientWithRetry(5, 2, 100, 1000);
+
+        StepVerifier.create(providerClient.chat(buildRequest(false)))
+                .expectErrorSatisfies(error -> {
+                    assertTrue(error instanceof GatewayException);
+                    GatewayException ex = (GatewayException) error;
+                    assertEquals(ErrorCode.PROVIDER_SERVER_ERROR, ex.getErrorCode());
+                })
+                .verify(Duration.ofSeconds(10));
+
+        // 首次请求 + 2 次重试 = 3 次
+        assertEquals(3, requestCount.get());
+    }
+
+    @Test
+    void chat_4xx_noRetry_failsImmediately() {
+        // 400 错误不应触发重试
+        AtomicInteger requestCount = new AtomicInteger(0);
+        startServer(exchange -> {
+            requestCount.incrementAndGet();
+            writeResponse(exchange, 400, MediaType.APPLICATION_JSON_VALUE,
+                    "{\"error\":{\"message\":\"bad request\"}}");
+        });
+        providerClient = newProviderClientWithRetry(5, 3, 100, 1000);
+
+        StepVerifier.create(providerClient.chat(buildRequest(false)))
+                .expectErrorSatisfies(error -> {
+                    assertTrue(error instanceof GatewayException);
+                    GatewayException ex = (GatewayException) error;
+                    assertEquals(ErrorCode.PROVIDER_ERROR, ex.getErrorCode());
+                })
+                .verify(Duration.ofSeconds(5));
+
+        // 4xx 不重试，只发 1 次请求
+        assertEquals(1, requestCount.get());
+    }
+
+    @Test
+    void chat_rateLimit_noRetry_failsImmediately() {
+        AtomicInteger requestCount = new AtomicInteger(0);
+        startServer(exchange -> {
+            requestCount.incrementAndGet();
+            writeResponse(exchange, 429, MediaType.APPLICATION_JSON_VALUE,
+                    "{\"error\":{\"message\":\"rate limited\"}}");
+        });
+        providerClient = newProviderClientWithRetry(5, 3, 100, 1000);
+
+        StepVerifier.create(providerClient.chat(buildRequest(false)))
+                .expectErrorSatisfies(error -> {
+                    assertTrue(error instanceof GatewayException);
+                    GatewayException ex = (GatewayException) error;
+                    assertEquals(ErrorCode.PROVIDER_RATE_LIMIT, ex.getErrorCode());
+                })
+                .verify(Duration.ofSeconds(5));
+
+        assertEquals(1, requestCount.get());
+    }
+
+    @Test
+    void chat_noRetryConfig_500_failsImmediately() {
+        // 未配置 retry 时，500 不重试
+        AtomicInteger requestCount = new AtomicInteger(0);
+        startServer(exchange -> {
+            requestCount.incrementAndGet();
+            writeResponse(exchange, 500, MediaType.APPLICATION_JSON_VALUE,
+                    "{\"error\":{\"message\":\"server error\"}}");
+        });
+        providerClient = newProviderClient(5);
+
+        StepVerifier.create(providerClient.chat(buildRequest(false)))
+                .expectErrorSatisfies(error -> {
+                    assertTrue(error instanceof GatewayException);
+                    GatewayException ex = (GatewayException) error;
+                    assertEquals(ErrorCode.PROVIDER_SERVER_ERROR, ex.getErrorCode());
+                })
+                .verify(Duration.ofSeconds(5));
+
+        assertEquals(1, requestCount.get());
+    }
+
+    // ==================== 流式重试测试 ====================
+
+    @Test
+    void streamChat_5xxBeforeFirstToken_retriesAndSucceeds() {
+        // 前 2 次返回 500（首 token 前失败），第 3 次成功
+        AtomicInteger requestCount = new AtomicInteger(0);
+        startServer(exchange -> {
+            captureRequest(exchange);
+            int count = requestCount.incrementAndGet();
+            if (count <= 2) {
+                writeResponse(exchange, 500, MediaType.APPLICATION_JSON_VALUE,
+                        "{\"error\":{\"message\":\"server error\"}}");
+            } else {
+                writeResponse(exchange, 200, MediaType.TEXT_EVENT_STREAM_VALUE, """
+                        data: {"id":"chatcmpl-retry-stream","object":"chat.completion.chunk","created":1710000000,"model":"gpt-5.4","choices":[{"index":0,"delta":{"content":"流式重试成功"},"finish_reason":null}]}
+
+                        data: {"id":"chatcmpl-retry-stream","object":"chat.completion.chunk","created":1710000000,"model":"gpt-5.4","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+                        data: [DONE]
+
+                        """);
+            }
+        });
+        providerClient = newProviderClientWithRetry(5, 3, 100, 1000);
+
+        StepVerifier.create(providerClient.streamChat(buildRequest(true)))
+                .assertNext(event -> {
+                    assertEquals("text_delta", event.getType());
+                    assertEquals("流式重试成功", event.getTextDelta());
+                })
+                .assertNext(event -> {
+                    assertEquals("done", event.getType());
+                    assertEquals("stop", event.getFinishReason());
+                })
+                .verifyComplete();
+
+        assertEquals(3, requestCount.get());
+    }
+
+    @Test
+    void streamChat_5xxRetryExhausted_throwsServerError() {
+        AtomicInteger requestCount = new AtomicInteger(0);
+        startServer(exchange -> {
+            requestCount.incrementAndGet();
+            writeResponse(exchange, 500, MediaType.APPLICATION_JSON_VALUE,
+                    "{\"error\":{\"message\":\"persistent failure\"}}");
+        });
+        providerClient = newProviderClientWithRetry(5, 2, 100, 1000);
+
+        StepVerifier.create(providerClient.streamChat(buildRequest(true)))
+                .expectErrorSatisfies(error -> {
+                    assertTrue(error instanceof GatewayException);
+                    GatewayException ex = (GatewayException) error;
+                    assertEquals(ErrorCode.PROVIDER_SERVER_ERROR, ex.getErrorCode());
+                })
+                .verify(Duration.ofSeconds(10));
+
+        // 首次 + 2 次重试 = 3 次
+        assertEquals(3, requestCount.get());
+    }
+
+    @Test
+    void streamChat_4xxBeforeFirstToken_noRetry_failsImmediately() {
+        // 4xx 不重试，即使首 token 前失败
+        AtomicInteger requestCount = new AtomicInteger(0);
+        startServer(exchange -> {
+            requestCount.incrementAndGet();
+            writeResponse(exchange, 400, MediaType.APPLICATION_JSON_VALUE,
+                    "{\"error\":{\"message\":\"bad request\"}}");
+        });
+        providerClient = newProviderClientWithRetry(5, 3, 100, 1000);
+
+        StepVerifier.create(providerClient.streamChat(buildRequest(true)))
+                .expectErrorSatisfies(error -> {
+                    assertTrue(error instanceof GatewayException);
+                    GatewayException ex = (GatewayException) error;
+                    assertEquals(ErrorCode.PROVIDER_ERROR, ex.getErrorCode());
+                })
+                .verify(Duration.ofSeconds(5));
+
+        assertEquals(1, requestCount.get());
+    }
+
+    @Test
+    void streamChat_errorAfterFirstToken_noRetry_failsWithStreamParseError() {
+        // 首个 chunk 正常到达后，第二个 chunk 有错误 → 不重试
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.TEXT_EVENT_STREAM_VALUE, """
+                    data: {"id":"chatcmpl-stream","object":"chat.completion.chunk","created":1710000000,"model":"gpt-5.4","choices":[{"index":0,"delta":{"content":"你好"},"finish_reason":null}]}
+
+                    data: {not-json}
+
+                    """);
+        });
+        providerClient = newProviderClientWithRetry(5, 3, 100, 1000);
+
+        StepVerifier.create(providerClient.streamChat(buildRequest(true)))
+                .assertNext(event -> {
+                    assertEquals("text_delta", event.getType());
+                    assertEquals("你好", event.getTextDelta());
+                })
+                .expectErrorSatisfies(error -> {
+                    assertTrue(error instanceof GatewayException);
+                    GatewayException ex = (GatewayException) error;
+                    assertEquals(ErrorCode.STREAM_PARSE_ERROR, ex.getErrorCode());
+                })
+                .verify();
+    }
+
+    @Test
+    void streamChat_noRetryConfig_500_failsImmediately() {
+        AtomicInteger requestCount = new AtomicInteger(0);
+        startServer(exchange -> {
+            requestCount.incrementAndGet();
+            writeResponse(exchange, 500, MediaType.APPLICATION_JSON_VALUE,
+                    "{\"error\":{\"message\":\"server error\"}}");
+        });
+        providerClient = newProviderClient(5);
+
+        StepVerifier.create(providerClient.streamChat(buildRequest(true)))
+                .expectErrorSatisfies(error -> {
+                    assertTrue(error instanceof GatewayException);
+                    GatewayException ex = (GatewayException) error;
+                    assertEquals(ErrorCode.PROVIDER_SERVER_ERROR, ex.getErrorCode());
+                })
+                .verify(Duration.ofSeconds(5));
+
+        assertEquals(1, requestCount.get());
+    }
+
     private OpenAiProviderClient newProviderClient(int timeoutSeconds) {
+        return newProviderClientWithRetry(timeoutSeconds, 0, 1000, 30000);
+    }
+
+    private OpenAiProviderClient newProviderClientWithRetry(
+            int timeoutSeconds, int maxRetries, long initialIntervalMs, long maxIntervalMs) {
         GatewayProperties gatewayProperties = new GatewayProperties();
+        // 重试配置设在顶层（流式/非流式统一）
+        if (maxRetries > 0) {
+            GatewayProperties.RetryProperties retryProps = new GatewayProperties.RetryProperties();
+            retryProps.setMaxRetries(maxRetries);
+            retryProps.setInitialIntervalMs(initialIntervalMs);
+            retryProps.setMaxIntervalMs(maxIntervalMs);
+            gatewayProperties.setRetry(retryProps);
+        }
+        // provider 配置仍用于 baseUrl/apiKey/timeout 的 YAML 兜底
         GatewayProperties.ProviderProperties providerProperties = new GatewayProperties.ProviderProperties();
         providerProperties.setEnabled(true);
         providerProperties.setBaseUrl("http://127.0.0.1:" + httpServer.getAddress().getPort());

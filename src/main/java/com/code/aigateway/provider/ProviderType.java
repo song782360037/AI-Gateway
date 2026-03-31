@@ -20,6 +20,11 @@ public enum ProviderType {
     ANTHROPIC,
 
     /**
+     * OpenAI Responses API 提供商（/v1/responses）
+     */
+    OPENAI_RESPONSES,
+
+    /**
      * Google Gemini 提供商
      */
     GEMINI;
@@ -30,6 +35,7 @@ public enum ProviderType {
      * 支持多种别名映射：
      * <ul>
      *   <li>openai -> OPENAI</li>
+     *   <li>openai-responses, openai_responses -> OPENAI_RESPONSES</li>
      *   <li>anthropic、claude -> ANTHROPIC</li>
      *   <li>gemini、google -> GEMINI</li>
      * </ul>
@@ -42,6 +48,7 @@ public enum ProviderType {
     public static ProviderType from(String value) {
         return switch (value.toLowerCase()) {
             case "openai" -> OPENAI;
+            case "openai-responses", "openai_responses" -> OPENAI_RESPONSES;
             case "anthropic", "claude" -> ANTHROPIC;
             case "gemini", "google" -> GEMINI;
             default -> throw new IllegalArgumentException("Unsupported provider: " + value);

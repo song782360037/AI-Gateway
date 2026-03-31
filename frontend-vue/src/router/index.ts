@@ -1,9 +1,16 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 
 const router = createRouter({
-  // 改为 hash 路由，避免 Spring Boot 额外增加 history fallback 映射。
+  // hash 路由，避免 Spring Boot 额外增加 history fallback 映射
   history: createWebHashHistory('/frontend-vue/'),
   routes: [
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('../views/login/LoginView.vue'),
+      meta: { title: '登录', public: true },
+    },
     {
       path: '/',
       redirect: '/dashboard',
@@ -12,9 +19,7 @@ const router = createRouter({
       path: '/dashboard',
       name: 'dashboard',
       component: () => import('../views/dashboard/DashboardView.vue'),
-      meta: {
-        title: '仪表盘',
-      },
+      meta: { title: '仪表盘' },
     },
     {
       path: '/runtime',
@@ -49,7 +54,46 @@ const router = createRouter({
         tag: '路由',
       },
     },
+    {
+      path: '/api-key',
+      name: 'api-key',
+      component: () => import('../views/api-key/ApiKeyConfigView.vue'),
+      meta: {
+        eyebrow: 'API Key 管理',
+        title: 'API Key 配置',
+        description: '管理 API Key 的创建、状态、限额和过期时间，密钥创建后仅展示一次。',
+        tag: '密钥',
+      },
+    },
   ],
+})
+
+/**
+ * 全局前置守卫
+ *
+ * - public 路由（如登录页）始终可访问
+ * - 已认证用户访问登录页时，重定向到仪表盘
+ * - 未认证用户访问受保护路由时，重定向到登录页（携带 redirect 参数）
+ */
+router.beforeEach((to, _from, next) => {
+  const authStore = useAuthStore()
+
+  if (to.meta.public) {
+    // 已登录用户访问登录页，直接跳转首页
+    if (authStore.isAuthenticated) {
+      next({ path: '/dashboard' })
+    } else {
+      next()
+    }
+    return
+  }
+
+  if (!authStore.isAuthenticated) {
+    next({ path: '/login', query: { redirect: to.fullPath } })
+    return
+  }
+
+  next()
 })
 
 export default router

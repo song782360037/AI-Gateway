@@ -140,11 +140,11 @@ public interface RequestLogMapper {
     /**
      * 模型聚合结果
      */
-    interface ModelAggregation {
-        String getAliasModel();
-        long getCallCount();
-        long getTokenCount();
-        long getPromptSum();
-        long getCompletionSum();
-    }
+    record ModelAggregation(
+            String aliasModel,
+            long callCount,
+            long tokenCount,
+            long promptSum,
+            long completionSum
+    ) {}
 }

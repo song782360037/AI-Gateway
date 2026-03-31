@@ -76,13 +76,13 @@ public class DashboardServiceImpl implements IDashboardService {
             RequestLogMapper.ModelAggregation item = records.get(i);
             ModelUsageRankRsp rsp = new ModelUsageRankRsp();
             rsp.setRank(i + 1);
-            rsp.setModelName(item.getAliasModel());
-            rsp.setCallCount(item.getCallCount());
-            rsp.setTokenCount(item.getTokenCount());
+            rsp.setModelName(item.aliasModel());
+            rsp.setCallCount(item.callCount());
+            rsp.setTokenCount(item.tokenCount());
             double cost = ModelPriceTable.estimateCost(
-                    item.getAliasModel(),
-                    safeToInt(item.getPromptSum()),
-                    safeToInt(item.getCompletionSum())
+                    item.aliasModel(),
+                    safeToInt(item.promptSum()),
+                    safeToInt(item.completionSum())
             );
             rsp.setCost(round(cost));
             result.add(rsp);

@@ -24,4 +24,9 @@ public class UnifiedOutput {
      * 输出内容部分列表
      */
     private List<UnifiedPart> parts;
+
+    /**
+     * 工具调用列表（当模型请求调用工具时）
+     */
+    private List<UnifiedToolCall> toolCalls;
 }

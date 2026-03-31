@@ -74,8 +74,14 @@ application-local.properties
 src/main/resources/application-local.yml
 src/main/resources/application-local.properties
 
-
 ### Test ###
 test-output/
 .gradle/
 
+### Node.js ###
+node_modules/
+frontend-vue/node_modules/
+frontend-vue/dist/
+
+### Claude Code ###
+.claude/

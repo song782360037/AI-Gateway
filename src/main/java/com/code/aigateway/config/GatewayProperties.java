@@ -43,6 +43,19 @@ public class GatewayProperties {
     private Map<String, ProviderProperties> providers;
 
     /**
+     * 全局重试配置（流式和非流式统一）
+     * <p>
+     * 未配置时默认不重试（maxRetries=0）。
+     * </p>
+     */
+    private RetryProperties retry;
+
+    /**
+     * 管理后台 JWT 认证配置
+     */
+    private AdminAuthProperties adminAuth;
+
+    /**
      * 认证配置类
      * <p>
      * 用于配置网关的 API Key 认证
@@ -112,5 +125,55 @@ public class GatewayProperties {
          * 请求超时时间（秒），默认 60 秒
          */
         private Integer timeoutSeconds = 60;
+    }
+
+    /**
+     * 全局重试配置
+     * <p>
+     * 适用于非流式和流式请求。流式请求仅在首个 token 到达前重试。
+     * 默认值仅在 retry 配置段存在但字段缺失时生效；
+     * 整个 retry 段不存在时，默认不重试（maxRetries 回退为 0）。
+     * </p>
+     */
+    @Data
+    public static class RetryProperties {
+        /**
+         * 最大重试次数（不含首次请求），默认 3
+         */
+        private int maxRetries = 3;
+
+        /**
+         * 初始退避间隔（毫秒），默认 1000ms
+         * <p>
+         * 实际间隔 = min(initialIntervalMs * 2^attempt, maxIntervalMs)
+         * </p>
+         */
+        private long initialIntervalMs = 1000;
+
+        /**
+         * 最大退避间隔（毫秒），默认 30000ms
+         */
+        private long maxIntervalMs = 30000;
+    }
+
+    /**
+     * 管理后台 JWT 认证配置
+     */
+    @Data
+    public static class AdminAuthProperties {
+        /**
+         * 管理员用户名
+         */
+        private String username = "admin";
+
+        /**
+         * 管理员密码
+         */
+        private String password = "admin123";
+
+        /**
+         * JWT Token 有效期（毫秒），默认 24 小时
+         */
+        private long jwtExpirationMs = 86400000L;
     }
 }
