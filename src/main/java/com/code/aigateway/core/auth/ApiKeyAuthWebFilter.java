@@ -76,10 +76,13 @@ public class ApiKeyAuthWebFilter implements WebFilter {
         }
 
         // SHA-256 哈希后查库校验（阻塞操作切线程）
+        // 注意：fromCallable 返回 null 时 Mono 为空，flatMap 不会执行，
+        // 因此用 Optional 包装确保 null 值也能进入 flatMap
         String keyHash = sha256Hex(rawKey);
-        return Mono.fromCallable(() -> apiKeyConfigMapper.selectByHash(keyHash))
+        return Mono.fromCallable(() -> java.util.Optional.ofNullable(apiKeyConfigMapper.selectByHash(keyHash)))
                 .subscribeOn(Schedulers.boundedElastic())
-                .flatMap(config -> {
+                .flatMap(optConfig -> {
+                    ApiKeyConfigDO config = optConfig.orElse(null);
                     if (config == null) {
                         return writeAuthError(exchange, path, "Invalid API key");
                     }
