@@ -115,9 +115,10 @@ interface ProviderFormModel {
 }
 
 const providerTypeOptions = [
-  { value: 'OPENAI', label: 'OPENAI' },
-  { value: 'ANTHROPIC', label: 'ANTHROPIC（暂未实现）', disabled: true },
-  { value: 'GEMINI', label: 'GEMINI（暂未实现）', disabled: true },
+  { value: 'OPENAI', label: 'OpenAI Chat Completions' },
+  { value: 'OPENAI_RESPONSES', label: 'OpenAI Responses API' },
+  { value: 'ANTHROPIC', label: 'Anthropic (Claude)' },
+  { value: 'GEMINI', label: 'Google Gemini' },
 ] as const
 
 const props = defineProps<{

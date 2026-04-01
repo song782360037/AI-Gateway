@@ -22,7 +22,7 @@ public class RequestStatsContextFilter implements WebFilter {
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         // 只对网关转发路径初始化统计上下文，管理后台和健康检查等无需统计
         String path = exchange.getRequest().getPath().value();
-        if (!path.startsWith("/v1/")) {
+        if (!path.startsWith("/v1/") && !path.startsWith("/v1beta/")) {
             return chain.filter(exchange);
         }
 

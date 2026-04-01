@@ -1,6 +1,7 @@
 package com.code.aigateway.core.error;
 
-import com.code.aigateway.api.response.OpenAiErrorResponse;
+import com.code.aigateway.core.protocol.ProtocolAdapter;
+import com.code.aigateway.core.protocol.ProtocolResolver;
 import com.code.aigateway.core.stats.RequestStatsCollector;
 import com.code.aigateway.core.stats.RequestStatsContext;
 import jakarta.validation.ConstraintViolationException;
@@ -14,16 +15,15 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.ServerWebInputException;
 
+import java.util.List;
 import java.util.stream.Collectors;
 
 /**
  * 全局异常处理器
  * <p>
- * 统一处理网关中抛出的异常，将其转换为 OpenAI 格式的错误响应。
- * 确保所有错误都以一致的格式返回给客户端。
+ * 统一处理网关中抛出的异常，根据当前请求的协议类型返回对应格式的错误响应。
+ * 通过 ProtocolResolver 解析协议，委托 ProtocolAdapter 构建错误体。
  * </p>
- *
- * @author sst
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -31,27 +31,35 @@ public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     private final RequestStatsCollector requestStatsCollector;
+    private final List<ProtocolAdapter> protocolAdapters;
 
-    public GlobalExceptionHandler(RequestStatsCollector requestStatsCollector) {
+    public GlobalExceptionHandler(RequestStatsCollector requestStatsCollector, List<ProtocolAdapter> protocolAdapters) {
         this.requestStatsCollector = requestStatsCollector;
+        this.protocolAdapters = protocolAdapters;
     }
 
     /**
      * 处理网关业务异常
      */
     @ExceptionHandler(GatewayException.class)
-    public ResponseEntity<OpenAiErrorResponse> handleGatewayException(GatewayException ex, ServerWebExchange exchange) {
+    public ResponseEntity<?> handleGatewayException(GatewayException ex, ServerWebExchange exchange) {
         collectStats(exchange, ex);
+        ProtocolAdapter adapter = resolveAdapter(exchange);
         HttpStatus status = mapStatus(ex.getErrorCode());
         return ResponseEntity.status(status)
-                .body(buildErrorResponse(ex.getMessage(), mapErrorType(ex.getErrorCode()), ex.getErrorCode().name(), ex.getParam()));
+                .body(adapter.buildError(
+                        ex.getMessage(),
+                        adapter.mapErrorType(ex.getErrorCode()),
+                        ex.getErrorCode().name(),
+                        ex.getParam()
+                ));
     }
 
     /**
      * 处理请求参数校验异常
      */
     @ExceptionHandler(WebExchangeBindException.class)
-    public ResponseEntity<OpenAiErrorResponse> handleWebExchangeBindException(WebExchangeBindException ex, ServerWebExchange exchange) {
+    public ResponseEntity<?> handleWebExchangeBindException(WebExchangeBindException ex, ServerWebExchange exchange) {
         collectStats(exchange, ex);
         String message = ex.getBindingResult().getFieldErrors().stream()
                 .map(error -> error.getField() + " " + error.getDefaultMessage())
@@ -60,43 +68,46 @@ public class GlobalExceptionHandler {
                 .findFirst()
                 .map(fieldError -> fieldError.getField())
                 .orElse(null);
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(buildErrorResponse(message, "invalid_request_error", ErrorCode.INVALID_REQUEST.name(), param));
+        return buildClientError(exchange, message, ErrorCode.INVALID_REQUEST, param);
     }
 
     /**
      * 处理请求体输入异常
      */
     @ExceptionHandler(ServerWebInputException.class)
-    public ResponseEntity<OpenAiErrorResponse> handleServerWebInputException(ServerWebInputException ex, ServerWebExchange exchange) {
+    public ResponseEntity<?> handleServerWebInputException(ServerWebInputException ex, ServerWebExchange exchange) {
         collectStats(exchange, ex);
         String message = ex.getReason() == null ? "invalid request body" : ex.getReason();
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(buildErrorResponse(message, "invalid_request_error", ErrorCode.INVALID_REQUEST.name(), null));
+        return buildClientError(exchange, message, ErrorCode.INVALID_REQUEST, null);
     }
 
     /**
      * 处理约束校验异常
      */
     @ExceptionHandler(ConstraintViolationException.class)
-    public ResponseEntity<OpenAiErrorResponse> handleConstraintViolationException(ConstraintViolationException ex, ServerWebExchange exchange) {
+    public ResponseEntity<?> handleConstraintViolationException(ConstraintViolationException ex, ServerWebExchange exchange) {
         collectStats(exchange, ex);
         String message = ex.getConstraintViolations().stream()
                 .map(violation -> violation.getPropertyPath() + " " + violation.getMessage())
                 .collect(Collectors.joining("; "));
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(buildErrorResponse(message, "invalid_request_error", ErrorCode.INVALID_REQUEST.name(), null));
+        return buildClientError(exchange, message, ErrorCode.INVALID_REQUEST, null);
     }
 
     /**
      * 处理未知异常
      */
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<OpenAiErrorResponse> handleException(Exception ex, ServerWebExchange exchange) {
-        log.error("[OpenAI聊天接口] unexpected exception", ex);
+    public ResponseEntity<?> handleException(Exception ex, ServerWebExchange exchange) {
+        log.error("[网关] unexpected exception", ex);
         collectStats(exchange, ex);
+        ProtocolAdapter adapter = resolveAdapter(exchange);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(buildErrorResponse("internal server error", "server_error", ErrorCode.INTERNAL_ERROR.name(), null));
+                .body(adapter.buildError(
+                        "internal server error",
+                        adapter.mapErrorType(ErrorCode.INTERNAL_ERROR),
+                        ErrorCode.INTERNAL_ERROR.name(),
+                        null
+                ));
     }
 
     /**
@@ -107,19 +118,32 @@ public class GlobalExceptionHandler {
         requestStatsCollector.collectError(context, ex);
     }
 
-    private OpenAiErrorResponse buildErrorResponse(String message, String type, String code, String param) {
-        return new OpenAiErrorResponse(
-                new OpenAiErrorResponse.Error(message, type, code, param)
-        );
+    /**
+     * 构建客户端错误响应（BAD_REQUEST）
+     */
+    private ResponseEntity<?> buildClientError(ServerWebExchange exchange, String message, ErrorCode errorCode, String param) {
+        ProtocolAdapter adapter = resolveAdapter(exchange);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(adapter.buildError(
+                        message,
+                        adapter.mapErrorType(errorCode),
+                        errorCode.name(),
+                        param
+                ));
     }
 
-    private String mapErrorType(ErrorCode errorCode) {
-        return switch (errorCode) {
-            case INVALID_REQUEST, MODEL_NOT_FOUND, CAPABILITY_NOT_SUPPORTED -> "invalid_request_error";
-            case AUTH_FAILED -> "authentication_error";
-            case PROVIDER_RATE_LIMIT -> "rate_limit_error";
-            default -> "server_error";
-        };
+    /**
+     * 根据协议类型解析对应的适配器
+     */
+    private ProtocolAdapter resolveAdapter(ServerWebExchange exchange) {
+        com.code.aigateway.core.model.ResponseProtocol protocol = ProtocolResolver.fromExchange(exchange);
+        return protocolAdapters.stream()
+                .filter(a -> a.getProtocol() == protocol)
+                .findFirst()
+                .orElseGet(() -> protocolAdapters.stream()
+                        .filter(a -> a.getProtocol() == com.code.aigateway.core.model.ResponseProtocol.OPENAI_CHAT)
+                        .findFirst()
+                        .orElseThrow(() -> new IllegalStateException("no OpenAI Chat protocol adapter found")));
     }
 
     private HttpStatus mapStatus(ErrorCode errorCode) {

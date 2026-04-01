@@ -4,8 +4,10 @@ import com.code.aigateway.api.response.OpenAiChatCompletionResponse;
 import com.code.aigateway.core.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.error.GlobalExceptionHandler;
+import com.code.aigateway.core.protocol.OpenAiChatProtocolAdapter;
 import com.code.aigateway.core.service.ChatGatewayService;
 import com.code.aigateway.core.stats.RequestStatsCollector;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -21,9 +23,14 @@ class OpenAiChatControllerErrorMappingTest {
     @BeforeEach
     void setUp() {
         chatGatewayService = Mockito.mock(ChatGatewayService.class);
-        OpenAiChatController controller = new OpenAiChatController(chatGatewayService);
+        OpenAiChatProtocolAdapter protocolAdapter = new OpenAiChatProtocolAdapter(
+                Mockito.mock(com.code.aigateway.core.parser.OpenAiChatRequestParser.class),
+                Mockito.mock(com.code.aigateway.core.encoder.OpenAiChatResponseEncoder.class),
+                new ObjectMapper()
+        );
+        OpenAiChatController controller = new OpenAiChatController(chatGatewayService, protocolAdapter);
         webTestClient = WebTestClient.bindToController(controller)
-                .controllerAdvice(new GlobalExceptionHandler(Mockito.mock(RequestStatsCollector.class)))
+                .controllerAdvice(new GlobalExceptionHandler(Mockito.mock(RequestStatsCollector.class), java.util.List.of(protocolAdapter)))
                 .build();
     }
 
@@ -70,8 +77,8 @@ class OpenAiChatControllerErrorMappingTest {
 
     @Test
     void chatCompletions_gatewayTimeoutFromService_returnsOpenAi504Error() {
-        Mockito.when(chatGatewayService.chat(Mockito.any(), Mockito.any()))
-                .thenReturn(Mono.error(new GatewayException(ErrorCode.PROVIDER_TIMEOUT, "provider timeout")));
+        Mono<?> errorMono = Mono.error(new GatewayException(ErrorCode.PROVIDER_TIMEOUT, "provider timeout"));
+        Mockito.doReturn(errorMono).when(chatGatewayService).chatWithStats(Mockito.any(), Mockito.any(), Mockito.any());
 
         webTestClient.post()
                 .uri("/v1/chat/completions")
@@ -87,8 +94,8 @@ class OpenAiChatControllerErrorMappingTest {
 
     @Test
     void chatCompletions_unexpectedExceptionFromService_returnsOpenAi500Error() {
-        Mockito.when(chatGatewayService.chat(Mockito.any(), Mockito.any()))
-                .thenReturn(Mono.error(new IllegalStateException("boom")));
+        Mono<?> errorMono = Mono.error(new IllegalStateException("boom"));
+        Mockito.doReturn(errorMono).when(chatGatewayService).chatWithStats(Mockito.any(), Mockito.any(), Mockito.any());
 
         webTestClient.post()
                 .uri("/v1/chat/completions")
@@ -110,7 +117,9 @@ class OpenAiChatControllerErrorMappingTest {
                 .created(1L)
                 .model("gpt-4o-mini")
                 .build();
-        Mockito.when(chatGatewayService.chat(Mockito.any(), Mockito.any())).thenReturn(Mono.just(response));
+        @SuppressWarnings("unchecked")
+        Mono<OpenAiChatCompletionResponse> typedResponse = Mono.just(response);
+        Mockito.doReturn(typedResponse).when(chatGatewayService).chatWithStats(Mockito.any(), Mockito.any(), Mockito.any());
 
         webTestClient.post()
                 .uri("/v1/chat/completions")

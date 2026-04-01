@@ -2,10 +2,8 @@ package com.code.aigateway.core.service;
 
 import com.code.aigateway.api.request.OpenAiChatCompletionRequest;
 import com.code.aigateway.core.capability.CapabilityChecker;
-import com.code.aigateway.core.encoder.OpenAiChatResponseEncoder;
-import com.code.aigateway.core.model.UnifiedRequest;
 import com.code.aigateway.core.model.UnifiedStreamEvent;
-import com.code.aigateway.core.parser.OpenAiChatRequestParser;
+import com.code.aigateway.core.protocol.OpenAiChatProtocolAdapter;
 import com.code.aigateway.core.router.ModelRouter;
 import com.code.aigateway.core.router.RouteResult;
 import com.code.aigateway.provider.ProviderClient;
@@ -30,23 +28,26 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ChatGatewayServiceStreamSseTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private OpenAiChatRequestParser requestParser;
+    private OpenAiChatProtocolAdapter protocolAdapter;
     private ModelRouter modelRouter;
     private CapabilityChecker capabilityChecker;
     private ProviderClientFactory providerClientFactory;
-    private OpenAiChatResponseEncoder responseEncoder;
     private ProviderClient providerClient;
     private ChatGatewayService chatGatewayService;
 
     @BeforeEach
     void setUp() {
-        requestParser = Mockito.mock(OpenAiChatRequestParser.class);
+        // 使用真实的 OpenAiChatProtocolAdapter（内含真实的 parser、encoder、ObjectMapper）
+        protocolAdapter = new OpenAiChatProtocolAdapter(
+                new com.code.aigateway.core.parser.OpenAiChatRequestParser(),
+                new com.code.aigateway.core.encoder.OpenAiChatResponseEncoder(),
+                objectMapper
+        );
         modelRouter = Mockito.mock(ModelRouter.class);
         capabilityChecker = Mockito.mock(CapabilityChecker.class);
         providerClientFactory = Mockito.mock(ProviderClientFactory.class);
-        responseEncoder = Mockito.mock(OpenAiChatResponseEncoder.class);
         providerClient = Mockito.mock(ProviderClient.class);
-        chatGatewayService = new ChatGatewayService(requestParser, modelRouter, capabilityChecker, providerClientFactory, responseEncoder, objectMapper, Mockito.mock(RequestStatsCollector.class));
+        chatGatewayService = new ChatGatewayService(modelRouter, capabilityChecker, providerClientFactory, Mockito.mock(RequestStatsCollector.class));
 
         Mockito.when(providerClientFactory.getClient(ProviderType.OPENAI)).thenReturn(providerClient);
     }
@@ -54,7 +55,6 @@ class ChatGatewayServiceStreamSseTest {
     @Test
     void streamChat_textDeltaAndDone_encodeOpenAiChunkContract() {
         OpenAiChatCompletionRequest request = buildRequest();
-        UnifiedRequest unifiedRequest = buildUnifiedRequest();
         RouteResult routeResult = RouteResult.builder()
                 .providerType(ProviderType.OPENAI)
                 .targetModel("gpt-5.4")
@@ -71,11 +71,13 @@ class ChatGatewayServiceStreamSseTest {
         doneEvent.setType("done");
         doneEvent.setFinishReason("stop");
 
-        Mockito.when(requestParser.parse(request)).thenReturn(unifiedRequest);
-        Mockito.when(modelRouter.route(unifiedRequest)).thenReturn(routeResult);
-        Mockito.when(providerClient.streamChat(unifiedRequest)).thenReturn(Flux.just(textEvent, doneEvent));
+        Mockito.when(modelRouter.route(Mockito.any())).thenReturn(routeResult);
+        Mockito.when(providerClient.streamChat(Mockito.any())).thenReturn(Flux.just(textEvent, doneEvent));
 
-        StepVerifier.create(chatGatewayService.streamChat(request, null))
+        Flux<ServerSentEvent<String>> flux = chatGatewayService.streamChat(request, protocolAdapter, null)
+                .map(e -> (ServerSentEvent<String>) e);
+
+        StepVerifier.create(flux)
                 .assertNext(first -> assertTextChunk(first, "你好", "gpt-5.4"))
                 .assertNext(this::assertDoneChunk)
                 .assertNext(last -> assertEquals("[DONE]", last.data()))
@@ -85,7 +87,6 @@ class ChatGatewayServiceStreamSseTest {
     @Test
     void streamChat_doneWithoutFinishReason_defaultsToStopAndAppendsDoneMarker() {
         OpenAiChatCompletionRequest request = buildRequest();
-        UnifiedRequest unifiedRequest = buildUnifiedRequest();
         RouteResult routeResult = RouteResult.builder()
                 .providerType(ProviderType.OPENAI)
                 .targetModel("gpt-5.4")
@@ -97,11 +98,13 @@ class ChatGatewayServiceStreamSseTest {
         UnifiedStreamEvent doneEvent = new UnifiedStreamEvent();
         doneEvent.setType("done");
 
-        Mockito.when(requestParser.parse(request)).thenReturn(unifiedRequest);
-        Mockito.when(modelRouter.route(unifiedRequest)).thenReturn(routeResult);
-        Mockito.when(providerClient.streamChat(unifiedRequest)).thenReturn(Flux.just(doneEvent));
+        Mockito.when(modelRouter.route(Mockito.any())).thenReturn(routeResult);
+        Mockito.when(providerClient.streamChat(Mockito.any())).thenReturn(Flux.just(doneEvent));
 
-        StepVerifier.create(chatGatewayService.streamChat(request, null))
+        Flux<ServerSentEvent<String>> flux = chatGatewayService.streamChat(request, protocolAdapter, null)
+                .map(e -> (ServerSentEvent<String>) e);
+
+        StepVerifier.create(flux)
                 .assertNext(event -> {
                     JsonNode jsonNode = parseJson(event.data());
                     assertEquals("stop", jsonNode.path("choices").get(0).path("finish_reason").asText());
@@ -113,7 +116,6 @@ class ChatGatewayServiceStreamSseTest {
     @Test
     void streamChat_textDeltaWithSpecialCharacters_escapesJsonAndRemainsParsable() {
         OpenAiChatCompletionRequest request = buildRequest();
-        UnifiedRequest unifiedRequest = buildUnifiedRequest();
         RouteResult routeResult = RouteResult.builder()
                 .providerType(ProviderType.OPENAI)
                 .targetModel("gpt-5.4")
@@ -130,11 +132,13 @@ class ChatGatewayServiceStreamSseTest {
         doneEvent.setType("done");
         doneEvent.setFinishReason("stop");
 
-        Mockito.when(requestParser.parse(request)).thenReturn(unifiedRequest);
-        Mockito.when(modelRouter.route(unifiedRequest)).thenReturn(routeResult);
-        Mockito.when(providerClient.streamChat(unifiedRequest)).thenReturn(Flux.just(textEvent, doneEvent));
+        Mockito.when(modelRouter.route(Mockito.any())).thenReturn(routeResult);
+        Mockito.when(providerClient.streamChat(Mockito.any())).thenReturn(Flux.just(textEvent, doneEvent));
 
-        StepVerifier.create(chatGatewayService.streamChat(request, null))
+        Flux<ServerSentEvent<String>> flux = chatGatewayService.streamChat(request, protocolAdapter, null)
+                .map(e -> (ServerSentEvent<String>) e);
+
+        StepVerifier.create(flux)
                 .assertNext(event -> {
                     JsonNode jsonNode = parseJson(event.data());
                     assertEquals("包含\"引号\"、反斜杠\\以及\n换行", jsonNode.path("choices").get(0).path("delta").path("content").asText());
@@ -183,14 +187,6 @@ class ChatGatewayServiceStreamSseTest {
         message.setRole("user");
         message.setContent("你好");
         request.setMessages(List.of(message));
-        return request;
-    }
-
-    private UnifiedRequest buildUnifiedRequest() {
-        UnifiedRequest request = new UnifiedRequest();
-        request.setModel("gpt-5.4");
-        request.setProvider("openai");
-        request.setStream(true);
         return request;
     }
 }

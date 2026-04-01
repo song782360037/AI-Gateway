@@ -1,5 +1,6 @@
 package com.code.aigateway.api.request;
 
+import com.code.aigateway.core.stats.StatsRequestInfo;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -22,7 +23,7 @@ import java.util.Map;
  */
 @Data
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class OpenAiChatCompletionRequest {
+public class OpenAiChatCompletionRequest implements StatsRequestInfo {
 
     /**
      * 模型名称（必填）
@@ -118,6 +119,12 @@ public class OpenAiChatCompletionRequest {
      * 扩展元数据
      */
     private Map<String, Object> metadata;
+
+    /** StatsRequestInfo: getModel() 已由 @Data 生成，isStream() 需覆盖以匹配接口 */
+    @Override
+    public Boolean isStream() {
+        return stream;
+    }
 
     /**
      * OpenAI 消息格式

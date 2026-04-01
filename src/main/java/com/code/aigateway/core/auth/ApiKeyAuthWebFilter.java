@@ -2,8 +2,12 @@ package com.code.aigateway.core.auth;
 
 import com.code.aigateway.admin.mapper.ApiKeyConfigMapper;
 import com.code.aigateway.admin.model.dataobject.ApiKeyConfigDO;
+import com.code.aigateway.api.response.AnthropicErrorResponse;
+import com.code.aigateway.api.response.GeminiErrorResponse;
 import com.code.aigateway.api.response.OpenAiErrorResponse;
 import com.code.aigateway.config.GatewayProperties;
+import com.code.aigateway.core.model.ResponseProtocol;
+import com.code.aigateway.core.protocol.ProtocolResolver;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -29,7 +33,8 @@ import java.util.HexFormat;
 /**
  * API Key 认证 WebFilter
  *
- * <p>拦截 /v1/** 路径，校验请求携带的 API Key。
+ * <p>拦截 /v1/** 和 /v1beta/** 路径，校验请求携带的 API Key。
+ * 根据请求路径推断协议类型，返回对应格式的错误响应。
  * <ul>
  *   <li>优先从 Authorization: Bearer ak-xxx 提取</li>
  *   <li>回退从 X-Api-Key: ak-xxx 提取</li>
@@ -53,9 +58,9 @@ public class ApiKeyAuthWebFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        // 仅拦截 /v1/** 路径
+        // 拦截 /v1/** 和 /v1beta/** 路径
         String path = exchange.getRequest().getPath().value();
-        if (!path.startsWith("/v1/")) {
+        if (!path.startsWith("/v1/") && !path.startsWith("/v1beta/")) {
             return chain.filter(exchange);
         }
 
@@ -67,7 +72,7 @@ public class ApiKeyAuthWebFilter implements WebFilter {
         // 提取 API Key
         String rawKey = extractApiKey(exchange);
         if (rawKey == null) {
-            return writeAuthError(exchange, "Missing API key");
+            return writeAuthError(exchange, path, "Missing API key");
         }
 
         // SHA-256 哈希后查库校验（阻塞操作切线程）
@@ -76,11 +81,11 @@ public class ApiKeyAuthWebFilter implements WebFilter {
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMap(config -> {
                     if (config == null) {
-                        return writeAuthError(exchange, "Invalid API key");
+                        return writeAuthError(exchange, path, "Invalid API key");
                     }
                     String validationError = validateConfig(config);
                     if (validationError != null) {
-                        return writeAuthError(exchange, validationError);
+                        return writeAuthError(exchange, path, validationError);
                     }
 
                     // 鉴权通过，响应完成时递增使用计数
@@ -129,17 +134,30 @@ public class ApiKeyAuthWebFilter implements WebFilter {
         return null;
     }
 
-    /** 返回 OpenAI 格式的 401 错误 */
-    private Mono<Void> writeAuthError(ServerWebExchange exchange, String message) {
+    /** 根据路径推断协议类型，返回对应格式的 401 错误 */
+    private Mono<Void> writeAuthError(ServerWebExchange exchange, String path, String message) {
         ServerHttpResponse response = exchange.getResponse();
         response.setStatusCode(HttpStatus.UNAUTHORIZED);
         response.getHeaders().set(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
 
-        OpenAiErrorResponse body = new OpenAiErrorResponse(
-                new OpenAiErrorResponse.Error(message, "authentication_error", "AUTH_FAILED", null)
-        );
-        byte[] bytes = toJsonBytes(body);
+        ResponseProtocol protocol = ProtocolResolver.fromPath(path);
+        byte[] bytes = toJsonBytes(buildProtocolError(protocol, message));
         return response.writeWith(Mono.just(response.bufferFactory().wrap(bytes)));
+    }
+
+    /** 按协议构建错误响应体 */
+    private Object buildProtocolError(ResponseProtocol protocol, String message) {
+        return switch (protocol) {
+            case ANTHROPIC -> new AnthropicErrorResponse(
+                    "error", new AnthropicErrorResponse.ErrorDetail("authentication_error", message)
+            );
+            case GEMINI -> new GeminiErrorResponse(
+                    new GeminiErrorResponse.ErrorDetail(401, message, "UNAUTHENTICATED")
+            );
+            default -> new OpenAiErrorResponse(
+                    new OpenAiErrorResponse.Error(message, "authentication_error", "AUTH_FAILED", null)
+            );
+        };
     }
 
     /** SHA-256 哈希转 hex */

@@ -1,6 +1,6 @@
 package com.code.aigateway.core.stats;
 
-import com.code.aigateway.api.request.OpenAiChatCompletionRequest;
+import com.code.aigateway.core.model.ResponseProtocol;
 import com.code.aigateway.core.router.RouteResult;
 import lombok.Data;
 
@@ -24,8 +24,11 @@ public class RequestStatsContext {
     /** 来源 IP */
     private String sourceIp;
 
-    /** 原始 OpenAI 请求 */
-    private OpenAiChatCompletionRequest request;
+    /** 统计请求信息（协议无关接口） */
+    private StatsRequestInfo requestInfo;
+
+    /** 响应协议类型（由 controller 设置） */
+    private ResponseProtocol responseProtocol;
 
     /** 路由结果，成功路由后填充 */
     private RouteResult routeResult;

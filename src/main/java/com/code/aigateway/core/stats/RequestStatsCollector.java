@@ -4,7 +4,6 @@ import com.code.aigateway.admin.mapper.RequestLogMapper;
 import com.code.aigateway.admin.mapper.RequestStatHourlyMapper;
 import com.code.aigateway.admin.model.dataobject.RequestLogDO;
 import com.code.aigateway.admin.model.dataobject.RequestStatHourlyDO;
-import com.code.aigateway.api.response.OpenAiChatCompletionResponse;
 import com.code.aigateway.core.model.UnifiedUsage;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -65,16 +64,18 @@ public class RequestStatsCollector {
 
     /**
      * 记录非流式请求成功
+     *
+     * @param context 当前请求统计上下文
+     * @param usage   统一使用统计（从 UnifiedResponse 中获取）
      */
-    public void collectSuccess(RequestStatsContext context, OpenAiChatCompletionResponse response) {
+    public void collectSuccess(RequestStatsContext context, UnifiedUsage usage) {
         if (context == null || !context.tryMarkCollected()) {
             return;
         }
-        OpenAiChatCompletionResponse.Usage usage = response != null ? response.getUsage() : null;
         RequestLogDO logDO = buildLog(context, "SUCCESS", null);
         if (usage != null) {
-            logDO.setPromptTokens(usage.getPromptTokens());
-            logDO.setCompletionTokens(usage.getCompletionTokens());
+            logDO.setPromptTokens(usage.getInputTokens());
+            logDO.setCompletionTokens(usage.getOutputTokens());
             logDO.setTotalTokens(usage.getTotalTokens());
         }
         emit(logDO);
@@ -100,7 +101,7 @@ public class RequestStatsCollector {
      * 记录请求失败
      */
     public void collectError(RequestStatsContext context, Throwable ex) {
-        if (context == null || context.getRequest() == null || !context.tryMarkCollected()) {
+        if (context == null || context.getRequestInfo() == null || !context.tryMarkCollected()) {
             return;
         }
         RequestLogDO logDO = buildLog(context, "ERROR", resolveErrorCode(ex));
@@ -170,11 +171,11 @@ public class RequestStatsCollector {
     private RequestLogDO buildLog(RequestStatsContext context, String status, String errorCode) {
         RequestLogDO logDO = new RequestLogDO();
         logDO.setRequestId(UUID.randomUUID().toString());
-        logDO.setAliasModel(context.getRequest().getModel());
+        logDO.setAliasModel(context.getRequestInfo().getModel());
         logDO.setTargetModel(context.getRouteResult() != null ? context.getRouteResult().getTargetModel() : null);
         logDO.setProviderCode(context.getRouteResult() != null ? context.getRouteResult().getProviderName() : null);
         logDO.setProviderType(context.getRouteResult() != null ? context.getRouteResult().getProviderType().name() : null);
-        logDO.setIsStream(Boolean.TRUE.equals(context.getRequest().getStream()));
+        logDO.setIsStream(Boolean.TRUE.equals(context.getRequestInfo().isStream()));
         logDO.setDurationMs((int) context.elapsedMs());
         logDO.setStatus(status);
         logDO.setErrorCode(errorCode);
