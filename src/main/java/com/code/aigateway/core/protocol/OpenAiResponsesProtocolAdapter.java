@@ -82,6 +82,22 @@ public class OpenAiResponsesProtocolAdapter implements ProtocolAdapter {
                     .build();
         }
 
+        if ("tool_call".equals(event.getType())) {
+            // Responses API 函数调用开始事件
+            Map<String, Object> output = new java.util.LinkedHashMap<>();
+            output.put("type", "function_call");
+            output.put("id", event.getToolCallId());
+            output.put("call_id", event.getToolCallId());
+            output.put("name", event.getToolName());
+            Map<String, Object> payload = new java.util.LinkedHashMap<>();
+            payload.put("type", "response.output_item.added");
+            payload.put("output", output);
+            return ServerSentEvent.<String>builder()
+                    .event("response.output_item.added")
+                    .data(toJson(payload))
+                    .build();
+        }
+
         if ("tool_call_delta".equals(event.getType())) {
             Map<String, Object> payload = Map.of(
                     "type", "response.function_call_arguments.delta",

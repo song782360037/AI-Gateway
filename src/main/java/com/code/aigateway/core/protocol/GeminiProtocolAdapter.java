@@ -77,6 +77,22 @@ public class GeminiProtocolAdapter implements ProtocolAdapter {
             return ServerSentEvent.builder(toJson(chunk)).build();
         }
 
+        if ("tool_call".equals(event.getType())) {
+            // Gemini functionCall 开始事件（含 name，不含 args）
+            Map<String, Object> functionCall = new LinkedHashMap<>();
+            functionCall.put("name", event.getToolName() != null ? event.getToolName() : "");
+            Map<String, Object> fcPart = new LinkedHashMap<>();
+            fcPart.put("functionCall", functionCall);
+
+            List<Map<String, Object>> parts = List.of(fcPart);
+            Map<String, Object> content = Map.of("parts", parts, "role", "model");
+            Map<String, Object> candidate = Map.of("content", content);
+            Map<String, Object> chunk = new LinkedHashMap<>();
+            chunk.put("candidates", List.of(candidate));
+
+            return ServerSentEvent.builder(toJson(chunk)).build();
+        }
+
         if ("tool_call_delta".equals(event.getType())) {
             Map<String, Object> fcPart = new LinkedHashMap<>();
             Map<String, Object> functionCall = new LinkedHashMap<>();

@@ -4,6 +4,10 @@ spring:
   profiles:
     active: local
 
+  # WebFlux 请求体缓冲区限制（默认 256KB，AI 模型请求体较大需调高）
+  codec:
+    max-in-memory-size: 10MB
+
   # 优雅停机：等待在途请求完成
   lifecycle:
     timeout-per-shutdown-phase: 30s

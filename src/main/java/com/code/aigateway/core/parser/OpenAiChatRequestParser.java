@@ -11,6 +11,7 @@ import com.code.aigateway.core.model.UnifiedResponseFormat;
 import com.code.aigateway.core.model.UnifiedTool;
 import com.code.aigateway.core.model.UnifiedToolCall;
 import com.code.aigateway.core.model.UnifiedToolChoice;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -35,6 +36,7 @@ import java.util.Set;
  * @author sst
  */
 @Component
+@Slf4j
 public class OpenAiChatRequestParser implements RequestParser<OpenAiChatCompletionRequest, UnifiedRequest> {
 
     private static final Set<String> STRING_TOOL_CHOICES = Set.of("auto", "none", "required");
@@ -67,6 +69,13 @@ public class OpenAiChatRequestParser implements RequestParser<OpenAiChatCompleti
         List<UnifiedTool> tools = parseTools(request.getTools());
         unifiedRequest.setTools(tools);
         unifiedRequest.setToolChoice(normalizeToolChoice(parseToolChoice(request.getToolChoice()), tools));
+
+        // 工具调用诊断日志：记录解析阶段的 tools 状态
+        log.info("[Parser] model={}, stream={}, 原始tools={}, 解析后unifiedTools={}, toolChoice={}",
+                request.getModel(), request.getStream(),
+                request.getTools() != null ? request.getTools().size() : "null",
+                tools.size(),
+                request.getToolChoice());
 
         return unifiedRequest;
     }

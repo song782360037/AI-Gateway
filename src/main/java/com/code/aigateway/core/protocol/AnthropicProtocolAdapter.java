@@ -93,6 +93,22 @@ public class AnthropicProtocolAdapter implements ProtocolAdapter {
                     .build();
         }
 
+        if ("tool_call".equals(event.getType())) {
+            // Anthropic tool_use 开始事件：content_block_start
+            Map<String, Object> contentBlock = new LinkedHashMap<>();
+            contentBlock.put("type", "tool_use");
+            contentBlock.put("id", event.getToolCallId());
+            contentBlock.put("name", event.getToolName());
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("type", "content_block_start");
+            payload.put("index", event.getOutputIndex() != null ? event.getOutputIndex() : 0);
+            payload.put("content_block", contentBlock);
+            return ServerSentEvent.<String>builder()
+                    .event("content_block_start")
+                    .data(toJson(payload))
+                    .build();
+        }
+
         if ("tool_call_delta".equals(event.getType())) {
             Map<String, Object> delta = new LinkedHashMap<>();
             delta.put("type", "input_json_delta");

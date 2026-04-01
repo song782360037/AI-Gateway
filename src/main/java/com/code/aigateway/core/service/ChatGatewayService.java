@@ -84,6 +84,11 @@ public class ChatGatewayService {
         long created = Instant.now().getEpochSecond();
         AtomicReference<UnifiedUsage> finalUsageRef = new AtomicReference<>();
 
+        // StreamContext 必须在流链外创建，确保 firstContentSent 标志跨事件共享
+        String streamModel = context != null && context.getRouteResult() != null
+                ? context.getRouteResult().getTargetModel() : "";
+        StreamContext streamCtx = new StreamContext(responseId, created, streamModel);
+
         return failoverStrategy.executeStreamWithFailover(candidates, routeResult -> {
             applyRouteContext(unifiedRequest, routeResult, correlationId);
             ProviderClient client = providerClientFactory.getClient(routeResult.getProviderType());
@@ -94,18 +99,9 @@ public class ChatGatewayService {
                         finalUsageRef.set(event.getUsage());
                     }
                 })
-                .map(event -> {
-                    String model = context != null && context.getRouteResult() != null
-                            ? context.getRouteResult().getTargetModel() : "";
-                    StreamContext streamCtx = new StreamContext(responseId, created, model);
-                    return adapter.encodeStreamEvent(event, streamCtx);
-                })
-                .concatWith(Flux.defer(() -> {
-                    String model = context != null && context.getRouteResult() != null
-                            ? context.getRouteResult().getTargetModel() : "";
-                    StreamContext streamCtx = new StreamContext(responseId, created, model);
-                    return adapter.terminalStreamEvents(streamCtx);
-                }))
+                .map(event -> adapter.encodeStreamEvent(event, streamCtx))
+                .filter(event -> event != null) // 过滤协议适配器未处理的事件
+                .concatWith(Flux.defer(() -> adapter.terminalStreamEvents(streamCtx)))
                 .doOnComplete(() -> requestStatsCollector.collectStreamSuccess(context, finalUsageRef.get()))
                 .doOnError(ex -> requestStatsCollector.collectError(context, ex));
     }

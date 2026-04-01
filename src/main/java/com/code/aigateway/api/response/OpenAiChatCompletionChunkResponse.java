@@ -90,5 +90,59 @@ public class OpenAiChatCompletionChunkResponse {
          * 增量文本内容
          */
         private String content;
+
+        /**
+         * 工具调用增量列表
+         */
+        @JsonProperty("tool_calls")
+        private List<ToolCallDelta> toolCalls;
+    }
+
+    /**
+     * 工具调用增量
+     */
+    @Data
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class ToolCallDelta {
+
+        /**
+         * 工具调用索引
+         */
+        private Integer index;
+
+        /**
+         * 工具调用 ID（仅首个 chunk 包含）
+         */
+        private String id;
+
+        /**
+         * 调用类型，通常为 "function"
+         */
+        private String type;
+
+        /**
+         * 函数调用增量
+         */
+        private FunctionCallDelta function;
+    }
+
+    /**
+     * 函数调用增量
+     */
+    @Data
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class FunctionCallDelta {
+
+        /**
+         * 函数名称（仅首个 chunk 包含）
+         */
+        private String name;
+
+        /**
+         * 函数参数增量 JSON 字符串
+         */
+        private String arguments;
     }
 }

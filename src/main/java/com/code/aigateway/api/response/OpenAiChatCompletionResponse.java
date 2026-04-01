@@ -92,6 +92,53 @@ public class OpenAiChatCompletionResponse {
          * 消息内容
          */
         private String content;
+
+        /**
+         * 工具调用列表（当模型请求调用工具时）
+         */
+        @JsonProperty("tool_calls")
+        private List<ToolCall> toolCalls;
+    }
+
+    /**
+     * 工具调用
+     */
+    @Data
+    @Builder
+    public static class ToolCall {
+
+        /**
+         * 工具调用 ID
+         */
+        private String id;
+
+        /**
+         * 调用类型，通常为 "function"
+         */
+        private String type;
+
+        /**
+         * 函数调用详情
+         */
+        private FunctionCall function;
+    }
+
+    /**
+     * 函数调用
+     */
+    @Data
+    @Builder
+    public static class FunctionCall {
+
+        /**
+         * 函数名称
+         */
+        private String name;
+
+        /**
+         * 函数参数 JSON 字符串
+         */
+        private String arguments;
     }
 
     /**

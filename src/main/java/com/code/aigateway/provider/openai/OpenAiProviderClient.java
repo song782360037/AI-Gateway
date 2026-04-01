@@ -127,6 +127,11 @@ public class OpenAiProviderClient extends AbstractProviderClient {
         body.put("messages", buildMessages(request));
         body.put("stream", stream);
 
+        // 流式请求时要求上游返回 usage 统计
+        if (stream) {
+            body.put("stream_options", Map.of("include_usage", true));
+        }
+
         if (request.getGenerationConfig() != null) {
             if (request.getGenerationConfig().getTemperature() != null) {
                 body.put("temperature", request.getGenerationConfig().getTemperature());
@@ -147,6 +152,11 @@ public class OpenAiProviderClient extends AbstractProviderClient {
 
         if (request.getTools() != null && !request.getTools().isEmpty()) {
             body.put("tools", buildTools(request.getTools()));
+            log.info("[OpenAI-Request] model={}, stream={}, 转发 tools 数量={}, toolChoice={}",
+                    request.getModel(), stream, request.getTools().size(), request.getToolChoice());
+        } else {
+            log.warn("[OpenAI-Request] model={}, stream={}, 未检测到 tools, request.tools={}",
+                    request.getModel(), stream, request.getTools());
         }
         if (request.getToolChoice() != null) {
             body.put("tool_choice", buildToolChoice(request.getToolChoice()));
@@ -351,8 +361,11 @@ public class OpenAiProviderClient extends AbstractProviderClient {
 
         JsonNode usageNode = chunk.get("usage");
         JsonNode choices = chunk.path("choices");
+
+        // 空 choices 的 chunk（如 usage-only chunk），静默忽略
+        // OpenAI 启用 stream_options.include_usage 时，最终 chunk 为 choices:[] + usage
         if (!choices.isArray() || choices.isEmpty()) {
-            return Flux.error(new GatewayException(ErrorCode.STREAM_PARSE_ERROR, "invalid upstream stream chunk: choices is empty"));
+            return Flux.empty();
         }
 
         List<UnifiedStreamEvent> events = new ArrayList<>();
@@ -372,23 +385,32 @@ public class OpenAiProviderClient extends AbstractProviderClient {
             // 解析 tool_calls delta
             if (delta.has("tool_calls") && delta.get("tool_calls").isArray()) {
                 for (JsonNode tcDelta : delta.get("tool_calls")) {
-                    UnifiedStreamEvent tcEvent = new UnifiedStreamEvent();
-                    tcEvent.setOutputIndex(index);
+                    // 使用 tool_call 自身的 index，而非 choice index
+                    int toolIndex = tcDelta.has("index") ? tcDelta.get("index").asInt() : 0;
 
                     // tool_call 开始（含 name 和 id）
+                    // OpenAI 首个 chunk 同时包含 name 和 arguments（空串），
+                    // 优先以 name 判定为 tool_call 开始事件
                     if (tcDelta.has("function") && tcDelta.path("function").has("name")) {
+                        String toolName = tcDelta.path("function").path("name").asText();
+                        log.info("[OpenAI-Stream] 检测到 tool_call 开始: toolIndex={}, id={}, name={}",
+                                toolIndex, textOrNull(tcDelta.get("id")), toolName);
+                        UnifiedStreamEvent tcEvent = new UnifiedStreamEvent();
                         tcEvent.setType("tool_call");
+                        tcEvent.setOutputIndex(toolIndex);
                         tcEvent.setToolCallId(textOrNull(tcDelta.get("id")));
-                        tcEvent.setToolName(tcDelta.path("function").path("name").asText());
-                        tcEvent.setArgumentsDelta("");
+                        tcEvent.setToolName(toolName);
+                        events.add(tcEvent);
                     }
-                    // tool_call 参数增量
-                    if (tcDelta.has("function") && tcDelta.path("function").has("arguments")) {
+                    // tool_call 参数增量（仅当无 name 时，即后续 chunk）
+                    else if (tcDelta.has("function") && tcDelta.path("function").has("arguments")) {
+                        UnifiedStreamEvent tcEvent = new UnifiedStreamEvent();
                         tcEvent.setType("tool_call_delta");
+                        tcEvent.setOutputIndex(toolIndex);
                         tcEvent.setToolCallId(textOrNull(tcDelta.get("id")));
                         tcEvent.setArgumentsDelta(tcDelta.path("function").path("arguments").asText());
+                        events.add(tcEvent);
                     }
-                    events.add(tcEvent);
                 }
             }
 

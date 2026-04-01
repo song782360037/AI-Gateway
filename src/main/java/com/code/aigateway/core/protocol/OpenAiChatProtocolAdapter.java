@@ -54,10 +54,12 @@ public class OpenAiChatProtocolAdapter implements ProtocolAdapter {
      * 将 UnifiedStreamEvent 编码为 OpenAI Chat Completions 格式的 SSE chunk。
      * <p>
      * 按照 OpenAI 协议，role 字段仅在首个 content chunk 中出现。
+     * 支持 text_delta、tool_call、tool_call_delta、done 四种事件类型。
      * </p>
      */
     @Override
     public ServerSentEvent<String> encodeStreamEvent(UnifiedStreamEvent event, StreamContext ctx) {
+        // 完成事件
         if ("done".equals(event.getType())) {
             OpenAiChatCompletionChunkResponse chunk = OpenAiChatCompletionChunkResponse.builder()
                     .id(ctx.getResponseId())
@@ -75,6 +77,68 @@ public class OpenAiChatProtocolAdapter implements ProtocolAdapter {
             return ServerSentEvent.builder(toJson(chunk)).build();
         }
 
+        // 工具调用开始事件（含 id 和 name）
+        // 首个事件需携带 role: "assistant"，符合 OpenAI SSE 协议
+        if ("tool_call".equals(event.getType())) {
+            OpenAiChatCompletionChunkResponse.Delta.DeltaBuilder deltaBuilder = OpenAiChatCompletionChunkResponse.Delta.builder()
+                    .toolCalls(List.of(OpenAiChatCompletionChunkResponse.ToolCallDelta.builder()
+                            .index(event.getOutputIndex() != null ? event.getOutputIndex() : 0)
+                            .id(event.getToolCallId())
+                            .type("function")
+                            .function(OpenAiChatCompletionChunkResponse.FunctionCallDelta.builder()
+                                    .name(event.getToolName())
+                                    .arguments("")
+                                    .build())
+                            .build()));
+            // 首个事件添加 role 字段
+            if (ctx.tryMarkFirstContentSent()) {
+                deltaBuilder.role("assistant");
+            }
+
+            OpenAiChatCompletionChunkResponse chunk = OpenAiChatCompletionChunkResponse.builder()
+                    .id(ctx.getResponseId())
+                    .object("chat.completion.chunk")
+                    .created(ctx.getCreated())
+                    .model(ctx.getModel())
+                    .choices(List.of(
+                            OpenAiChatCompletionChunkResponse.Choice.builder()
+                                    .index(0)
+                                    .delta(deltaBuilder.build())
+                                    .finishReason(null)
+                                    .build()
+                    ))
+                    .build();
+            return ServerSentEvent.builder(toJson(chunk)).build();
+        }
+
+        // 工具调用参数增量事件
+        if ("tool_call_delta".equals(event.getType())) {
+            OpenAiChatCompletionChunkResponse.ToolCallDelta tcDelta = OpenAiChatCompletionChunkResponse.ToolCallDelta.builder()
+                    .index(event.getOutputIndex() != null ? event.getOutputIndex() : 0)
+                    .function(OpenAiChatCompletionChunkResponse.FunctionCallDelta.builder()
+                            .arguments(event.getArgumentsDelta())
+                            .build())
+                    .build();
+
+            OpenAiChatCompletionChunkResponse chunk = OpenAiChatCompletionChunkResponse.builder()
+                    .id(ctx.getResponseId())
+                    .object("chat.completion.chunk")
+                    .created(ctx.getCreated())
+                    .model(ctx.getModel())
+                    .choices(List.of(
+                            OpenAiChatCompletionChunkResponse.Choice.builder()
+                                    .index(0)
+                                    .delta(OpenAiChatCompletionChunkResponse.Delta.builder()
+                                            .toolCalls(List.of(tcDelta))
+                                            .build())
+                                    .finishReason(null)
+                                    .build()
+                    ))
+                    .build();
+            return ServerSentEvent.builder(toJson(chunk)).build();
+        }
+
+        // 文本增量事件
         // 首个 content chunk 携带 role 字段，符合 OpenAI SSE 协议
         OpenAiChatCompletionChunkResponse.Delta.DeltaBuilder deltaBuilder = OpenAiChatCompletionChunkResponse.Delta.builder()
                 .content(event.getTextDelta() == null ? "" : event.getTextDelta());

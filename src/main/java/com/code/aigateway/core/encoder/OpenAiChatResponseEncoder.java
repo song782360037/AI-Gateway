@@ -4,6 +4,7 @@ import com.code.aigateway.api.response.OpenAiChatCompletionResponse;
 import com.code.aigateway.core.model.UnifiedOutput;
 import com.code.aigateway.core.model.UnifiedPart;
 import com.code.aigateway.core.model.UnifiedResponse;
+import com.code.aigateway.core.model.UnifiedToolCall;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -36,11 +37,13 @@ public class OpenAiChatResponseEncoder implements ResponseEncoder<UnifiedRespons
      */
     @Override
     public OpenAiChatCompletionResponse encode(UnifiedResponse source) {
-        // 提取输出内容
+        // 提取输出内容和 tool_calls
         String content = "";
+        List<OpenAiChatCompletionResponse.ToolCall> toolCalls = null;
         if (source.getOutputs() != null && !source.getOutputs().isEmpty()) {
             UnifiedOutput output = source.getOutputs().get(0);
             content = extractText(output.getParts());
+            toolCalls = encodeToolCalls(output.getToolCalls());
         }
 
         // 转换使用统计
@@ -54,6 +57,13 @@ public class OpenAiChatResponseEncoder implements ResponseEncoder<UnifiedRespons
         }
 
         // 构建 OpenAI 格式响应
+        OpenAiChatCompletionResponse.Message.MessageBuilder messageBuilder = OpenAiChatCompletionResponse.Message.builder()
+                .role("assistant")
+                .content(content);
+        if (toolCalls != null && !toolCalls.isEmpty()) {
+            messageBuilder.toolCalls(toolCalls);
+        }
+
         return OpenAiChatCompletionResponse.builder()
                 .id(source.getId())
                 .object("chat.completion")
@@ -62,10 +72,7 @@ public class OpenAiChatResponseEncoder implements ResponseEncoder<UnifiedRespons
                 .choices(List.of(
                         OpenAiChatCompletionResponse.Choice.builder()
                                 .index(0)
-                                .message(OpenAiChatCompletionResponse.Message.builder()
-                                        .role("assistant")
-                                        .content(content)
-                                        .build())
+                                .message(messageBuilder.build())
                                 .finishReason(source.getFinishReason())
                                 .build()
                 ))
@@ -75,9 +82,6 @@ public class OpenAiChatResponseEncoder implements ResponseEncoder<UnifiedRespons
 
     /**
      * 从内容部分列表中提取文本
-     * <p>
-     * 合并所有类型为 text 的内容部分
-     * </p>
      *
      * @param parts 内容部分列表
      * @return 合并后的文本内容
@@ -94,5 +98,27 @@ public class OpenAiChatResponseEncoder implements ResponseEncoder<UnifiedRespons
             }
         }
         return sb.toString();
+    }
+
+    /**
+     * 将统一工具调用列表编码为 OpenAI 格式
+     *
+     * @param toolCalls 统一工具调用列表
+     * @return OpenAI 格式工具调用列表，无数据时返回 null
+     */
+    private List<OpenAiChatCompletionResponse.ToolCall> encodeToolCalls(List<UnifiedToolCall> toolCalls) {
+        if (toolCalls == null || toolCalls.isEmpty()) {
+            return null;
+        }
+        return toolCalls.stream()
+                .map(tc -> OpenAiChatCompletionResponse.ToolCall.builder()
+                        .id(tc.getId())
+                        .type(tc.getType() == null ? "function" : tc.getType())
+                        .function(OpenAiChatCompletionResponse.FunctionCall.builder()
+                                .name(tc.getToolName())
+                                .arguments(tc.getArgumentsJson() == null ? "{}" : tc.getArgumentsJson())
+                                .build())
+                        .build())
+                .toList();
     }
 }

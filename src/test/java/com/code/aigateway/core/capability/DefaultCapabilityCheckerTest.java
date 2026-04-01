@@ -1,7 +1,5 @@
 package com.code.aigateway.core.capability;
 
-import com.code.aigateway.core.error.ErrorCode;
-import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.model.UnifiedMessage;
 import com.code.aigateway.core.model.UnifiedPart;
 import com.code.aigateway.core.model.UnifiedRequest;
@@ -15,15 +13,14 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DefaultCapabilityCheckerTest {
 
     private final DefaultCapabilityChecker capabilityChecker = new DefaultCapabilityChecker();
 
     @Test
-    void validate_toolsRequested_throwsCapabilityNotSupported() {
+    void validate_toolsRequested_passesThrough() {
+        // tools 请求现在由 ProviderClient 负责转发，不再被拦截
         UnifiedTool tool = new UnifiedTool();
         tool.setName("search_docs");
         tool.setType("function");
@@ -32,17 +29,12 @@ class DefaultCapabilityCheckerTest {
         UnifiedRequest request = new UnifiedRequest();
         request.setTools(List.of(tool));
 
-        GatewayException exception = org.junit.jupiter.api.Assertions.assertThrows(
-                GatewayException.class,
-                () -> capabilityChecker.validate(request, openAiRoute())
-        );
-
-        assertEquals(ErrorCode.CAPABILITY_NOT_SUPPORTED, exception.getErrorCode());
-        assertTrue(exception.getMessage().contains("tools are not supported"));
+        assertDoesNotThrow(() -> capabilityChecker.validate(request, openAiRoute()));
     }
 
     @Test
-    void validate_toolHistoryRequested_throwsCapabilityNotSupported() {
+    void validate_toolHistoryRequested_passesThrough() {
+        // tool 角色消息和 assistant 历史 tool_calls 由 ProviderClient 转发
         UnifiedToolCall toolCall = new UnifiedToolCall();
         toolCall.setId("call_1");
         toolCall.setType("function");
@@ -65,12 +57,7 @@ class DefaultCapabilityCheckerTest {
         UnifiedRequest request = new UnifiedRequest();
         request.setMessages(List.of(assistantMessage, toolMessage));
 
-        GatewayException exception = org.junit.jupiter.api.Assertions.assertThrows(
-                GatewayException.class,
-                () -> capabilityChecker.validate(request, openAiRoute())
-        );
-
-        assertEquals(ErrorCode.CAPABILITY_NOT_SUPPORTED, exception.getErrorCode());
+        assertDoesNotThrow(() -> capabilityChecker.validate(request, openAiRoute()));
     }
 
     @Test
