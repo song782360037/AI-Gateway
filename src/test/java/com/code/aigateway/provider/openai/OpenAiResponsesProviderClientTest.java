@@ -11,14 +11,18 @@ import com.code.aigateway.core.model.UnifiedStreamEvent;
 import com.code.aigateway.core.model.UnifiedTool;
 import com.code.aigateway.core.model.UnifiedToolCall;
 import com.code.aigateway.core.model.UnifiedToolChoice;
+import com.code.aigateway.core.resilience.CircuitBreakerManager;
 import com.code.aigateway.provider.ProviderType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -434,11 +438,24 @@ class OpenAiResponsesProviderClientTest {
     @Test
     void getProviderType_returnsOpenAiResponses() {
         OpenAiResponsesProviderClient client = new OpenAiResponsesProviderClient(
-                WebClient.builder(), objectMapper, new GatewayProperties());
+                WebClient.builder(), objectMapper, new GatewayProperties(), mockCircuitBreakerManager());
         assertEquals(ProviderType.OPENAI_RESPONSES, client.getProviderType());
     }
 
     // ==================== 辅助方法 ====================
+
+    /** 创建一个永不熔断的 CircuitBreaker 实例 */
+    private CircuitBreakerManager mockCircuitBreakerManager() {
+        CircuitBreaker noopCb = CircuitBreaker.of("test",
+                CircuitBreakerConfig.custom()
+                        .slidingWindowSize(1)
+                        .failureRateThreshold(100)
+                        .minimumNumberOfCalls(9999)
+                        .build());
+        CircuitBreakerManager cbManager = Mockito.mock(CircuitBreakerManager.class);
+        Mockito.when(cbManager.getOrCreate(Mockito.anyString())).thenReturn(noopCb);
+        return cbManager;
+    }
 
     private OpenAiResponsesProviderClient newProviderClient(int timeoutSeconds) {
         return newProviderClientWithRetry(timeoutSeconds, 0, 1000, 30000);
@@ -460,7 +477,7 @@ class OpenAiResponsesProviderClientTest {
         providerProps.setApiKey("test-responses-key");
         providerProps.setTimeoutSeconds(timeoutSeconds);
         props.setProviders(Map.of("openai-responses", providerProps));
-        return new OpenAiResponsesProviderClient(WebClient.builder(), objectMapper, props);
+        return new OpenAiResponsesProviderClient(WebClient.builder(), objectMapper, props, mockCircuitBreakerManager());
     }
 
     private UnifiedRequest buildBasicRequest(boolean stream) {

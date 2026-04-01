@@ -4,13 +4,17 @@ import com.code.aigateway.config.GatewayProperties;
 import com.code.aigateway.core.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.model.*;
+import com.code.aigateway.core.resilience.CircuitBreakerManager;
 import com.code.aigateway.provider.ProviderType;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -945,11 +949,24 @@ class GeminiProviderClientTest {
     void getProviderType_returnsGemini() {
         // 不需要启动 server
         GeminiProviderClient client = new GeminiProviderClient(
-                WebClient.builder(), objectMapper, new GatewayProperties());
+                WebClient.builder(), objectMapper, new GatewayProperties(), mockCircuitBreakerManager());
         assertEquals(ProviderType.GEMINI, client.getProviderType());
     }
 
     // ==================== 辅助方法 ====================
+
+    /** 创建一个永不熔断的 CircuitBreaker 实例 */
+    private CircuitBreakerManager mockCircuitBreakerManager() {
+        CircuitBreaker noopCb = CircuitBreaker.of("test",
+                CircuitBreakerConfig.custom()
+                        .slidingWindowSize(1)
+                        .failureRateThreshold(100)
+                        .minimumNumberOfCalls(9999)
+                        .build());
+        CircuitBreakerManager cbManager = Mockito.mock(CircuitBreakerManager.class);
+        Mockito.when(cbManager.getOrCreate(Mockito.anyString())).thenReturn(noopCb);
+        return cbManager;
+    }
 
     private GeminiProviderClient newProviderClient(int timeoutSeconds) {
         return newProviderClientWithRetry(timeoutSeconds, 0, 1000, 30000);
@@ -971,7 +988,7 @@ class GeminiProviderClientTest {
         providerProperties.setApiKey("test-gemini-key");
         providerProperties.setTimeoutSeconds(timeoutSeconds);
         gatewayProperties.setProviders(Map.of("gemini", providerProperties));
-        return new GeminiProviderClient(WebClient.builder(), objectMapper, gatewayProperties);
+        return new GeminiProviderClient(WebClient.builder(), objectMapper, gatewayProperties, mockCircuitBreakerManager());
     }
 
     private UnifiedRequest buildTextRequest(boolean stream) {

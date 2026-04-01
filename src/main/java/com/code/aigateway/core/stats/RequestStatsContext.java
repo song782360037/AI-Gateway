@@ -24,6 +24,9 @@ public class RequestStatsContext {
     /** 来源 IP */
     private String sourceIp;
 
+    /** 请求链路追踪 ID */
+    private String correlationId;
+
     /** 统计请求信息（协议无关接口） */
     private StatsRequestInfo requestInfo;
 

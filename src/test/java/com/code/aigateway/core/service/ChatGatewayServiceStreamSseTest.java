@@ -9,7 +9,9 @@ import com.code.aigateway.core.router.RouteResult;
 import com.code.aigateway.provider.ProviderClient;
 import com.code.aigateway.provider.ProviderClientFactory;
 import com.code.aigateway.provider.ProviderType;
+import com.code.aigateway.core.resilience.FailoverStrategy;
 import com.code.aigateway.core.stats.RequestStatsCollector;
+import com.code.aigateway.core.stats.RequestStatsContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +22,7 @@ import reactor.core.publisher.Flux;
 import reactor.test.StepVerifier;
 
 import java.util.List;
+import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -34,6 +37,7 @@ class ChatGatewayServiceStreamSseTest {
     private ProviderClientFactory providerClientFactory;
     private ProviderClient providerClient;
     private ChatGatewayService chatGatewayService;
+    private FailoverStrategy failoverStrategy;
 
     @BeforeEach
     void setUp() {
@@ -47,7 +51,21 @@ class ChatGatewayServiceStreamSseTest {
         capabilityChecker = Mockito.mock(CapabilityChecker.class);
         providerClientFactory = Mockito.mock(ProviderClientFactory.class);
         providerClient = Mockito.mock(ProviderClient.class);
-        chatGatewayService = new ChatGatewayService(modelRouter, capabilityChecker, providerClientFactory, Mockito.mock(RequestStatsCollector.class));
+
+        // 让 failover 直接执行传入的 function，跳过真实故障转移逻辑
+        failoverStrategy = Mockito.mock(FailoverStrategy.class);
+        Mockito.when(failoverStrategy.executeStreamWithFailover(
+                Mockito.anyList(), Mockito.any(), Mockito.any()))
+                .thenAnswer(invocation -> {
+                    @SuppressWarnings("unchecked")
+                    Function<RouteResult, Flux<UnifiedStreamEvent>> fn = invocation.getArgument(1);
+                    List<RouteResult> candidates = invocation.getArgument(0);
+                    return fn.apply(candidates.get(0));
+                });
+
+        chatGatewayService = new ChatGatewayService(
+                modelRouter, capabilityChecker, providerClientFactory,
+                Mockito.mock(RequestStatsCollector.class), failoverStrategy);
 
         Mockito.when(providerClientFactory.getClient(ProviderType.OPENAI)).thenReturn(providerClient);
     }
@@ -71,10 +89,11 @@ class ChatGatewayServiceStreamSseTest {
         doneEvent.setType("done");
         doneEvent.setFinishReason("stop");
 
-        Mockito.when(modelRouter.route(Mockito.any())).thenReturn(routeResult);
+        Mockito.when(modelRouter.routeAll(Mockito.any())).thenReturn(List.of(routeResult));
         Mockito.when(providerClient.streamChat(Mockito.any())).thenReturn(Flux.just(textEvent, doneEvent));
 
-        Flux<ServerSentEvent<String>> flux = chatGatewayService.streamChat(request, protocolAdapter, null)
+        // 传入非 null context，resolveCandidates 会自动设置 routeResult，使 SSE chunk 携带正确的 model
+        Flux<ServerSentEvent<String>> flux = chatGatewayService.streamChat(request, protocolAdapter, new RequestStatsContext())
                 .map(e -> (ServerSentEvent<String>) e);
 
         StepVerifier.create(flux)
@@ -98,10 +117,10 @@ class ChatGatewayServiceStreamSseTest {
         UnifiedStreamEvent doneEvent = new UnifiedStreamEvent();
         doneEvent.setType("done");
 
-        Mockito.when(modelRouter.route(Mockito.any())).thenReturn(routeResult);
+        Mockito.when(modelRouter.routeAll(Mockito.any())).thenReturn(List.of(routeResult));
         Mockito.when(providerClient.streamChat(Mockito.any())).thenReturn(Flux.just(doneEvent));
 
-        Flux<ServerSentEvent<String>> flux = chatGatewayService.streamChat(request, protocolAdapter, null)
+        Flux<ServerSentEvent<String>> flux = chatGatewayService.streamChat(request, protocolAdapter, new RequestStatsContext())
                 .map(e -> (ServerSentEvent<String>) e);
 
         StepVerifier.create(flux)
@@ -132,10 +151,10 @@ class ChatGatewayServiceStreamSseTest {
         doneEvent.setType("done");
         doneEvent.setFinishReason("stop");
 
-        Mockito.when(modelRouter.route(Mockito.any())).thenReturn(routeResult);
+        Mockito.when(modelRouter.routeAll(Mockito.any())).thenReturn(List.of(routeResult));
         Mockito.when(providerClient.streamChat(Mockito.any())).thenReturn(Flux.just(textEvent, doneEvent));
 
-        Flux<ServerSentEvent<String>> flux = chatGatewayService.streamChat(request, protocolAdapter, null)
+        Flux<ServerSentEvent<String>> flux = chatGatewayService.streamChat(request, protocolAdapter, new RequestStatsContext())
                 .map(e -> (ServerSentEvent<String>) e);
 
         StepVerifier.create(flux)

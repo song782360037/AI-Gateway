@@ -5,6 +5,7 @@ import com.code.aigateway.core.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.model.UnifiedRequest;
 import com.code.aigateway.core.model.UnifiedUsage;
+import com.code.aigateway.core.resilience.CircuitBreakerManager;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -37,13 +38,16 @@ public abstract class AbstractProviderClient implements ProviderClient {
     protected final WebClient.Builder webClientBuilder;
     protected final ObjectMapper objectMapper;
     protected final GatewayProperties gatewayProperties;
+    protected final CircuitBreakerManager circuitBreakerManager;
 
     protected AbstractProviderClient(WebClient.Builder webClientBuilder,
                                      ObjectMapper objectMapper,
-                                     GatewayProperties gatewayProperties) {
+                                     GatewayProperties gatewayProperties,
+                                     CircuitBreakerManager circuitBreakerManager) {
         this.webClientBuilder = webClientBuilder;
         this.objectMapper = objectMapper;
         this.gatewayProperties = gatewayProperties;
+        this.circuitBreakerManager = circuitBreakerManager;
     }
 
     // ==================== 运行时配置 ====================
@@ -102,12 +106,18 @@ public abstract class AbstractProviderClient implements ProviderClient {
     /**
      * 构建 WebClient，默认使用 Bearer Token 认证。
      * 子类可覆盖以自定义认证方式（如 Anthropic 的 x-api-key header）。
+     *
+     * @param config        运行时配置
+     * @param correlationId 请求链路追踪 ID，透传至下游 Provider
      */
-    protected WebClient buildWebClient(ProviderRuntimeConfig config) {
-        return webClientBuilder
+    protected WebClient buildWebClient(ProviderRuntimeConfig config, String correlationId) {
+        WebClient.Builder builder = webClientBuilder
                 .baseUrl(config.baseUrl())
-                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + config.apiKey())
-                .build();
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + config.apiKey());
+        if (correlationId != null && !correlationId.isBlank()) {
+            builder.defaultHeader("X-Correlation-Id", correlationId);
+        }
+        return builder.build();
     }
 
     // ==================== 重试策略 ====================
@@ -268,6 +278,37 @@ public abstract class AbstractProviderClient implements ProviderClient {
             return baseUrl.substring(0, baseUrl.length() - 1);
         }
         return baseUrl;
+    }
+
+    /**
+     * 从统一请求中提取 correlationId
+     */
+    protected String extractCorrelationId(UnifiedRequest request) {
+        return request.getExecutionContext() != null
+                ? request.getExecutionContext().getCorrelationId()
+                : null;
+    }
+
+    /**
+     * 使用熔断器包裹 Mono 调用。
+     * 子类在构建 provider 调用链时调用此方法，自动应用熔断保护。
+     * 熔断打开时会抛出 PROVIDER_CIRCUIT_OPEN 异常。
+     *
+     * @param providerCode provider 编码，用于区分不同熔断实例
+     * @param mono         原始调用
+     */
+    protected <T> Mono<T> withCircuitBreaker(String providerCode, Mono<T> mono) {
+        return mono.transformDeferred(io.github.resilience4j.reactor.circuitbreaker.operator.CircuitBreakerOperator.of(
+                circuitBreakerManager.getOrCreate(providerCode)));
+    }
+
+    /**
+     * 使用熔断器包裹 Flux 流式调用。
+     */
+    protected <T> reactor.core.publisher.Flux<T> withCircuitBreakerFlux(
+            String providerCode, reactor.core.publisher.Flux<T> flux) {
+        return flux.transformDeferred(io.github.resilience4j.reactor.circuitbreaker.operator.CircuitBreakerOperator.of(
+                circuitBreakerManager.getOrCreate(providerCode)));
     }
 
     /**

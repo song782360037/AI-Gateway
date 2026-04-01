@@ -6,6 +6,7 @@ import com.code.aigateway.core.model.UnifiedStreamEvent;
 import com.code.aigateway.core.model.UnifiedUsage;
 import com.code.aigateway.core.model.StreamContext;
 import com.code.aigateway.core.protocol.ProtocolAdapter;
+import com.code.aigateway.core.resilience.FailoverStrategy;
 import com.code.aigateway.core.router.ModelRouter;
 import com.code.aigateway.core.router.RouteResult;
 import com.code.aigateway.core.stats.RequestStatsCollector;
@@ -18,6 +19,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -27,9 +29,9 @@ import java.util.concurrent.atomic.AtomicReference;
  * 协议无关的编排服务，负责：
  * <ul>
  *   <li>请求解析：委托 ProtocolAdapter 将原始请求转换为统一格式</li>
- *   <li>模型路由：根据模型别名路由到实际提供商</li>
+ *   <li>模型路由：根据模型别名获取全部候选路由</li>
  *   <li>能力检查：验证请求与目标模型的能力兼容性</li>
- *   <li>提供商调用：选择并调用对应的 ProviderClient</li>
+ *   <li>故障转移：通过 FailoverStrategy 依次尝试候选 Provider</li>
  *   <li>响应编码：委托 ProtocolAdapter 编码为协议特定格式</li>
  * </ul>
  * </p>
@@ -50,81 +52,98 @@ public class ChatGatewayService {
     /** 请求统计采集器 */
     private final RequestStatsCollector requestStatsCollector;
 
+    /** 故障转移策略 */
+    private final FailoverStrategy failoverStrategy;
+
     /**
-     * 处理非流式聊天请求（含 usage 统计）
-     * <p>
-     * 执行流程：解析请求 -> 路由模型 -> 能力检查 -> 调用提供商 -> 编码响应
-     * </p>
+     * 处理非流式聊天请求（含 usage 统计 + 故障转移）
      */
     public Mono<?> chatWithStats(Object rawRequest, ProtocolAdapter adapter, RequestStatsContext context) {
-        ParsedCall prepared = prepareCall(rawRequest, adapter, context);
-        return prepared.providerClient().chat(prepared.unifiedRequest())
+        UnifiedRequest unifiedRequest = adapter.parse(rawRequest);
+        List<RouteResult> candidates = resolveCandidates(unifiedRequest, context);
+        String correlationId = context != null ? context.getCorrelationId() : null;
+
+        return failoverStrategy.executeWithFailover(candidates, routeResult -> {
+            applyRouteContext(unifiedRequest, routeResult, correlationId);
+            ProviderClient client = providerClientFactory.getClient(routeResult.getProviderType());
+            return client.chat(unifiedRequest);
+        }, correlationId)
                 .doOnNext(response -> requestStatsCollector.collectSuccess(context, response.getUsage()))
                 .map(adapter::encodeResponse);
     }
 
     /**
-     * 处理流式聊天请求
-     * <p>
-     * 执行流程与非流式类似，但返回编码后的流式响应。
-     * 流式结束时会自动采集 usage 统计。
-     * </p>
+     * 处理流式聊天请求（含 usage 统计 + 故障转移）
      */
     public Flux<?> streamChat(Object rawRequest, ProtocolAdapter adapter, RequestStatsContext context) {
-        ParsedCall prepared = prepareCall(rawRequest, adapter, context);
+        UnifiedRequest unifiedRequest = adapter.parse(rawRequest);
+        List<RouteResult> candidates = resolveCandidates(unifiedRequest, context);
+        String correlationId = context != null ? context.getCorrelationId() : null;
 
         String responseId = "chatcmpl-" + UUID.randomUUID();
         long created = Instant.now().getEpochSecond();
-        String model = prepared.routeResult().getTargetModel();
         AtomicReference<UnifiedUsage> finalUsageRef = new AtomicReference<>();
-        StreamContext streamCtx = new StreamContext(responseId, created, model);
 
-        return prepared.providerClient().streamChat(prepared.unifiedRequest())
+        return failoverStrategy.executeStreamWithFailover(candidates, routeResult -> {
+            applyRouteContext(unifiedRequest, routeResult, correlationId);
+            ProviderClient client = providerClientFactory.getClient(routeResult.getProviderType());
+            return client.streamChat(unifiedRequest);
+        }, correlationId)
                 .doOnNext(event -> {
                     if ("done".equals(event.getType()) && event.getUsage() != null) {
                         finalUsageRef.set(event.getUsage());
                     }
                 })
-                .map(event -> adapter.encodeStreamEvent(event, streamCtx))
-                .concatWith(adapter.terminalStreamEvents(streamCtx))
+                .map(event -> {
+                    String model = context != null && context.getRouteResult() != null
+                            ? context.getRouteResult().getTargetModel() : "";
+                    StreamContext streamCtx = new StreamContext(responseId, created, model);
+                    return adapter.encodeStreamEvent(event, streamCtx);
+                })
+                .concatWith(Flux.defer(() -> {
+                    String model = context != null && context.getRouteResult() != null
+                            ? context.getRouteResult().getTargetModel() : "";
+                    StreamContext streamCtx = new StreamContext(responseId, created, model);
+                    return adapter.terminalStreamEvents(streamCtx);
+                }))
                 .doOnComplete(() -> requestStatsCollector.collectStreamSuccess(context, finalUsageRef.get()))
                 .doOnError(ex -> requestStatsCollector.collectError(context, ex));
     }
 
     /**
-     * 公共的"解析-路由-校验"前置流程
+     * 解析请求并获取全部候选路由，同时校验能力
      */
-    private ParsedCall prepareCall(Object rawRequest, ProtocolAdapter adapter, RequestStatsContext context) {
-        UnifiedRequest unifiedRequest = adapter.parse(rawRequest);
-        RouteResult routeResult = modelRouter.route(unifiedRequest);
-        capabilityChecker.validate(unifiedRequest, routeResult);
+    private List<RouteResult> resolveCandidates(UnifiedRequest unifiedRequest, RequestStatsContext context) {
+        List<RouteResult> candidates = modelRouter.routeAll(unifiedRequest);
 
-        if (context != null) {
-            context.setRouteResult(routeResult);
+        // 对首选候选做能力校验
+        if (!candidates.isEmpty()) {
+            capabilityChecker.validate(unifiedRequest, candidates.get(0));
+            if (context != null) {
+                context.setRouteResult(candidates.get(0));
+            }
         }
 
-        applyRouteContext(unifiedRequest, routeResult);
-        ProviderClient providerClient = providerClientFactory.getClient(routeResult.getProviderType());
-        return new ParsedCall(unifiedRequest, routeResult, providerClient);
+        return candidates;
     }
 
-    private void applyRouteContext(UnifiedRequest unifiedRequest, RouteResult routeResult) {
+    /**
+     * 将路由信息写入统一请求的执行上下文
+     */
+    private void applyRouteContext(UnifiedRequest unifiedRequest, RouteResult routeResult, String correlationId) {
         unifiedRequest.setProvider(routeResult.getProviderType().name().toLowerCase());
         unifiedRequest.setModel(routeResult.getTargetModel());
-        unifiedRequest.setExecutionContext(buildExecutionContext(routeResult));
+        unifiedRequest.setExecutionContext(buildExecutionContext(routeResult, correlationId));
     }
 
-    private UnifiedRequest.ProviderExecutionContext buildExecutionContext(RouteResult routeResult) {
-        UnifiedRequest.ProviderExecutionContext executionContext = new UnifiedRequest.ProviderExecutionContext();
-        executionContext.setProviderName(routeResult.getProviderName());
-        executionContext.setProviderBaseUrl(routeResult.getProviderBaseUrl());
-        executionContext.setProviderVersion(routeResult.getProviderVersion());
-        executionContext.setProviderTimeoutSeconds(routeResult.getProviderTimeoutSeconds());
-        executionContext.setProviderApiKey(routeResult.getProviderApiKey());
-        return executionContext;
-    }
-
-    /** 前置解析结果的值对象 */
-    private record ParsedCall(UnifiedRequest unifiedRequest, RouteResult routeResult, ProviderClient providerClient) {
+    private UnifiedRequest.ProviderExecutionContext buildExecutionContext(RouteResult routeResult, String correlationId) {
+        UnifiedRequest.ProviderExecutionContext ctx = new UnifiedRequest.ProviderExecutionContext();
+        ctx.setProviderName(routeResult.getProviderName());
+        ctx.setProviderBaseUrl(routeResult.getProviderBaseUrl());
+        ctx.setProviderVersion(routeResult.getProviderVersion());
+        ctx.setProviderTimeoutSeconds(routeResult.getProviderTimeoutSeconds());
+        ctx.setProviderApiKey(routeResult.getProviderApiKey());
+        ctx.setCorrelationId(correlationId);
+        return ctx;
     }
 }

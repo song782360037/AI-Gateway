@@ -6,6 +6,7 @@ import com.code.aigateway.admin.model.dataobject.RequestLogDO;
 import com.code.aigateway.admin.model.dataobject.RequestStatHourlyDO;
 import com.code.aigateway.core.model.UnifiedUsage;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -170,7 +171,9 @@ public class RequestStatsCollector {
 
     private RequestLogDO buildLog(RequestStatsContext context, String status, String errorCode) {
         RequestLogDO logDO = new RequestLogDO();
-        logDO.setRequestId(UUID.randomUUID().toString());
+        // 优先使用 correlationId 作为 requestId，便于链路追踪
+        logDO.setRequestId(context.getCorrelationId() != null
+                ? context.getCorrelationId() : UUID.randomUUID().toString());
         logDO.setAliasModel(context.getRequestInfo().getModel());
         logDO.setTargetModel(context.getRouteResult() != null ? context.getRouteResult().getTargetModel() : null);
         logDO.setProviderCode(context.getRouteResult() != null ? context.getRouteResult().getProviderName() : null);
@@ -193,5 +196,14 @@ public class RequestStatsCollector {
 
     private int nullToZero(Integer value) {
         return value != null ? value : 0;
+    }
+
+    /**
+     * 优雅停机：尝试完成 sink 并刷盘剩余数据
+     */
+    @PreDestroy
+    public void shutdown() {
+        log.info("[请求统计] 优雅停机，刷盘剩余统计数据...");
+        sink.tryEmitComplete();
     }
 }

@@ -51,6 +51,16 @@ public enum ErrorCode {
     PROVIDER_RATE_LIMIT,
 
     /**
+     * API Key 限流（网关层面）
+     */
+    RATE_LIMITED,
+
+    /**
+     * 提供商熔断器已打开
+     */
+    PROVIDER_CIRCUIT_OPEN,
+
+    /**
      * 提供商错误
      */
     PROVIDER_ERROR,

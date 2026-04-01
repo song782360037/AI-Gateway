@@ -3,6 +3,7 @@ package com.code.aigateway.provider.openai;
 import com.code.aigateway.config.GatewayProperties;
 import com.code.aigateway.core.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
+import com.code.aigateway.core.resilience.CircuitBreakerManager;
 import com.code.aigateway.core.model.UnifiedMessage;
 import com.code.aigateway.core.model.UnifiedOutput;
 import com.code.aigateway.core.model.UnifiedPart;
@@ -54,8 +55,9 @@ public class OpenAiProviderClient extends AbstractProviderClient {
 
     public OpenAiProviderClient(WebClient.Builder webClientBuilder,
                                 ObjectMapper objectMapper,
-                                GatewayProperties gatewayProperties) {
-        super(webClientBuilder, objectMapper, gatewayProperties);
+                                GatewayProperties gatewayProperties,
+                                CircuitBreakerManager circuitBreakerManager) {
+        super(webClientBuilder, objectMapper, gatewayProperties, circuitBreakerManager);
     }
 
     @Override
@@ -68,7 +70,7 @@ public class OpenAiProviderClient extends AbstractProviderClient {
         ProviderRuntimeConfig config = resolveRuntimeConfig(request);
         Map<String, Object> requestBody = buildRequestBody(request, false);
 
-        Mono<JsonNode> responseMono = buildWebClient(config)
+        Mono<JsonNode> responseMono = buildWebClient(config, extractCorrelationId(request))
                 .post()
                 .uri(CHAT_COMPLETIONS_PATH)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -83,7 +85,8 @@ public class OpenAiProviderClient extends AbstractProviderClient {
             responseMono = responseMono.retryWhen(buildRetrySpec(config));
         }
 
-        return responseMono
+        // 熔断器包裹：在 retry 之后、错误映射之前
+        return withCircuitBreaker(config.providerName(), responseMono)
                 .onErrorMap(this::mapTransportError)
                 .map(this::parseChatResponse);
     }
@@ -94,7 +97,7 @@ public class OpenAiProviderClient extends AbstractProviderClient {
         Map<String, Object> requestBody = buildRequestBody(request, true);
         AtomicBoolean firstTokenReceived = new AtomicBoolean(false);
 
-        Flux<ServerSentEvent<String>> sseFlux = buildWebClient(config)
+        Flux<ServerSentEvent<String>> sseFlux = buildWebClient(config, extractCorrelationId(request))
                 .post()
                 .uri(CHAT_COMPLETIONS_PATH)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -111,7 +114,7 @@ public class OpenAiProviderClient extends AbstractProviderClient {
                     .retryWhen(buildStreamRetrySpec(config, firstTokenReceived));
         }
 
-        return sseFlux
+        return withCircuitBreakerFlux(config.providerName(), sseFlux)
                 .onErrorMap(this::mapTransportError)
                 .flatMap(this::parseStreamEvent);
     }

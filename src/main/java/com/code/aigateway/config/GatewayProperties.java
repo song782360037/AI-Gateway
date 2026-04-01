@@ -56,6 +56,21 @@ public class GatewayProperties {
     private AdminAuthProperties adminAuth;
 
     /**
+     * CORS 跨域配置
+     */
+    private CorsProperties cors;
+
+    /**
+     * 限流配置
+     */
+    private RateLimitProperties rateLimit;
+
+    /**
+     * 熔断器配置
+     */
+    private CircuitBreakerProperties circuitBreaker;
+
+    /**
      * 认证配置类
      * <p>
      * 用于配置网关的 API Key 认证
@@ -175,5 +190,58 @@ public class GatewayProperties {
          * JWT Token 有效期（毫秒），默认 24 小时
          */
         private long jwtExpirationMs = 86400000L;
+    }
+
+    /**
+     * CORS 跨域配置
+     */
+    @Data
+    public static class CorsProperties {
+        /** 允许的 Origin 列表 */
+        private List<String> allowedOrigins = List.of("*");
+        /** 允许的 HTTP 方法 */
+        private List<String> allowedMethods = List.of("GET", "POST", "PUT", "DELETE", "OPTIONS");
+        /** 允许的请求头 */
+        private List<String> allowedHeaders = List.of("*");
+        /** 是否允许携带凭证 */
+        private boolean allowCredentials = false;
+        /** 预检请求缓存时间（秒） */
+        private long maxAgeSeconds = 3600;
+    }
+
+    /**
+     * API Key 限流配置
+     */
+    @Data
+    public static class RateLimitProperties {
+        /** 是否启用限流 */
+        private boolean enabled = true;
+        /** 默认每分钟请求上限 */
+        private int defaultRpm = 60;
+        /** 默认每小时请求上限 */
+        private int defaultHourlyRpm = 3600;
+    }
+
+    /**
+     * 熔断器配置
+     */
+    @Data
+    public static class CircuitBreakerProperties {
+        /** 是否启用熔断 */
+        private boolean enabled = true;
+        /** 滑动窗口大小（最近 N 次调用） */
+        private int slidingWindowSize = 10;
+        /** 失败率阈值（百分比），超过则打开熔断 */
+        private float failureRateThreshold = 50.0f;
+        /** 慢调用判定阈值（毫秒） */
+        private int slowCallDurationMs = 10000;
+        /** 慢调用率阈值（百分比） */
+        private float slowCallRateThreshold = 80.0f;
+        /** 熔断打开后等待时间（毫秒），之后进入半开 */
+        private int waitDurationInOpenStateMs = 60000;
+        /** 半开状态允许的探测请求数 */
+        private int permittedNumberOfCallsInHalfOpenState = 5;
+        /** 触发熔断计算的最小调用次数 */
+        private int minimumNumberOfCalls = 5;
     }
 }

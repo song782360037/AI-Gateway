@@ -23,6 +23,12 @@ public class ApiKeyConfigAddReq {
     /** 每日调用上限（NULL 不限） */
     private Integer dailyLimit;
 
+    /** 每分钟请求上限（NULL 使用全局默认） */
+    private Integer rpmLimit;
+
+    /** 每小时请求上限（NULL 使用全局默认） */
+    private Integer hourlyLimit;
+
     /** 累计调用上限（NULL 不限） */
     private Long totalLimit;
 

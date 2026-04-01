@@ -3,6 +3,7 @@ package com.code.aigateway.provider.gemini;
 import com.code.aigateway.config.GatewayProperties;
 import com.code.aigateway.core.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
+import com.code.aigateway.core.resilience.CircuitBreakerManager;
 import com.code.aigateway.core.model.UnifiedMessage;
 import com.code.aigateway.core.model.UnifiedOutput;
 import com.code.aigateway.core.model.UnifiedPart;
@@ -61,8 +62,9 @@ public class GeminiProviderClient extends AbstractProviderClient {
 
     public GeminiProviderClient(WebClient.Builder webClientBuilder,
                                 ObjectMapper objectMapper,
-                                GatewayProperties gatewayProperties) {
-        super(webClientBuilder, objectMapper, gatewayProperties);
+                                GatewayProperties gatewayProperties,
+                                CircuitBreakerManager circuitBreakerManager) {
+        super(webClientBuilder, objectMapper, gatewayProperties, circuitBreakerManager);
     }
 
     @Override
@@ -75,10 +77,13 @@ public class GeminiProviderClient extends AbstractProviderClient {
      * 因此 WebClient 不设置 Authorization header。
      */
     @Override
-    protected WebClient buildWebClient(ProviderRuntimeConfig config) {
-        return webClientBuilder
-                .baseUrl(config.baseUrl())
-                .build();
+    protected WebClient buildWebClient(ProviderRuntimeConfig config, String correlationId) {
+        WebClient.Builder builder = webClientBuilder
+                .baseUrl(config.baseUrl());
+        if (correlationId != null && !correlationId.isBlank()) {
+            builder.defaultHeader("X-Correlation-Id", correlationId);
+        }
+        return builder.build();
     }
 
     @Override
@@ -87,7 +92,7 @@ public class GeminiProviderClient extends AbstractProviderClient {
         Map<String, Object> requestBody = buildRequestBody(request);
         String uri = buildUri(request.getModel(), config.apiKey(), false);
 
-        Mono<JsonNode> responseMono = buildWebClient(config)
+        Mono<JsonNode> responseMono = buildWebClient(config, extractCorrelationId(request))
                 .post()
                 .uri(uri)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -101,7 +106,7 @@ public class GeminiProviderClient extends AbstractProviderClient {
             responseMono = responseMono.retryWhen(buildRetrySpec(config));
         }
 
-        return responseMono
+        return withCircuitBreaker(config.providerName(), responseMono)
                 .onErrorMap(this::mapTransportError)
                 .map(json -> parseResponse(json, request.getModel()));
     }
@@ -114,7 +119,7 @@ public class GeminiProviderClient extends AbstractProviderClient {
         AtomicBoolean firstTokenReceived = new AtomicBoolean(false);
 
         // Gemini 流式通过 ?alt=sse 返回 SSE 格式数据
-        Flux<ServerSentEvent<String>> sseFlux = buildWebClient(config)
+        Flux<ServerSentEvent<String>> sseFlux = buildWebClient(config, extractCorrelationId(request))
                 .post()
                 .uri(uri)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -130,7 +135,7 @@ public class GeminiProviderClient extends AbstractProviderClient {
                     .retryWhen(buildStreamRetrySpec(config, firstTokenReceived));
         }
 
-        return sseFlux
+        return withCircuitBreakerFlux(config.providerName(), sseFlux)
                 .onErrorMap(this::mapTransportError)
                 .filter(event -> event.data() != null && !event.data().isBlank())
                 .flatMap(event -> parseStreamChunks(event.data()));

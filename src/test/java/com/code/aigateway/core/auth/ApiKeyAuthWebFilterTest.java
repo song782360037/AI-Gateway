@@ -3,6 +3,7 @@ package com.code.aigateway.core.auth;
 import com.code.aigateway.admin.mapper.ApiKeyConfigMapper;
 import com.code.aigateway.admin.model.dataobject.ApiKeyConfigDO;
 import com.code.aigateway.config.GatewayProperties;
+import com.code.aigateway.core.ratelimit.RateLimitService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -63,7 +64,8 @@ class ApiKeyAuthWebFilterTest {
         // 默认 filterChain 放行
         when(filterChain.filter(any())).thenReturn(Mono.empty());
 
-        filter = new ApiKeyAuthWebFilter(gatewayProperties, apiKeyConfigMapper, objectMapper);
+        filter = new ApiKeyAuthWebFilter(gatewayProperties, apiKeyConfigMapper, objectMapper,
+                Mockito.mock(RateLimitService.class));
     }
 
     @AfterEach

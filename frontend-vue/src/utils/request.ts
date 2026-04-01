@@ -25,6 +25,8 @@ request.interceptors.request.use((config) => {
  * 响应拦截器：
  * - 业务层错误（R<T> 包装）拆包抛错
  * - HTTP 401 → Token 失效，清除本地状态并跳转登录页
+ * - HTTP 429 → 限流提示，显示剩余配额和重试时间
+ * - HTTP 503 → 服务不可用（熔断），友好提示
  * - 其他网络异常统一提示
  */
 request.interceptors.response.use(
@@ -45,10 +47,11 @@ request.interceptors.response.use(
     return response.data
   },
   (error) => {
+    const status = error?.response?.status
+
     // 401 未授权：Token 过期或无效，清除登录态并跳转
-    if (error?.response?.status === 401) {
+    if (status === 401) {
       localStorage.removeItem(TOKEN_KEY)
-      // 避免重复跳转（当前已在登录页时不跳转）
       const hash = window.location.hash || ''
       if (!hash.includes('/login')) {
         const current = hash.replace(/^#/, '')
@@ -59,6 +62,38 @@ request.interceptors.response.use(
       return Promise.reject(error)
     }
 
+    // 429 限流：提取限流信息
+    if (status === 429) {
+      const headers = error?.response?.headers || {}
+      const limit = headers['x-ratelimit-limit']
+      const retryAfter = headers['retry-after']
+
+      let rateLimitMsg = '请求过于频繁，请稍后重试'
+      if (limit) {
+        rateLimitMsg = `请求频率超限（上限 ${limit} 次/分钟），请稍后重试`
+      }
+      if (retryAfter) {
+        const resetDate = new Date(Number(retryAfter) * 1000)
+        const waitSeconds = Math.max(0, Math.ceil((resetDate.getTime() - Date.now()) / 1000))
+        rateLimitMsg += `，预计 ${waitSeconds} 秒后恢复`
+      }
+      ElMessage.warning(rateLimitMsg)
+      return Promise.reject(error)
+    }
+
+    // 503 服务不可用（熔断器打开）
+    if (status === 503) {
+      ElMessage.error('AI 服务暂时不可用，系统正在自动切换备用服务，请稍后重试')
+      return Promise.reject(error)
+    }
+
+    // 504 网关超时
+    if (status === 504) {
+      ElMessage.error('AI 服务响应超时，请稍后重试或减少输入长度')
+      return Promise.reject(error)
+    }
+
+    // 其他错误
     const message = error?.response?.data?.message
       || error?.response?.data?.error?.message
       || error?.message

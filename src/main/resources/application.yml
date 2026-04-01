@@ -4,6 +4,10 @@ spring:
   profiles:
     active: local
 
+  # 优雅停机：等待在途请求完成
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
   # MySQL 数据源（管理接口 + Flyway 使用）
   datasource:
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:ai_gateway}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
@@ -53,6 +57,36 @@ gateway:
     initial-interval-ms: 1000 # 初始退避间隔
     max-interval-ms: 30000 # 最大退避间隔
 
+  # CORS 跨域配置
+  cors:
+    enabled: true
+    allowed-origins: "*"
+    allowed-methods: "GET,POST,PUT,DELETE,OPTIONS"
+    allowed-headers: "*"
+    allow-credentials: false
+    max-age-seconds: 3600
+
+  # 限流配置
+  rate-limit:
+    enabled: true
+    default-rpm: 60
+    default-hourly-rpm: 3600
+
+  # 熔断器配置
+  circuit-breaker:
+    enabled: true
+    sliding-window-size: 10
+    failure-rate-threshold: 50.0
+    slow-call-duration-ms: 10000
+    slow-call-rate-threshold: 80.0
+    wait-duration-in-open-state-ms: 60000
+    permitted-number-of-calls-in-half-open-state: 5
+    minimum-number-of-calls: 5
+
+# 优雅停机
+server:
+  shutdown: graceful
+
 # MyBatis
 mybatis:
   mapper-locations: classpath:mapper/*.xml
@@ -64,7 +98,19 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,prometheus # 暴露健康检查与 Prometheus 指标端点
+        include: health,info,prometheus # 暴露健康检查、应用信息和 Prometheus 指标端点
+  endpoint:
+    health:
+      show-details: when-authorized # 认证后显示详细健康信息
+      show-components: when-authorized
+  info:
+    env:
+      enabled: true
+
+info:
+  app:
+    name: ${spring.application.name}
+    version: 1.0.0
 
 # SpringDoc OpenAPI 文档配置
 springdoc:

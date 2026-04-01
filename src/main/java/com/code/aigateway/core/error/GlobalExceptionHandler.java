@@ -150,9 +150,11 @@ public class GlobalExceptionHandler {
         return switch (errorCode) {
             case INVALID_REQUEST, MODEL_NOT_FOUND, CAPABILITY_NOT_SUPPORTED -> HttpStatus.BAD_REQUEST;
             case AUTH_FAILED -> HttpStatus.UNAUTHORIZED;
+            case RATE_LIMITED -> HttpStatus.TOO_MANY_REQUESTS;
+            case PROVIDER_RATE_LIMIT -> HttpStatus.TOO_MANY_REQUESTS;
+            case PROVIDER_CIRCUIT_OPEN -> HttpStatus.SERVICE_UNAVAILABLE;
             case PROVIDER_NOT_FOUND, PROVIDER_DISABLED, PROVIDER_ERROR, STREAM_PARSE_ERROR -> HttpStatus.BAD_GATEWAY;
             case PROVIDER_TIMEOUT -> HttpStatus.GATEWAY_TIMEOUT;
-            case PROVIDER_RATE_LIMIT -> HttpStatus.TOO_MANY_REQUESTS;
             default -> HttpStatus.INTERNAL_SERVER_ERROR;
         };
     }

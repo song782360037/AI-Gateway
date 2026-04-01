@@ -9,6 +9,8 @@ export interface ApiKeyConfigAddReq {
   name: string
   status?: string
   dailyLimit?: number | null
+  rpmLimit?: number | null
+  hourlyLimit?: number | null
   totalLimit?: number | null
   expireTime?: string | null
 }
@@ -19,6 +21,8 @@ export interface ApiKeyConfigUpdateReq {
   name?: string
   status?: string
   dailyLimit?: number | null
+  rpmLimit?: number | null
+  hourlyLimit?: number | null
   totalLimit?: number | null
   expireTime?: string | null
 }
@@ -29,6 +33,8 @@ export interface ApiKeyConfigRsp {
   name: string
   status: string
   dailyLimit?: number | null
+  rpmLimit?: number | null
+  hourlyLimit?: number | null
   totalLimit?: number | null
   usedCount: number
   expireTime?: string | null

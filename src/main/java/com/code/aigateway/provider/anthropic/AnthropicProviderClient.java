@@ -3,6 +3,7 @@ package com.code.aigateway.provider.anthropic;
 import com.code.aigateway.config.GatewayProperties;
 import com.code.aigateway.core.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
+import com.code.aigateway.core.resilience.CircuitBreakerManager;
 import com.code.aigateway.core.model.UnifiedMessage;
 import com.code.aigateway.core.model.UnifiedOutput;
 import com.code.aigateway.core.model.UnifiedPart;
@@ -57,8 +58,9 @@ public class AnthropicProviderClient extends AbstractProviderClient {
 
     public AnthropicProviderClient(WebClient.Builder webClientBuilder,
                                    ObjectMapper objectMapper,
-                                   GatewayProperties gatewayProperties) {
-        super(webClientBuilder, objectMapper, gatewayProperties);
+                                   GatewayProperties gatewayProperties,
+                                   CircuitBreakerManager circuitBreakerManager) {
+        super(webClientBuilder, objectMapper, gatewayProperties, circuitBreakerManager);
     }
 
     @Override
@@ -67,14 +69,17 @@ public class AnthropicProviderClient extends AbstractProviderClient {
     }
 
     @Override
-    protected WebClient buildWebClient(ProviderRuntimeConfig config) {
+    protected WebClient buildWebClient(ProviderRuntimeConfig config, String correlationId) {
         // Anthropic 使用 x-api-key header 而非 Bearer Token
-        return webClientBuilder
+        WebClient.Builder builder = webClientBuilder
                 .baseUrl(config.baseUrl())
                 .defaultHeader("x-api-key", config.apiKey())
                 .defaultHeader("anthropic-version", resolveApiVersion())
-                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                .build();
+                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
+        if (correlationId != null && !correlationId.isBlank()) {
+            builder.defaultHeader("X-Correlation-Id", correlationId);
+        }
+        return builder.build();
     }
 
     @Override
@@ -82,7 +87,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
         ProviderRuntimeConfig config = resolveRuntimeConfig(request);
         Map<String, Object> requestBody = buildRequestBody(request, false);
 
-        Mono<JsonNode> responseMono = buildWebClient(config)
+        Mono<JsonNode> responseMono = buildWebClient(config, extractCorrelationId(request))
                 .post()
                 .uri(MESSAGES_PATH)
                 .body(BodyInserters.fromValue(requestBody))
@@ -95,7 +100,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
             responseMono = responseMono.retryWhen(buildRetrySpec(config));
         }
 
-        return responseMono
+        return withCircuitBreaker(config.providerName(), responseMono)
                 .onErrorMap(this::mapTransportError)
                 .map(this::parseResponse);
     }
@@ -109,7 +114,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
         // 流式状态跟踪器：累积 tool call 参数
         StreamState state = new StreamState();
 
-        Flux<ServerSentEvent<String>> sseFlux = buildWebClient(config)
+        Flux<ServerSentEvent<String>> sseFlux = buildWebClient(config, extractCorrelationId(request))
                 .post()
                 .uri(MESSAGES_PATH)
                 .body(BodyInserters.fromValue(requestBody))
@@ -124,7 +129,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
                     .retryWhen(buildStreamRetrySpec(config, firstTokenReceived));
         }
 
-        return sseFlux
+        return withCircuitBreakerFlux(config.providerName(), sseFlux)
                 .onErrorMap(this::mapTransportError)
                 .flatMap(event -> parseStreamEvent(event, state));
     }

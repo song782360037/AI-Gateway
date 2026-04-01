@@ -1,5 +1,6 @@
 package com.code.aigateway.core.stats;
 
+import com.code.aigateway.core.filter.CorrelationIdWebFilter;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
@@ -29,6 +30,8 @@ public class RequestStatsContextFilter implements WebFilter {
         RequestStatsContext context = new RequestStatsContext();
         context.setStartTimeMs(System.currentTimeMillis());
         context.setSourceIp(resolveSourceIp(exchange.getRequest()));
+        // 读取 CorrelationIdWebFilter 设置的链路追踪 ID
+        context.setCorrelationId(exchange.getAttribute(CorrelationIdWebFilter.CORRELATION_ID_ATTR));
         exchange.getAttributes().put(RequestStatsContext.ATTRIBUTE_KEY, context);
         return chain.filter(exchange);
     }

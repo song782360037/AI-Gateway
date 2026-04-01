@@ -19,6 +19,8 @@ public interface ApiKeyConfigMapper {
             @Result(property = "name", column = "name"),
             @Result(property = "status", column = "status"),
             @Result(property = "dailyLimit", column = "daily_limit"),
+            @Result(property = "rpmLimit", column = "rpm_limit"),
+            @Result(property = "hourlyLimit", column = "hourly_limit"),
             @Result(property = "totalLimit", column = "total_limit"),
             @Result(property = "usedCount", column = "used_count"),
             @Result(property = "expireTime", column = "expire_time"),
@@ -30,8 +32,8 @@ public interface ApiKeyConfigMapper {
             @Result(property = "deleted", column = "deleted")
     })
     @Select("""
-            SELECT id, key_hash, key_prefix, name, status, daily_limit, total_limit,
-                   used_count, expire_time, version_no, creator, create_time, updater,
+            SELECT id, key_hash, key_prefix, name, status, daily_limit, rpm_limit, hourly_limit,
+                   total_limit, used_count, expire_time, version_no, creator, create_time, updater,
                    update_time, deleted
             FROM api_key_config
             WHERE id = #{id}
@@ -41,8 +43,8 @@ public interface ApiKeyConfigMapper {
 
     /** 按 key 哈希查询，供鉴权过滤器使用 */
     @Select("""
-            SELECT id, key_hash, key_prefix, name, status, daily_limit, total_limit,
-                   used_count, expire_time, version_no, creator, create_time, updater,
+            SELECT id, key_hash, key_prefix, name, status, daily_limit, rpm_limit, hourly_limit,
+                   total_limit, used_count, expire_time, version_no, creator, create_time, updater,
                    update_time, deleted
             FROM api_key_config
             WHERE key_hash = #{keyHash}
@@ -55,12 +57,12 @@ public interface ApiKeyConfigMapper {
     /** 插入 API Key 配置，回填主键 */
     @Insert("""
             INSERT INTO api_key_config (
-                key_hash, key_prefix, name, status, daily_limit, total_limit,
-                used_count, expire_time, version_no, creator, create_time, updater,
+                key_hash, key_prefix, name, status, daily_limit, rpm_limit, hourly_limit,
+                total_limit, used_count, expire_time, version_no, creator, create_time, updater,
                 update_time, deleted
             ) VALUES (
-                #{keyHash}, #{keyPrefix}, #{name}, #{status}, #{dailyLimit}, #{totalLimit},
-                #{usedCount}, #{expireTime}, #{versionNo}, #{creator}, #{createTime}, #{updater},
+                #{keyHash}, #{keyPrefix}, #{name}, #{status}, #{dailyLimit}, #{rpmLimit}, #{hourlyLimit},
+                #{totalLimit}, #{usedCount}, #{expireTime}, #{versionNo}, #{creator}, #{createTime}, #{updater},
                 #{updateTime}, #{deleted}
             )
             """)
@@ -73,6 +75,8 @@ public interface ApiKeyConfigMapper {
             SET name = #{name},
                 status = #{status},
                 daily_limit = #{dailyLimit},
+                rpm_limit = #{rpmLimit},
+                hourly_limit = #{hourlyLimit},
                 total_limit = #{totalLimit},
                 expire_time = #{expireTime},
                 version_no = #{versionNo} + 1,
@@ -106,8 +110,8 @@ public interface ApiKeyConfigMapper {
     /** 分页查询，动态拼接筛选条件 */
     @Select("""
             <script>
-            SELECT id, key_hash, key_prefix, name, status, daily_limit, total_limit,
-                   used_count, expire_time, version_no, creator, create_time, updater,
+            SELECT id, key_hash, key_prefix, name, status, daily_limit, rpm_limit, hourly_limit,
+                   total_limit, used_count, expire_time, version_no, creator, create_time, updater,
                    update_time, deleted
             FROM api_key_config
             WHERE deleted = 0

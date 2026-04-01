@@ -38,6 +38,9 @@
         <el-table-column label="每日限额" min-width="100">
           <template #default="{ row }">{{ row.dailyLimit ?? '不限' }}</template>
         </el-table-column>
+        <el-table-column label="RPM 限流" min-width="90">
+          <template #default="{ row }">{{ row.rpmLimit ?? '默认' }}</template>
+        </el-table-column>
         <el-table-column label="累计限额" min-width="100">
           <template #default="{ row }">{{ row.totalLimit ?? '不限' }}</template>
         </el-table-column>
@@ -112,6 +115,12 @@
         </el-form-item>
         <el-form-item label="每日限额">
           <el-input-number v-model="form.dailyLimit" :min="1" :precision="0" placeholder="不限" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="RPM 限流">
+          <el-input-number v-model="form.rpmLimit" :min="1" :precision="0" placeholder="使用全局默认" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="小时限流">
+          <el-input-number v-model="form.hourlyLimit" :min="1" :precision="0" placeholder="使用全局默认" style="width: 100%" />
         </el-form-item>
         <el-form-item label="累计限额">
           <el-input-number v-model="form.totalLimit" :min="1" :precision="0" placeholder="不限" style="width: 100%" />
@@ -188,6 +197,8 @@ const form = reactive({
   name: '',
   status: 'ACTIVE' as string,
   dailyLimit: undefined as number | undefined,
+  rpmLimit: undefined as number | undefined,
+  hourlyLimit: undefined as number | undefined,
   totalLimit: undefined as number | undefined,
   expireTime: undefined as string | undefined,
 })
@@ -241,6 +252,8 @@ function openEdit(row: ApiKeyConfigRsp) {
   form.name = row.name
   form.status = row.status
   form.dailyLimit = row.dailyLimit ?? undefined
+  form.rpmLimit = row.rpmLimit ?? undefined
+  form.hourlyLimit = row.hourlyLimit ?? undefined
   form.totalLimit = row.totalLimit ?? undefined
   form.expireTime = row.expireTime ?? undefined
   dialogVisible.value = true
@@ -250,6 +263,8 @@ function resetForm() {
   form.name = ''
   form.status = 'ACTIVE'
   form.dailyLimit = undefined
+  form.rpmLimit = undefined
+  form.hourlyLimit = undefined
   form.totalLimit = undefined
   form.expireTime = undefined
   formRef.value?.resetFields()
@@ -268,6 +283,8 @@ async function handleSubmit() {
           name: form.name,
           status: form.status,
           dailyLimit: form.dailyLimit ?? null,
+          rpmLimit: form.rpmLimit ?? null,
+          hourlyLimit: form.hourlyLimit ?? null,
           totalLimit: form.totalLimit ?? null,
           expireTime: form.expireTime ?? null,
         }
@@ -278,6 +295,8 @@ async function handleSubmit() {
           name: form.name,
           status: form.status,
           dailyLimit: form.dailyLimit ?? null,
+          rpmLimit: form.rpmLimit ?? null,
+          hourlyLimit: form.hourlyLimit ?? null,
           totalLimit: form.totalLimit ?? null,
           expireTime: form.expireTime ?? null,
         }

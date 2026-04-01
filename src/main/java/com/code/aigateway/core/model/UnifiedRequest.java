@@ -120,5 +120,10 @@ public class UnifiedRequest {
          * </p>
          */
         private String providerApiKey;
+
+        /**
+         * 请求链路追踪 ID，透传至下游 Provider
+         */
+        private String correlationId;
     }
 }

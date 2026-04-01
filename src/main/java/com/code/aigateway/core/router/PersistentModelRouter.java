@@ -74,4 +74,39 @@ public class PersistentModelRouter implements ModelRouter {
                     "unsupported provider type for model " + modelName + ": " + providerType);
         }
     }
+
+    /**
+     * 返回全部候选路由（用于故障转移）
+     * <p>
+     * 将快照中的所有候选转换为 RouteResult 列表，按优先级从高到低排序。
+     * </p>
+     */
+    @Override
+    public List<RouteResult> routeAll(UnifiedRequest request) {
+        if (request.getModel() == null || request.getModel().isBlank()) {
+            throw new GatewayException(ErrorCode.INVALID_REQUEST, "model is required");
+        }
+
+        RoutingConfigSnapshot snapshot = routingSnapshotHolder.get();
+        if (snapshot == null) {
+            return fallbackRouter.routeAll(request);
+        }
+
+        List<RouteCandidate> candidates = snapshot.getCandidates(request.getModel());
+        if (candidates.isEmpty()) {
+            return fallbackRouter.routeAll(request);
+        }
+
+        return candidates.stream()
+                .map(c -> RouteResult.builder()
+                        .providerType(resolveProviderType(c.getProviderType(), request.getModel()))
+                        .providerName(c.getProviderCode())
+                        .targetModel(c.getTargetModel())
+                        .providerBaseUrl(c.getProviderBaseUrl())
+                        .providerVersion(c.getProviderVersion())
+                        .providerTimeoutSeconds(c.getProviderTimeoutSeconds())
+                        .providerApiKey(c.getProviderApiKey())
+                        .build())
+                .toList();
+    }
 }

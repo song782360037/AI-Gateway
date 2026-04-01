@@ -8,6 +8,8 @@ import com.code.aigateway.api.response.OpenAiErrorResponse;
 import com.code.aigateway.config.GatewayProperties;
 import com.code.aigateway.core.model.ResponseProtocol;
 import com.code.aigateway.core.protocol.ProtocolResolver;
+import com.code.aigateway.core.ratelimit.RateLimitResult;
+import com.code.aigateway.core.ratelimit.RateLimitService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -31,10 +33,10 @@ import java.time.LocalDateTime;
 import java.util.HexFormat;
 
 /**
- * API Key 认证 WebFilter
+ * API Key 认证 WebFilter（含限流）
  *
- * <p>拦截 /v1/** 和 /v1beta/** 路径，校验请求携带的 API Key。
- * 根据请求路径推断协议类型，返回对应格式的错误响应。
+ * <p>拦截 /v1/** 和 /v1beta/** 路径，校验请求携带的 API Key，
+ * 鉴权通过后检查限流策略。
  * <ul>
  *   <li>优先从 Authorization: Bearer ak-xxx 提取</li>
  *   <li>回退从 X-Api-Key: ak-xxx 提取</li>
@@ -55,6 +57,7 @@ public class ApiKeyAuthWebFilter implements WebFilter {
     private final GatewayProperties gatewayProperties;
     private final ApiKeyConfigMapper apiKeyConfigMapper;
     private final ObjectMapper objectMapper;
+    private final RateLimitService rateLimitService;
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
@@ -76,8 +79,6 @@ public class ApiKeyAuthWebFilter implements WebFilter {
         }
 
         // SHA-256 哈希后查库校验（阻塞操作切线程）
-        // 注意：fromCallable 返回 null 时 Mono 为空，flatMap 不会执行，
-        // 因此用 Optional 包装确保 null 值也能进入 flatMap
         String keyHash = sha256Hex(rawKey);
         return Mono.fromCallable(() -> java.util.Optional.ofNullable(apiKeyConfigMapper.selectByHash(keyHash)))
                 .subscribeOn(Schedulers.boundedElastic())
@@ -91,14 +92,53 @@ public class ApiKeyAuthWebFilter implements WebFilter {
                         return writeAuthError(exchange, path, validationError);
                     }
 
-                    // 鉴权通过，响应完成时递增使用计数
-                    exchange.getResponse().beforeCommit(() ->
-                            Mono.fromRunnable(() -> apiKeyConfigMapper.incrementUsedCount(config.getId()))
-                                    .subscribeOn(Schedulers.boundedElastic())
-                                    .then()
-                    );
-                    return chain.filter(exchange);
+                    // 鉴权通过，检查限流
+                    return checkRateLimitAndContinue(exchange, chain, path, config);
                 });
+    }
+
+    /**
+     * 限流检查 + 通过后继续过滤器链
+     */
+    private Mono<Void> checkRateLimitAndContinue(ServerWebExchange exchange, WebFilterChain chain,
+                                                  String path, ApiKeyConfigDO config) {
+        GatewayProperties.RateLimitProperties rlProps = gatewayProperties.getRateLimit();
+
+        // 限流未启用或 Redis 不可用时直接放行
+        if (rlProps == null || !rlProps.isEnabled()) {
+            return incrementAndContinue(exchange, chain, config);
+        }
+
+        // 读取 API Key 级别的限流配置，未配置则使用全局默认值
+        int rpmLimit = config.getRpmLimit() != null ? config.getRpmLimit() : rlProps.getDefaultRpm();
+        int hourlyLimit = config.getHourlyLimit() != null ? config.getHourlyLimit() : rlProps.getDefaultHourlyRpm();
+
+        return rateLimitService.checkRateLimit(config.getKeyHash(), rpmLimit, hourlyLimit)
+                .flatMap(result -> {
+                    // 设置限流响应头（无论是否超限）
+                    ServerHttpResponse response = exchange.getResponse();
+                    response.getHeaders().set("X-RateLimit-Limit", String.valueOf(result.limit()));
+                    response.getHeaders().set("X-RateLimit-Remaining", String.valueOf(Math.max(0, result.remaining())));
+                    response.getHeaders().set("X-RateLimit-Reset", String.valueOf(result.resetAtEpochSeconds()));
+
+                    if (!result.allowed()) {
+                        log.warn("[API Key限流] keyPrefix={}, 已超限 limit={}, remaining={}",
+                                config.getKeyPrefix(), result.limit(), result.remaining());
+                        return writeRateLimitError(exchange, path, result);
+                    }
+
+                    return incrementAndContinue(exchange, chain, config);
+                });
+    }
+
+    /** 递增使用计数并继续过滤器链 */
+    private Mono<Void> incrementAndContinue(ServerWebExchange exchange, WebFilterChain chain, ApiKeyConfigDO config) {
+        exchange.getResponse().beforeCommit(() ->
+                Mono.fromRunnable(() -> apiKeyConfigMapper.incrementUsedCount(config.getId()))
+                        .subscribeOn(Schedulers.boundedElastic())
+                        .then()
+        );
+        return chain.filter(exchange);
     }
 
     /** 检查 auth 开关 */
@@ -148,7 +188,36 @@ public class ApiKeyAuthWebFilter implements WebFilter {
         return response.writeWith(Mono.just(response.bufferFactory().wrap(bytes)));
     }
 
-    /** 按协议构建错误响应体 */
+    /** 返回 429 Too Many Requests，携带限流状态信息 */
+    private Mono<Void> writeRateLimitError(ServerWebExchange exchange, String path, RateLimitResult result) {
+        ServerHttpResponse response = exchange.getResponse();
+        response.setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
+        response.getHeaders().set(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
+        response.getHeaders().set(HttpHeaders.RETRY_AFTER, String.valueOf(result.resetAtEpochSeconds()));
+
+        ResponseProtocol protocol = ProtocolResolver.fromPath(path);
+        Object errorBody = buildRateLimitError(protocol, result);
+        byte[] bytes = toJsonBytes(errorBody);
+        return response.writeWith(Mono.just(response.bufferFactory().wrap(bytes)));
+    }
+
+    /** 按协议构建限流错误响应 */
+    private Object buildRateLimitError(ResponseProtocol protocol, RateLimitResult result) {
+        String message = "Rate limit exceeded. Limit: " + result.limit() + ", remaining: " + result.remaining();
+        return switch (protocol) {
+            case ANTHROPIC -> new AnthropicErrorResponse(
+                    "error", new AnthropicErrorResponse.ErrorDetail("rate_limit_error", message)
+            );
+            case GEMINI -> new GeminiErrorResponse(
+                    new GeminiErrorResponse.ErrorDetail(429, message, "RESOURCE_EXHAUSTED")
+            );
+            default -> new OpenAiErrorResponse(
+                    new OpenAiErrorResponse.Error(message, "rate_limit_error", "RATE_LIMITED", null)
+            );
+        };
+    }
+
+    /** 按协议构建认证错误响应体 */
     private Object buildProtocolError(ResponseProtocol protocol, String message) {
         return switch (protocol) {
             case ANTHROPIC -> new AnthropicErrorResponse(

@@ -62,6 +62,8 @@ public class ApiKeyConfigServiceImpl implements IApiKeyConfigService {
         record.setName(req.getName());
         record.setStatus(defaultIfBlank(req.getStatus(), "ACTIVE"));
         record.setDailyLimit(req.getDailyLimit());
+        record.setRpmLimit(req.getRpmLimit());
+        record.setHourlyLimit(req.getHourlyLimit());
         record.setTotalLimit(req.getTotalLimit());
         record.setUsedCount(0L);
         record.setExpireTime(req.getExpireTime());
@@ -101,6 +103,8 @@ public class ApiKeyConfigServiceImpl implements IApiKeyConfigService {
         record.setName(req.getName() != null ? req.getName() : existing.getName());
         record.setStatus(req.getStatus() != null ? req.getStatus() : existing.getStatus());
         record.setDailyLimit(req.getDailyLimit());
+        record.setRpmLimit(req.getRpmLimit());
+        record.setHourlyLimit(req.getHourlyLimit());
         record.setTotalLimit(req.getTotalLimit());
         record.setExpireTime(req.getExpireTime());
         record.setUpdater("");
@@ -194,6 +198,8 @@ public class ApiKeyConfigServiceImpl implements IApiKeyConfigService {
         rsp.setName(record.getName());
         rsp.setStatus(record.getStatus());
         rsp.setDailyLimit(record.getDailyLimit());
+        rsp.setRpmLimit(record.getRpmLimit());
+        rsp.setHourlyLimit(record.getHourlyLimit());
         rsp.setTotalLimit(record.getTotalLimit());
         rsp.setUsedCount(record.getUsedCount());
         rsp.setExpireTime(record.getExpireTime());
