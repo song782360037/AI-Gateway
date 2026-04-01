@@ -8,8 +8,8 @@
       <el-menu
         :default-active="activeMenu"
         :router="true"
-        background-color="#1d1e2c"
-        text-color="#a3a6b7"
+        background-color="#0f172a"
+        text-color="#7c8aa6"
         active-text-color="#ffffff"
         class="sidebar-menu"
       >
@@ -111,7 +111,7 @@ async function handleLogout() {
 </script>
 
 <style scoped>
-/* 侧边栏底部 */
+/* 侧边栏底部用户区 */
 .sidebar-footer {
   margin-top: auto;
   padding: 12px 16px;
@@ -125,7 +125,7 @@ async function handleLogout() {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #a3a6b7;
+  color: #7c8aa6;
 }
 
 .sidebar-user__name {
@@ -141,13 +141,13 @@ async function handleLogout() {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #a3a6b7;
+  color: #7c8aa6;
   cursor: pointer;
   transition: background 0.2s, color 0.2s;
 }
 
 .sidebar-logout:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f56c6c;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
 }
 </style>

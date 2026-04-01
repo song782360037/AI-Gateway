@@ -22,7 +22,7 @@
         <div class="card-header">
           <span class="card-header__title">模型调用排行</span>
         </div>
-        <el-table :data="modelRank" stripe size="default" class="dashboard-table">
+        <el-table :data="modelRank" stripe size="default" height="100%" class="dashboard-table">
           <el-table-column prop="rank" label="#" width="50" />
           <el-table-column prop="modelName" label="模型" min-width="160" />
           <el-table-column prop="callCount" label="调用次数" min-width="100">
@@ -41,7 +41,7 @@
         <div class="card-header">
           <span class="card-header__title">最近请求</span>
         </div>
-        <el-table :data="recentRequests" stripe size="default" class="dashboard-table">
+        <el-table :data="recentRequests" stripe size="default" height="100%" class="dashboard-table">
           <el-table-column prop="time" label="时间" width="90" />
           <el-table-column prop="model" label="模型" min-width="160" />
           <el-table-column prop="provider" label="通道" min-width="120" />
@@ -109,48 +109,48 @@ const statCards = computed(() => [
     value: formatNumber(stats.requests.today),
     sub: `累计 ${formatNumber(stats.requests.total)}`,
     icon: Connection,
-    iconBg: '#ecf5ff',
-    iconColor: '#409eff',
+    iconBg: 'rgba(67, 97, 238, 0.1)',
+    iconColor: '#4361ee',
   },
   {
     label: '今日消费',
     value: formatCost(stats.cost.today),
     sub: `累计 ${formatCost(stats.cost.total)}`,
     icon: Coin,
-    iconBg: '#fdf6ec',
-    iconColor: '#e6a23c',
+    iconBg: 'rgba(245, 158, 11, 0.1)',
+    iconColor: '#f59e0b',
   },
   {
     label: '今日 Token',
     value: formatTokenCount(stats.tokens.today),
     sub: `累计 ${formatTokenCount(stats.tokens.total)}`,
     icon: TrendCharts,
-    iconBg: '#f0f9eb',
-    iconColor: '#67c23a',
+    iconBg: 'rgba(16, 185, 129, 0.1)',
+    iconColor: '#10b981',
   },
   {
     label: 'TPM',
     value: formatNumber(stats.tpm),
     sub: '每分钟 Token 数',
     icon: Odometer,
-    iconBg: '#fef0f0',
-    iconColor: '#f56c6c',
+    iconBg: 'rgba(239, 68, 68, 0.1)',
+    iconColor: '#ef4444',
   },
   {
     label: 'RPM',
     value: formatNumber(stats.rpm),
     sub: '每分钟请求数',
     icon: TrendCharts,
-    iconBg: '#f4f4f5',
-    iconColor: '#909399',
+    iconBg: 'rgba(100, 116, 139, 0.1)',
+    iconColor: '#64748b',
   },
   {
     label: '平均响应',
     value: formatMs(stats.avgResponseMs),
     sub: '最近 1 小时均值',
     icon: Timer,
-    iconBg: '#ecf5ff',
-    iconColor: '#409eff',
+    iconBg: 'rgba(6, 182, 212, 0.1)',
+    iconColor: '#06b6d4',
   },
 ])
 

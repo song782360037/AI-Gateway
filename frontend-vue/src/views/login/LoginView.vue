@@ -161,10 +161,10 @@ function initCanvas() {
 
   // 颜色主题：蓝色 + 青色星链，偶尔暖色星点
   const COLORS = [
-    { r: 64, g: 158, b: 255 },   // 主蓝
-    { r: 100, g: 200, b: 255 },  // 亮蓝
-    { r: 80, g: 220, b: 240 },   // 青
-    { r: 140, g: 180, b: 255 },  // 淡紫蓝
+    { r: 67, g: 97, b: 238 },   // 主蓝
+    { r: 105, g: 131, b: 242 },  // 亮蓝
+    { r: 6, g: 182, b: 212 },    // 青
+    { r: 140, g: 160, b: 242 },  // 淡紫蓝
     { r: 200, g: 160, b: 100 },  // 暖金（少量）
   ]
 
@@ -284,7 +284,7 @@ function initCanvas() {
         const dist = Math.sqrt(dx * dx + dy * dy)
         if (dist < MOUSE_RADIUS) {
           const alpha = (1 - dist / MOUSE_RADIUS) * 0.4
-          ctx!.strokeStyle = `rgba(100,200,255,${alpha})`
+          ctx!.strokeStyle = `rgba(105,131,242,${alpha})`
           ctx!.lineWidth = (1 - dist / MOUSE_RADIUS) * 2
           ctx!.beginPath()
           ctx!.moveTo(mouse.value.x, mouse.value.y)
@@ -321,9 +321,9 @@ function initCanvas() {
         mouse.value.x, mouse.value.y, 0,
         mouse.value.x, mouse.value.y, MOUSE_RADIUS * 0.5,
       )
-      cursorGlow.addColorStop(0, 'rgba(64,158,255,0.06)')
-      cursorGlow.addColorStop(0.5, 'rgba(64,158,255,0.02)')
-      cursorGlow.addColorStop(1, 'rgba(64,158,255,0)')
+      cursorGlow.addColorStop(0, 'rgba(67,97,238,0.06)')
+      cursorGlow.addColorStop(0.5, 'rgba(67,97,238,0.02)')
+      cursorGlow.addColorStop(1, 'rgba(67,97,238,0)')
       ctx!.fillStyle = cursorGlow
       ctx!.beginPath()
       ctx!.arc(mouse.value.x, mouse.value.y, MOUSE_RADIUS * 0.5, 0, Math.PI * 2)
@@ -411,10 +411,10 @@ onUnmounted(() => {
   width: 56px;
   height: 56px;
   border-radius: 14px;
-  background: linear-gradient(135deg, #409eff 0%, #2b6cb0 100%);
+  background: linear-gradient(135deg, #4361ee 0%, #3451b2 100%);
   color: #fff;
   margin-bottom: 16px;
-  box-shadow: 0 8px 24px rgba(64, 158, 255, 0.3);
+  box-shadow: 0 8px 24px rgba(67, 97, 238, 0.3);
 }
 
 .brand-title {
@@ -441,12 +441,12 @@ onUnmounted(() => {
 }
 
 .login-form :deep(.el-input__wrapper:hover) {
-  border-color: rgba(64, 158, 255, 0.4);
+  border-color: rgba(67, 97, 238, 0.4);
   background: rgba(255, 255, 255, 0.08);
 }
 
 .login-form :deep(.el-input__wrapper.is-focus) {
-  border-color: #409eff;
+  border-color: #4361ee;
   background: rgba(255, 255, 255, 0.1);
 }
 
@@ -456,9 +456,6 @@ onUnmounted(() => {
 
 .login-form :deep(.el-input__inner::placeholder) {
   color: rgba(163, 166, 183, 0.5);
-}
-
-.login-form :deep(.el-input__prefix .el-icon) {
   color: rgba(163, 166, 183, 0.6);
 }
 
@@ -473,13 +470,13 @@ onUnmounted(() => {
   font-weight: 600;
   border-radius: 8px;
   margin-top: 4px;
-  background: linear-gradient(135deg, #409eff, #2b6cb0);
+  background: linear-gradient(135deg, #4361ee, #3451b2);
   border: none;
   letter-spacing: 0.02em;
 }
 
 .login-btn:hover {
-  background: linear-gradient(135deg, #5dafef, #3a80c0);
+  background: linear-gradient(135deg, #5575f0, #3f5ec2);
 }
 
 /* 底部 */
