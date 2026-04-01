@@ -65,3 +65,16 @@ management:
     web:
       exposure:
         include: health,prometheus # 暴露健康检查与 Prometheus 指标端点
+
+# SpringDoc OpenAPI 文档配置
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+  packages-to-scan: com.code.aigateway
+  default-flat-param-object: true

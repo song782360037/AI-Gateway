@@ -46,6 +46,8 @@ public class AdminSecurityConfig {
                 .authorizeExchange(exchanges -> exchanges
                         // 登录接口放行
                         .pathMatchers("/admin/login").permitAll()
+                        // SpringDoc OpenAPI 文档路径放行
+                        .pathMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                         // 管理后台路径需要认证
                         .pathMatchers("/admin/**").authenticated()
                         // 其余路径全部放行（/v1/** 由 ApiKeyAuthWebFilter 独立处理）
