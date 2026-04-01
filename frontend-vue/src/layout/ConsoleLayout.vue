@@ -33,6 +33,10 @@
           <el-icon><Key /></el-icon>
           <span>API Key 配置</span>
         </el-menu-item>
+        <el-menu-item index="/request-log">
+          <el-icon><Document /></el-icon>
+          <span>请求日志</span>
+        </el-menu-item>
       </el-menu>
 
       <!-- 侧边栏底部：用户信息 + 登出 -->
@@ -64,7 +68,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Connection, DataAnalysis, Key, Odometer, Share, SwitchButton, User } from '@element-plus/icons-vue'
+import { Connection, DataAnalysis, Document, Key, Odometer, Share, SwitchButton, User } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus'
 import { useAuthStore } from '../stores/auth'
 

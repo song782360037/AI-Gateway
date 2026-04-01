@@ -65,6 +65,17 @@ const router = createRouter({
         tag: '密钥',
       },
     },
+    {
+      path: '/request-log',
+      name: 'request-log',
+      component: () => import('../views/log/RequestLogView.vue'),
+      meta: {
+        eyebrow: '请求日志',
+        title: '请求日志',
+        description: '查看 API 请求的历史记录，支持按时间、协议、状态等条件筛选。',
+        tag: '日志',
+      },
+    },
   ],
 })
 

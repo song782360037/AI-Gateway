@@ -1,6 +1,7 @@
 package com.code.aigateway.admin.mapper;
 
 import com.code.aigateway.admin.model.dataobject.RequestLogDO;
+import com.code.aigateway.admin.model.req.RequestLogQueryReq;
 import org.apache.ibatis.annotations.*;
 
 import java.time.LocalDateTime;
@@ -54,6 +55,18 @@ public interface RequestLogMapper {
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(RequestLogDO record);
+
+    /**
+     * 分页查询请求日志（XML mapper 实现，支持动态条件）
+     */
+    List<RequestLogDO> selectPage(@Param("req") RequestLogQueryReq req,
+                                  @Param("offset") int offset,
+                                  @Param("limit") int limit);
+
+    /**
+     * 统计分页总数（XML mapper 实现，支持动态条件）
+     */
+    long countPage(@Param("req") RequestLogQueryReq req);
 
     /**
      * 查询最近 N 条请求日志，按创建时间倒序

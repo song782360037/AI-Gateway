@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.code.aigateway.admin.mapper.RequestLogMapper">
+
+    <!-- 分页查询公共条件片段 -->
+    <sql id="pageConditions">
+        <if test="req.startTime != null">
+            AND create_time &gt;= #{req.startTime}
+        </if>
+        <if test="req.endTime != null">
+            AND create_time &lt;= #{req.endTime}
+        </if>
+        <if test="req.providerType != null and req.providerType != ''">
+            AND provider_type = #{req.providerType}
+        </if>
+        <if test="req.status != null and req.status != ''">
+            AND status = #{req.status}
+        </if>
+        <if test="req.aliasModel != null and req.aliasModel != ''">
+            AND alias_model LIKE CONCAT('%', #{req.aliasModel}, '%')
+        </if>
+        <if test="req.requestId != null and req.requestId != ''">
+            AND request_id = #{req.requestId}
+        </if>
+    </sql>
+
+    <!-- 分页查询请求日志 -->
+    <select id="selectPage" resultType="com.code.aigateway.admin.model.dataobject.RequestLogDO">
+        SELECT id, request_id, alias_model, target_model, provider_code, provider_type,
+               is_stream, prompt_tokens, completion_tokens, total_tokens, duration_ms,
+               status, error_code, source_ip, create_time
+        FROM request_log
+        WHERE 1=1
+        <include refid="pageConditions"/>
+        ORDER BY create_time DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <!-- 统计满足条件的总记录数 -->
+    <select id="countPage" resultType="long">
+        SELECT COUNT(1)
+        FROM request_log
+        WHERE 1=1
+        <include refid="pageConditions"/>
+    </select>
+
+</mapper>
