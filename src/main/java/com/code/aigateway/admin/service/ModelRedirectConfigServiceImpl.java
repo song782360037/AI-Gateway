@@ -142,6 +142,34 @@ public class ModelRedirectConfigServiceImpl implements IModelRedirectConfigServi
         return PageResult.of(rspList, total, req.getPage(), req.getPageSize());
     }
 
+    @Override
+    public void toggle(Long id, Long versionNo) {
+        // 先查询当前记录，获取当前启用状态
+        ModelRedirectConfigDO existing = modelRedirectConfigMapper.selectById(id);
+        if (existing == null) {
+            throw new BizException("CONFIG_NOT_FOUND", "路由规则不存在，id: " + id);
+        }
+
+        // 构建仅更新 enabled 字段的记录，使用乐观锁保证并发安全
+        ModelRedirectConfigDO record = new ModelRedirectConfigDO();
+        record.setId(id);
+        record.setVersionNo(versionNo);
+        record.setEnabled(!existing.getEnabled());
+        record.setUpdater("");
+        record.setUpdateTime(LocalDateTime.now());
+
+        int rows = modelRedirectConfigMapper.updateEnabled(record);
+        if (rows <= 0) {
+            throw new BizException("CONFIG_CONCURRENT_MODIFIED",
+                    "数据已被其他请求修改，请刷新后重试，id: " + id);
+        }
+        log.info("[模型路由规则] 状态切换成功，id: {}，enabled: {} -> {}",
+                id, existing.getEnabled(), !existing.getEnabled());
+
+        // 状态变更后必须刷新运行时快照，使变更立即生效
+        ensureRuntimeConfigReloaded("admin-toggle-route");
+    }
+
     // ==================== 内部方法 ====================
 
     /**

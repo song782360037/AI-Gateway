@@ -43,6 +43,22 @@ public class AdminExceptionHandler {
                 .body(R.fail("INVALID_PARAM", message));
     }
 
+    /**
+     * 处理 WebFlux 环境下 @Valid 校验失败抛出的异常
+     * <p>WebFlux 使用 WebExchangeBindException（继承自 BindException），
+     * 区别于 Spring MVC 的 MethodArgumentNotValidException。</p>
+     */
+    @ExceptionHandler(org.springframework.web.bind.support.WebExchangeBindException.class)
+    public ResponseEntity<R<Void>> handleWebExchangeBindException(
+            org.springframework.web.bind.support.WebExchangeBindException ex) {
+        String message = ex.getBindingResult().getFieldErrors().stream()
+                .map(error -> error.getField() + " " + error.getDefaultMessage())
+                .collect(Collectors.joining("; "));
+        log.warn("[管理接口参数校验] {}", message);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(R.fail("INVALID_PARAM", message));
+    }
+
     @ExceptionHandler(jakarta.validation.ConstraintViolationException.class)
     public ResponseEntity<R<Void>> handleConstraintViolationException(
             jakarta.validation.ConstraintViolationException ex) {
@@ -52,5 +68,16 @@ public class AdminExceptionHandler {
         log.warn("[管理接口约束校验] {}", message);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(R.fail("INVALID_PARAM", message));
+    }
+
+    /**
+     * 兜底异常处理：捕获所有未预期的异常，避免敏感信息泄露。
+     * <p>返回通用错误提示，不在响应体中暴露内部堆栈或类名。</p>
+     */
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<R<Void>> handleUnexpectedException(Exception ex) {
+        log.error("[管理接口未预期异常]", ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(R.fail("INTERNAL_ERROR", "服务内部错误，请稍后重试"));
     }
 }

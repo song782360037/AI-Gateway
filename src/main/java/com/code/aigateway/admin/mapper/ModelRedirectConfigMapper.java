@@ -217,6 +217,21 @@ public interface ModelRedirectConfigMapper {
     List<ModelRedirectConfigDO> selectEnabledByProviderCode(@Param("providerCode") String providerCode);
 
     /**
+     * 仅更新启用状态（乐观锁），用于快速切换路由规则开关。
+     */
+    @Update("""
+            UPDATE model_redirect_config
+            SET enabled = #{enabled},
+                version_no = version_no + 1,
+                updater = #{updater},
+                update_time = #{updateTime}
+            WHERE id = #{id}
+              AND version_no = #{versionNo}
+              AND deleted = 0
+            """)
+    int updateEnabled(ModelRedirectConfigDO record);
+
+    /**
      * 检查提供商是否被启用中的重定向规则引用，供删除和停用前校验。
      */
     @Select("""

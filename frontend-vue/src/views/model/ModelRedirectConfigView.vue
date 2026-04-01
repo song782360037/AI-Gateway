@@ -49,9 +49,17 @@
           </template>
         </el-table-column>
         <el-table-column prop="priority" label="优先级" min-width="80" />
-        <el-table-column label="操作" fixed="right" width="140">
+        <el-table-column label="操作" fixed="right" width="200">
           <template #default="scope">
             <el-button link type="primary" size="small" @click="openEdit(scope.row)">编辑</el-button>
+            <el-button
+              link
+              :type="scope.row.enabled ? 'warning' : 'success'"
+              size="small"
+              @click="toggleItem(scope.row)"
+            >
+              {{ scope.row.enabled ? '禁用' : '启用' }}
+            </el-button>
             <el-button link type="danger" size="small" @click="removeItem(scope.row.id)">删除</el-button>
           </template>
         </el-table-column>
@@ -103,7 +111,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ConsoleLayout from '../../layout/ConsoleLayout.vue'
 import ModelRedirectFormDialog from '../../components/model/ModelRedirectFormDialog.vue'
-import { addModelRedirect, deleteModelRedirect, fetchModelRedirectPage, updateModelRedirect } from '../../api/model-redirect-config'
+import { addModelRedirect, deleteModelRedirect, fetchModelRedirectPage, toggleModelRedirect, updateModelRedirect } from '../../api/model-redirect-config'
 import type { PageResult } from '../../types/common'
 import type {
   ModelRedirectConfigAddReq,
@@ -188,6 +196,23 @@ async function submitForm(payload: ModelRedirectConfigAddReq | ModelRedirectConf
     await loadData()
   } catch {
     // 请求层已统一处理错误提示
+  }
+}
+
+async function toggleItem(item: ModelRedirectConfigRsp) {
+  const action = item.enabled ? '禁用' : '启用'
+  try {
+    await ElMessageBox.confirm(
+      `确定要${action}路由规则「${item.aliasName}」吗？`,
+      `${action}路由规则`,
+      { type: 'warning' },
+    )
+    await toggleModelRedirect(item.id, item.versionNo)
+    ElMessage.success(`路由规则已${action}`)
+    await loadData()
+  } catch (error) {
+    // 用户点击取消或关闭弹窗时不做处理
+    if (error === 'cancel' || error === 'close') return
   }
 }
 

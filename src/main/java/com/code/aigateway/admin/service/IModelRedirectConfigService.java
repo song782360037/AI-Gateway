@@ -35,4 +35,9 @@ public interface IModelRedirectConfigService {
      * 分页查询模型重定向配置
      */
     PageResult<ModelRedirectConfigRsp> list(ModelRedirectConfigQueryReq req);
+
+    /**
+     * 切换路由规则启用/禁用状态
+     */
+    void toggle(Long id, Long versionNo);
 }

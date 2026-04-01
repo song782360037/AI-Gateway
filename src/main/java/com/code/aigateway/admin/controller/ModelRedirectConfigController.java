@@ -2,6 +2,7 @@ package com.code.aigateway.admin.controller;
 
 import com.code.aigateway.admin.model.req.ModelRedirectConfigAddReq;
 import com.code.aigateway.admin.model.req.ModelRedirectConfigQueryReq;
+import com.code.aigateway.admin.model.req.ModelRedirectConfigToggleReq;
 import com.code.aigateway.admin.model.req.ModelRedirectConfigUpdateReq;
 import com.code.aigateway.admin.model.rsp.ModelRedirectConfigRsp;
 import com.code.aigateway.admin.service.IModelRedirectConfigService;
@@ -53,6 +54,19 @@ public class ModelRedirectConfigController {
     public Mono<R<Void>> update(@Valid @RequestBody ModelRedirectConfigUpdateReq req) {
         // 阻塞型写操作统一放到弹性线程池执行，避免影响响应式主链路。
         return Mono.fromRunnable(() -> modelRedirectConfigService.update(req))
+                .subscribeOn(Schedulers.boundedElastic())
+                .thenReturn(R.ok());
+    }
+
+    /**
+     * 切换路由规则启用/禁用状态
+     *
+     * @param req 切换请求参数，包含 id 和 versionNo
+     */
+    @PostMapping("/toggle")
+    public Mono<R<Void>> toggle(@Valid @RequestBody ModelRedirectConfigToggleReq req) {
+        // 阻塞型写操作统一切到弹性线程池执行。
+        return Mono.fromRunnable(() -> modelRedirectConfigService.toggle(req.getId(), req.getVersionNo()))
                 .subscribeOn(Schedulers.boundedElastic())
                 .thenReturn(R.ok());
     }

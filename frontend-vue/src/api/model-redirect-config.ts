@@ -22,3 +22,8 @@ export function updateModelRedirect(data: ModelRedirectConfigUpdateReq) {
 export function deleteModelRedirect(id: number) {
   return request.post<never, void>(`/admin/model-redirect-config/delete/${id}`)
 }
+
+/** 切换路由规则启用/禁用状态 */
+export function toggleModelRedirect(id: number, versionNo: number) {
+  return request.post<never, void>('/admin/model-redirect-config/toggle', { id, versionNo })
+}
