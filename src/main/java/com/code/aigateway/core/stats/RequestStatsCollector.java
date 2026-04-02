@@ -70,7 +70,7 @@ public class RequestStatsCollector {
      * @param usage   统一使用统计（从 UnifiedResponse 中获取）
      */
     public void collectSuccess(RequestStatsContext context, UnifiedUsage usage) {
-        if (context == null || !context.tryMarkCollected()) {
+        if (context == null || context.getRequestInfo() == null || !context.tryMarkCollected()) {
             return;
         }
         RequestLogDO logDO = buildLog(context, "SUCCESS", null);
@@ -86,7 +86,7 @@ public class RequestStatsCollector {
      * 记录流式请求成功
      */
     public void collectStreamSuccess(RequestStatsContext context, UnifiedUsage usage) {
-        if (context == null || !context.tryMarkCollected()) {
+        if (context == null || context.getRequestInfo() == null || !context.tryMarkCollected()) {
             return;
         }
         RequestLogDO logDO = buildLog(context, "SUCCESS", null);

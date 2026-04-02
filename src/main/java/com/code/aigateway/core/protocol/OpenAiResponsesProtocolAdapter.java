@@ -53,7 +53,7 @@ public class OpenAiResponsesProtocolAdapter implements ProtocolAdapter {
      * 将 UnifiedStreamEvent 编码为 Responses API 格式的 SSE 事件
      */
     @Override
-    public ServerSentEvent<String> encodeStreamEvent(UnifiedStreamEvent event, StreamContext ctx) {
+    public Flux<ServerSentEvent<String>> encodeStreamEvent(UnifiedStreamEvent event, StreamContext ctx) {
         if ("done".equals(event.getType())) {
             // response.completed 事件
             Map<String, Object> payload = Map.of(
@@ -65,10 +65,10 @@ public class OpenAiResponsesProtocolAdapter implements ProtocolAdapter {
                             "model", ctx.getModel()
                     )
             );
-            return ServerSentEvent.<String>builder()
+            return Flux.just(ServerSentEvent.<String>builder()
                     .event("response.completed")
                     .data(toJson(payload))
-                    .build();
+                    .build());
         }
 
         if ("text_delta".equals(event.getType())) {
@@ -76,10 +76,10 @@ public class OpenAiResponsesProtocolAdapter implements ProtocolAdapter {
                     "type", "response.output_text.delta",
                     "delta", event.getTextDelta() != null ? event.getTextDelta() : ""
             );
-            return ServerSentEvent.<String>builder()
+            return Flux.just(ServerSentEvent.<String>builder()
                     .event("response.output_text.delta")
                     .data(toJson(payload))
-                    .build();
+                    .build());
         }
 
         if ("tool_call".equals(event.getType())) {
@@ -92,10 +92,10 @@ public class OpenAiResponsesProtocolAdapter implements ProtocolAdapter {
             Map<String, Object> payload = new java.util.LinkedHashMap<>();
             payload.put("type", "response.output_item.added");
             payload.put("output", output);
-            return ServerSentEvent.<String>builder()
+            return Flux.just(ServerSentEvent.<String>builder()
                     .event("response.output_item.added")
                     .data(toJson(payload))
-                    .build();
+                    .build());
         }
 
         if ("tool_call_delta".equals(event.getType())) {
@@ -103,14 +103,14 @@ public class OpenAiResponsesProtocolAdapter implements ProtocolAdapter {
                     "type", "response.function_call_arguments.delta",
                     "delta", event.getArgumentsDelta() != null ? event.getArgumentsDelta() : ""
             );
-            return ServerSentEvent.<String>builder()
+            return Flux.just(ServerSentEvent.<String>builder()
                     .event("response.function_call_arguments.delta")
                     .data(toJson(payload))
-                    .build();
+                    .build());
         }
 
-        // 其他事件类型暂不处理，返回 null 跳过
-        return null;
+        // 其他事件类型暂不处理
+        return Flux.empty();
     }
 
     @Override

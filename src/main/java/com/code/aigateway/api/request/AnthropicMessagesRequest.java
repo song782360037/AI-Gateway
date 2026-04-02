@@ -28,8 +28,17 @@ public class AnthropicMessagesRequest implements StatsRequestInfo {
     @Valid
     private List<Message> messages;
 
-    /** 系统提示词（字符串） */
-    private String system;
+    /**
+     * 系统提示词
+     * <p>
+     * 支持两种格式：
+     * <ul>
+     *   <li>字符串：纯文本系统提示</li>
+     *   <li>数组：[{"type":"text","text":"...","cache_control":...}]</li>
+     * </ul>
+     * </p>
+     */
+    private Object system;
 
     /** 最大输出 token 数（必填） */
     @JsonProperty("max_tokens")

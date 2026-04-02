@@ -82,7 +82,7 @@ class OpenAiResponsesProtocolAdapterTest {
         event.setType("text_delta");
         event.setTextDelta("Hi there");
 
-        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx);
+        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx).blockFirst();
 
         assertNotNull(sse);
         assertEquals("response.output_text.delta", sse.event());
@@ -101,7 +101,7 @@ class OpenAiResponsesProtocolAdapterTest {
         event.setType("tool_call_delta");
         event.setArgumentsDelta("{\"city\":");
 
-        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx);
+        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx).blockFirst();
 
         assertNotNull(sse);
         assertEquals("response.function_call_arguments.delta", sse.event());
@@ -119,7 +119,7 @@ class OpenAiResponsesProtocolAdapterTest {
         event.setType("done");
         event.setFinishReason("stop");
 
-        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx);
+        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx).blockFirst();
 
         assertNotNull(sse);
         assertEquals("response.completed", sse.event());
@@ -136,14 +136,12 @@ class OpenAiResponsesProtocolAdapterTest {
 
     @Test
     void encodeStreamEvent_unknownType_returnsNull() {
-        // 未知事件类型应返回 null，由调用方跳过
+        // 未知事件类型应返回空 Flux，由调用方跳过
         StreamContext ctx = new StreamContext("resp-123", 1710000000L, "gpt-4o");
         UnifiedStreamEvent event = new UnifiedStreamEvent();
         event.setType("unknown_event_type");
 
-        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx);
-
-        assertNull(sse);
+        assertNull(adapter.encodeStreamEvent(event, ctx).blockFirst());
     }
 
     // ========== terminalStreamEvents ==========

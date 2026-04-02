@@ -99,7 +99,7 @@ class OpenAiChatProtocolAdapterTest {
         event.setType("text_delta");
         event.setTextDelta("Hello");
 
-        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx);
+        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx).blockFirst();
         assertNotNull(sse);
         assertNotNull(sse.data());
 
@@ -125,14 +125,14 @@ class OpenAiChatProtocolAdapterTest {
         UnifiedStreamEvent firstEvent = new UnifiedStreamEvent();
         firstEvent.setType("text_delta");
         firstEvent.setTextDelta("Hello");
-        adapter.encodeStreamEvent(firstEvent, ctx);
+        adapter.encodeStreamEvent(firstEvent, ctx).blockFirst();
 
         // 第二个 chunk 不应包含 role
         UnifiedStreamEvent secondEvent = new UnifiedStreamEvent();
         secondEvent.setType("text_delta");
         secondEvent.setTextDelta(" world");
 
-        ServerSentEvent<String> sse = adapter.encodeStreamEvent(secondEvent, ctx);
+        ServerSentEvent<String> sse = adapter.encodeStreamEvent(secondEvent, ctx).blockFirst();
         JsonNode root = objectMapper.readTree(sse.data());
         JsonNode delta = root.get("choices").get(0).get("delta");
 
@@ -149,7 +149,7 @@ class OpenAiChatProtocolAdapterTest {
         event.setType("done");
         event.setFinishReason("stop");
 
-        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx);
+        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx).blockFirst();
         assertNotNull(sse);
 
         JsonNode root = objectMapper.readTree(sse.data());

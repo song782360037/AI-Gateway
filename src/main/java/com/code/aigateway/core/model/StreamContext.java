@@ -10,7 +10,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   <li>responseId — 响应唯一标识，所有 SSE chunk 共用</li>
  *   <li>created — 创建时间戳（Unix 秒）</li>
  *   <li>model — 模型名称</li>
- *   <li>firstContentSent — 是否已发送首个 content chunk（用于在首包携带 role 等元数据）</li>
+ *   <li>firstContentSent — 是否已发送首个 content chunk</li>
+ *   <li>openBlockIndex — 当前打开的 content block 索引（-1 表示无打开的块）</li>
+ *   <li>inputTokens — 输入 token 数（用于 Anthropic message_start 事件）</li>
  * </ul>
  * </p>
  */
@@ -20,6 +22,12 @@ public class StreamContext {
     private final long created;
     private final String model;
     private final AtomicBoolean firstContentSent = new AtomicBoolean(false);
+    /** 当前打开的 content block 索引，-1 表示无打开的块 */
+    private volatile int openBlockIndex = -1;
+    /** 下一个 content block 的 Anthropic 序号（跨块递增，独立于 Provider 的 outputIndex） */
+    private volatile int nextContentBlockSeq = 0;
+    /** 输入 token 数，用于 Anthropic message_start 的 usage */
+    private volatile int inputTokens;
 
     public StreamContext(String responseId, long created, String model) {
         this.responseId = responseId;
@@ -30,6 +38,49 @@ public class StreamContext {
     /** 尝试标记首个 content 已发送，返回 true 表示本次成功占位 */
     public boolean tryMarkFirstContentSent() {
         return firstContentSent.compareAndSet(false, true);
+    }
+
+    /** 标记指定索引的 content block 已打开 */
+    public void openContentBlock(int index) {
+        this.openBlockIndex = index;
+    }
+
+    /**
+     * 分配下一个 Anthropic content block 序号并打开块
+     * @return 分配的序号
+     */
+    public int allocateAndOpenContentBlock() {
+        int seq = nextContentBlockSeq++;
+        this.openBlockIndex = seq;
+        return seq;
+    }
+
+    /**
+     * 尝试关闭当前打开的 content block
+     * @return 关闭的块索引，-1 表示没有打开的块
+     */
+    public int closeContentBlock() {
+        int idx = this.openBlockIndex;
+        this.openBlockIndex = -1;
+        return idx;
+    }
+
+    /** 当前是否有未关闭的 content block */
+    public boolean hasOpenContentBlock() {
+        return openBlockIndex >= 0;
+    }
+
+    /** 获取当前打开的 content block 索引，-1 表示无打开的块 */
+    public int getOpenBlockIndex() {
+        return openBlockIndex;
+    }
+
+    public int getInputTokens() {
+        return inputTokens;
+    }
+
+    public void setInputTokens(int inputTokens) {
+        this.inputTokens = inputTokens;
     }
 
     public String getResponseId() {

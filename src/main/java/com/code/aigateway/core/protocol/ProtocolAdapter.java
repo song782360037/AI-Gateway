@@ -39,13 +39,31 @@ public interface ProtocolAdapter {
     Object encodeResponse(UnifiedResponse response);
 
     /**
-     * 将统一流式事件编码为 SSE 事件
+     * 将统一流式事件编码为 SSE 事件流
+     * <p>
+     * 一个 UnifiedStreamEvent 可能产生零个或多个 SSE 事件（如 Anthropic 首个 text_delta
+     * 需要先发送 content_block_start 再发送 content_block_delta）。
+     * </p>
      *
      * @param event 统一流式事件
      * @param ctx   流式编码上下文
-     * @return SSE 事件；返回 null 表示跳过该事件
+     * @return SSE 事件流；返回空流表示跳过该事件
      */
-    ServerSentEvent<String> encodeStreamEvent(UnifiedStreamEvent event, StreamContext ctx);
+    Flux<ServerSentEvent<String>> encodeStreamEvent(UnifiedStreamEvent event, StreamContext ctx);
+
+    /**
+     * 生成流起始事件（如 Anthropic 的 message_start）
+     * <p>
+     * 在主事件流之前发送，用于初始化消息结构。
+     * 默认返回空流。
+     * </p>
+     *
+     * @param ctx 流式编码上下文
+     * @return 起始事件流
+     */
+    default Flux<ServerSentEvent<String>> initialStreamEvents(StreamContext ctx) {
+        return Flux.empty();
+    }
 
     /**
      * 生成流终止事件（如 OpenAI 的 [DONE]）

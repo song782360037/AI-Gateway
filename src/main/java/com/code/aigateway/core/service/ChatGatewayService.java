@@ -69,6 +69,7 @@ public class ChatGatewayService {
             return client.chat(unifiedRequest);
         }, correlationId)
                 .doOnNext(response -> requestStatsCollector.collectSuccess(context, response.getUsage()))
+                .doOnError(ex -> requestStatsCollector.collectError(context, ex))
                 .map(adapter::encodeResponse);
     }
 
@@ -89,21 +90,27 @@ public class ChatGatewayService {
                 ? context.getRouteResult().getTargetModel() : "";
         StreamContext streamCtx = new StreamContext(responseId, created, streamModel);
 
-        return failoverStrategy.executeStreamWithFailover(candidates, routeResult -> {
-            applyRouteContext(unifiedRequest, routeResult, correlationId);
-            ProviderClient client = providerClientFactory.getClient(routeResult.getProviderType());
-            return client.streamChat(unifiedRequest);
-        }, correlationId)
-                .doOnNext(event -> {
-                    if ("done".equals(event.getType()) && event.getUsage() != null) {
-                        finalUsageRef.set(event.getUsage());
-                    }
-                })
-                .map(event -> adapter.encodeStreamEvent(event, streamCtx))
-                .filter(event -> event != null) // 过滤协议适配器未处理的事件
-                .concatWith(Flux.defer(() -> adapter.terminalStreamEvents(streamCtx)))
+        return Flux.concat(
+                    // 流起始事件（如 Anthropic 的 message_start）
+                    adapter.initialStreamEvents(streamCtx),
+                    // 主事件流：每个 UnifiedStreamEvent 可能产生 0~N 个 SSE 事件
+                    failoverStrategy.executeStreamWithFailover(candidates, routeResult -> {
+                        applyRouteContext(unifiedRequest, routeResult, correlationId);
+                        ProviderClient client = providerClientFactory.getClient(routeResult.getProviderType());
+                        return client.streamChat(unifiedRequest);
+                    }, correlationId)
+                            .doOnNext(event -> {
+                                if ("done".equals(event.getType()) && event.getUsage() != null) {
+                                    finalUsageRef.set(event.getUsage());
+                                }
+                            })
+                            .concatMap(event -> adapter.encodeStreamEvent(event, streamCtx)),
+                    // 流终止事件（如 OpenAI 的 [DONE]、Anthropic 的 message_stop）
+                    adapter.terminalStreamEvents(streamCtx)
+                )
                 .doOnComplete(() -> requestStatsCollector.collectStreamSuccess(context, finalUsageRef.get()))
-                .doOnError(ex -> requestStatsCollector.collectError(context, ex));
+                .doOnError(ex -> requestStatsCollector.collectError(context, ex))
+                .doOnCancel(() -> requestStatsCollector.collectStreamSuccess(context, finalUsageRef.get()));
     }
 
     /**

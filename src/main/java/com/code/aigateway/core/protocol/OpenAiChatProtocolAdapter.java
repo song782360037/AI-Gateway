@@ -58,7 +58,7 @@ public class OpenAiChatProtocolAdapter implements ProtocolAdapter {
      * </p>
      */
     @Override
-    public ServerSentEvent<String> encodeStreamEvent(UnifiedStreamEvent event, StreamContext ctx) {
+    public Flux<ServerSentEvent<String>> encodeStreamEvent(UnifiedStreamEvent event, StreamContext ctx) {
         // 完成事件
         if ("done".equals(event.getType())) {
             OpenAiChatCompletionChunkResponse chunk = OpenAiChatCompletionChunkResponse.builder()
@@ -74,7 +74,7 @@ public class OpenAiChatProtocolAdapter implements ProtocolAdapter {
                                     .build()
                     ))
                     .build();
-            return ServerSentEvent.builder(toJson(chunk)).build();
+            return Flux.just(ServerSentEvent.builder(toJson(chunk)).build());
         }
 
         // 工具调用开始事件（含 id 和 name）
@@ -108,7 +108,7 @@ public class OpenAiChatProtocolAdapter implements ProtocolAdapter {
                                     .build()
                     ))
                     .build();
-            return ServerSentEvent.builder(toJson(chunk)).build();
+            return Flux.just(ServerSentEvent.builder(toJson(chunk)).build());
         }
 
         // 工具调用参数增量事件
@@ -135,7 +135,7 @@ public class OpenAiChatProtocolAdapter implements ProtocolAdapter {
                                     .build()
                     ))
                     .build();
-            return ServerSentEvent.builder(toJson(chunk)).build();
+            return Flux.just(ServerSentEvent.builder(toJson(chunk)).build());
         }
 
         // 文本增量事件
@@ -159,7 +159,7 @@ public class OpenAiChatProtocolAdapter implements ProtocolAdapter {
                                 .build()
                 ))
                 .build();
-        return ServerSentEvent.builder(toJson(chunk)).build();
+        return Flux.just(ServerSentEvent.builder(toJson(chunk)).build());
     }
 
     @Override

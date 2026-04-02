@@ -53,7 +53,7 @@ public class AnthropicRequestParser {
         unifiedRequest.setModel(request.getModel());
         unifiedRequest.setStream(Boolean.TRUE.equals(request.getStream()));
         unifiedRequest.setMetadata(request.getMetadata());
-        unifiedRequest.setSystemPrompt(request.getSystem());
+        unifiedRequest.setSystemPrompt(extractSystemPrompt(request.getSystem()));
 
         // 生成配置
         UnifiedGenerationConfig config = new UnifiedGenerationConfig();
@@ -290,5 +290,42 @@ public class AnthropicRequestParser {
         } catch (Exception e) {
             return "{}";
         }
+    }
+
+    /**
+     * 从 system 字段提取系统提示词文本
+     * <p>
+     * Anthropic API 支持两种格式：
+     * <ul>
+     *   <li>字符串：直接返回</li>
+     *   <li>数组：拼接所有 type=text 块的 text 字段</li>
+     * </ul>
+     * </p>
+     */
+    @SuppressWarnings("unchecked")
+    private String extractSystemPrompt(Object system) {
+        if (system == null) {
+            return null;
+        }
+        // 字符串格式：直接使用
+        if (system instanceof String s && !s.isBlank()) {
+            return s;
+        }
+        // 数组格式：[{"type":"text","text":"..."}]
+        if (system instanceof List<?> list) {
+            StringBuilder sb = new StringBuilder();
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> map
+                        && "text".equals(map.get("type"))
+                        && map.get("text") instanceof String text) {
+                    if (!sb.isEmpty()) {
+                        sb.append("\n");
+                    }
+                    sb.append(text);
+                }
+            }
+            return sb.isEmpty() ? null : sb.toString();
+        }
+        return null;
     }
 }

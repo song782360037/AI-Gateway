@@ -86,7 +86,7 @@ class GeminiProtocolAdapterTest {
         event.setType("text_delta");
         event.setTextDelta("Hello Gemini");
 
-        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx);
+        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx).blockFirst();
 
         assertNotNull(sse);
         assertNotNull(sse.data());
@@ -113,7 +113,7 @@ class GeminiProtocolAdapterTest {
         event.setToolName("get_weather");
         event.setArgumentsDelta("{\"city\":\"Paris\"}");
 
-        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx);
+        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx).blockFirst();
 
         assertNotNull(sse);
         JsonNode root = objectMapper.readTree(sse.data());
@@ -128,26 +128,22 @@ class GeminiProtocolAdapterTest {
 
     @Test
     void encodeStreamEvent_doneEvent_returnsNull() {
-        // Gemini 的 done 事件不产生任何 SSE 输出（返回 null）
+        // Gemini 的 done 事件不产生任何 SSE 输出（返回空 Flux）
         StreamContext ctx = new StreamContext("gemini-123", 1710000000L, "gemini-1.5-pro");
         UnifiedStreamEvent event = new UnifiedStreamEvent();
         event.setType("done");
 
-        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx);
-
-        assertNull(sse);
+        assertNull(adapter.encodeStreamEvent(event, ctx).blockFirst());
     }
 
     @Test
     void encodeStreamEvent_unknownType_returnsNull() {
-        // 未知事件类型应返回 null
+        // 未知事件类型应返回空 Flux
         StreamContext ctx = new StreamContext("gemini-123", 1710000000L, "gemini-1.5-pro");
         UnifiedStreamEvent event = new UnifiedStreamEvent();
         event.setType("unknown_event");
 
-        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx);
-
-        assertNull(sse);
+        assertNull(adapter.encodeStreamEvent(event, ctx).blockFirst());
     }
 
     // ========== terminalStreamEvents ==========

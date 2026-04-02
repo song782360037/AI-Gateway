@@ -22,6 +22,8 @@ import org.springframework.http.codec.ServerSentEvent;
 import reactor.core.publisher.Flux;
 import reactor.test.StepVerifier;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -76,18 +78,29 @@ class AnthropicProtocolAdapterTest {
 
     @Test
     void encodeStreamEvent_textDelta_returnsContentBlockDelta() throws Exception {
-        // text_delta 应生成名为 "content_block_delta" 的 SSE 事件，delta.type = "text_delta"
+        // 首个 text_delta 应先生成 content_block_start，再生成 content_block_delta
         StreamContext ctx = new StreamContext("msg-123", 1710000000L, "claude-3-opus");
         UnifiedStreamEvent event = new UnifiedStreamEvent();
         event.setType("text_delta");
         event.setTextDelta("Bonjour");
 
-        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx);
+        List<ServerSentEvent<String>> events = adapter.encodeStreamEvent(event, ctx).collectList().block();
 
-        assertNotNull(sse);
-        assertEquals("content_block_delta", sse.event());
+        // 首个 text_delta 产生 2 个事件：content_block_start + content_block_delta
+        assertEquals(2, events.size());
 
-        JsonNode payload = objectMapper.readTree(sse.data());
+        // 第一个事件：content_block_start
+        ServerSentEvent<String> startEvent = events.get(0);
+        assertEquals("content_block_start", startEvent.event());
+        JsonNode startPayload = objectMapper.readTree(startEvent.data());
+        assertEquals("content_block_start", startPayload.get("type").asText());
+        JsonNode contentBlock = startPayload.get("content_block");
+        assertEquals("text", contentBlock.get("type").asText());
+
+        // 第二个事件：content_block_delta
+        ServerSentEvent<String> deltaEvent = events.get(1);
+        assertEquals("content_block_delta", deltaEvent.event());
+        JsonNode payload = objectMapper.readTree(deltaEvent.data());
         assertEquals("content_block_delta", payload.get("type").asText());
         assertEquals(0, payload.get("index").asInt());
 
@@ -99,19 +112,31 @@ class AnthropicProtocolAdapterTest {
     @Test
     void encodeStreamEvent_toolCallDelta_returnsContentBlockDelta() throws Exception {
         // tool_call_delta 应生成 content_block_delta，delta.type = "input_json_delta"
+        // 需要先通过 tool_call 事件打开一个 content block
         StreamContext ctx = new StreamContext("msg-123", 1710000000L, "claude-3-opus");
+
+        // 先发送 tool_call 事件来打开 content block
+        UnifiedStreamEvent toolCallEvent = new UnifiedStreamEvent();
+        toolCallEvent.setType("tool_call");
+        toolCallEvent.setOutputIndex(0);
+        toolCallEvent.setToolCallId("tool_001");
+        toolCallEvent.setToolName("get_weather");
+        adapter.encodeStreamEvent(toolCallEvent, ctx).collectList().block();
+
+        // 再发送 tool_call_delta
         UnifiedStreamEvent event = new UnifiedStreamEvent();
         event.setType("tool_call_delta");
         event.setOutputIndex(1);
         event.setArgumentsDelta("{\"loc\":");
 
-        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx);
+        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx).blockFirst();
 
         assertNotNull(sse);
         assertEquals("content_block_delta", sse.event());
 
         JsonNode payload = objectMapper.readTree(sse.data());
-        assertEquals(1, payload.get("index").asInt());
+        // 索引由 allocateAndOpenContentBlock 分配（首个块=0）
+        assertEquals(0, payload.get("index").asInt());
 
         JsonNode delta = payload.get("delta");
         assertEquals("input_json_delta", delta.get("type").asText());
@@ -126,7 +151,7 @@ class AnthropicProtocolAdapterTest {
         event.setType("done");
         event.setFinishReason("stop");
 
-        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx);
+        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx).blockFirst();
 
         assertNotNull(sse);
         assertEquals("message_delta", sse.event());
@@ -150,14 +175,14 @@ class AnthropicProtocolAdapterTest {
         usage.setOutputTokens(42);
         event.setUsage(usage);
 
-        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx);
+        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx).blockFirst();
 
         assertNotNull(sse);
         JsonNode payload = objectMapper.readTree(sse.data());
         JsonNode delta = payload.get("delta");
 
-        // 验证 usage 中包含 output_tokens
-        JsonNode usageNode = delta.get("usage");
+        // 验证 usage 在顶层（非 delta 内部），包含 output_tokens
+        JsonNode usageNode = payload.get("usage");
         assertNotNull(usageNode);
         assertEquals(42, usageNode.get("output_tokens").asInt());
     }

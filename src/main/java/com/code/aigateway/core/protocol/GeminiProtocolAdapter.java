@@ -58,10 +58,9 @@ public class GeminiProtocolAdapter implements ProtocolAdapter {
      * Controller 会将 SSE wrapper 剥离，只取 data 部分。
      */
     @Override
-    public ServerSentEvent<String> encodeStreamEvent(UnifiedStreamEvent event, StreamContext ctx) {
+    public Flux<ServerSentEvent<String>> encodeStreamEvent(UnifiedStreamEvent event, StreamContext ctx) {
         if ("done".equals(event.getType())) {
-            // 流结束时不产生事件
-            return null;
+            return Flux.empty();
         }
 
         if ("text_delta".equals(event.getType())) {
@@ -74,11 +73,10 @@ public class GeminiProtocolAdapter implements ProtocolAdapter {
             Map<String, Object> chunk = new LinkedHashMap<>();
             chunk.put("candidates", List.of(candidate));
 
-            return ServerSentEvent.builder(toJson(chunk)).build();
+            return Flux.just(ServerSentEvent.builder(toJson(chunk)).build());
         }
 
         if ("tool_call".equals(event.getType())) {
-            // Gemini functionCall 开始事件（含 name，不含 args）
             Map<String, Object> functionCall = new LinkedHashMap<>();
             functionCall.put("name", event.getToolName() != null ? event.getToolName() : "");
             Map<String, Object> fcPart = new LinkedHashMap<>();
@@ -90,7 +88,7 @@ public class GeminiProtocolAdapter implements ProtocolAdapter {
             Map<String, Object> chunk = new LinkedHashMap<>();
             chunk.put("candidates", List.of(candidate));
 
-            return ServerSentEvent.builder(toJson(chunk)).build();
+            return Flux.just(ServerSentEvent.builder(toJson(chunk)).build());
         }
 
         if ("tool_call_delta".equals(event.getType())) {
@@ -106,10 +104,10 @@ public class GeminiProtocolAdapter implements ProtocolAdapter {
             Map<String, Object> chunk = new LinkedHashMap<>();
             chunk.put("candidates", List.of(candidate));
 
-            return ServerSentEvent.builder(toJson(chunk)).build();
+            return Flux.just(ServerSentEvent.builder(toJson(chunk)).build());
         }
 
-        return null;
+        return Flux.empty();
     }
 
     @Override
