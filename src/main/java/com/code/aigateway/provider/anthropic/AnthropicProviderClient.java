@@ -514,6 +514,10 @@ public class AnthropicProviderClient extends AbstractProviderClient {
         usage.setInputTokens(state.inputTokens);
         usage.setOutputTokens(usageNode.path("output_tokens").isMissingNode()
                 ? null : usageNode.path("output_tokens").asInt());
+        // 计算 totalTokens（与 parseAnthropicUsage 保持一致）
+        if (usage.getInputTokens() != null && usage.getOutputTokens() != null) {
+            usage.setTotalTokens(usage.getInputTokens() + usage.getOutputTokens());
+        }
 
         UnifiedStreamEvent e = new UnifiedStreamEvent();
         e.setType("done");

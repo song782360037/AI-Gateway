@@ -103,6 +103,9 @@ public class OpenAiProviderClient extends AbstractProviderClient {
         Map<String, Object> requestBody = buildRequestBody(request, true);
         AtomicBoolean firstTokenReceived = new AtomicBoolean(false);
 
+        // 流式状态：捕获 usage-only chunk 中的 usage 数据
+        StreamState state = new StreamState();
+
         Flux<ServerSentEvent<String>> sseFlux = buildWebClient(config, extractCorrelationId(request))
                 .post()
                 .uri(CHAT_COMPLETIONS_PATH)
@@ -122,7 +125,7 @@ public class OpenAiProviderClient extends AbstractProviderClient {
 
         return withCircuitBreakerFlux(config.providerName(), sseFlux)
                 .onErrorMap(this::mapTransportError)
-                .flatMap(this::parseStreamEvent);
+                .flatMap(event -> parseStreamEvent(event, state));
     }
 
     // ==================== 请求构建 ====================
@@ -351,7 +354,15 @@ public class OpenAiProviderClient extends AbstractProviderClient {
         return response;
     }
 
-    private Flux<UnifiedStreamEvent> parseStreamEvent(ServerSentEvent<String> event) {
+    /**
+     * 解析流式 SSE 事件
+     * <p>
+     * OpenAI 开启 stream_options.include_usage 后，最终 usage 数据
+     * 在一个 choices=[] 的独立 chunk 中返回，需要提取为 "usage_only" 事件
+     * 供统计层采集，不会输出给客户端。
+     * </p>
+     */
+    private Flux<UnifiedStreamEvent> parseStreamEvent(ServerSentEvent<String> event, StreamState state) {
         String data = event.data();
         if (data == null || data.isBlank() || "[DONE]".equals(data.trim())) {
             return Flux.empty();
@@ -371,9 +382,16 @@ public class OpenAiProviderClient extends AbstractProviderClient {
         JsonNode usageNode = chunk.get("usage");
         JsonNode choices = chunk.path("choices");
 
-        // 空 choices 的 chunk（如 usage-only chunk），静默忽略
         // OpenAI 启用 stream_options.include_usage 时，最终 chunk 为 choices:[] + usage
+        // 需要提取 usage 为 "usage_only" 事件，供统计层采集
         if (!choices.isArray() || choices.isEmpty()) {
+            if (usageNode != null && !usageNode.isNull() && !usageNode.isMissingNode()) {
+                state.pendingUsage = parseUsage(usageNode);
+                UnifiedStreamEvent usageEvent = new UnifiedStreamEvent();
+                usageEvent.setType("usage_only");
+                usageEvent.setUsage(state.pendingUsage);
+                return Flux.just(usageEvent);
+            }
             return Flux.empty();
         }
 
@@ -423,17 +441,27 @@ public class OpenAiProviderClient extends AbstractProviderClient {
                 }
             }
 
-            // finish_reason
+            // finish_reason：优先使用当前 chunk 的 usage，回退到 usage-only chunk 捕获的 pendingUsage
             JsonNode finishNode = choice.get("finish_reason");
             if (finishNode != null && !finishNode.isNull()) {
                 UnifiedStreamEvent doneEvent = new UnifiedStreamEvent();
                 doneEvent.setType("done");
                 doneEvent.setOutputIndex(index);
                 doneEvent.setFinishReason(finishNode.asText());
-                doneEvent.setUsage(parseUsage(usageNode));
+                // 当前 chunk 的 usage 可能为 null（标准 OpenAI 行为），回退到已捕获的 pendingUsage
+                UnifiedUsage usage = parseUsage(usageNode);
+                doneEvent.setUsage(usage != null ? usage : state.pendingUsage);
                 events.add(doneEvent);
             }
         }
         return Flux.fromIterable(events);
+    }
+
+    /**
+     * 流式解析状态：捕获 usage-only chunk 的 usage 数据供后续使用
+     */
+    private static class StreamState {
+        /** 从 usage-only chunk（choices:[]）捕获的 usage */
+        UnifiedUsage pendingUsage;
     }
 }

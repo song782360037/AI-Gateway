@@ -100,7 +100,10 @@ public class ChatGatewayService {
                         return client.streamChat(unifiedRequest);
                     }, correlationId)
                             .doOnNext(event -> {
-                                if ("done".equals(event.getType()) && event.getUsage() != null) {
+                                // "done" 事件携带 finish_reason 和可能的 usage
+                                // "usage_only" 事件来自 OpenAI 的 usage-only chunk（choices:[]）
+                                if (("done".equals(event.getType()) || "usage_only".equals(event.getType()))
+                                        && event.getUsage() != null) {
                                     finalUsageRef.set(event.getUsage());
                                 }
                             })
