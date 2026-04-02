@@ -24,7 +24,11 @@
             <el-input v-model="form.aliasName" placeholder="gpt-4o" />
           </el-form-item>
           <el-form-item label="目标 Provider" prop="providerCode">
-            <el-input v-model="form.providerCode" placeholder="openai-main" />
+            <el-input
+              v-model="form.providerCode"
+              placeholder="openai-main"
+              :disabled="providerCodeLocked"
+            />
           </el-form-item>
           <el-form-item label="目标模型" prop="targetModel">
             <el-input v-model="form.targetModel" placeholder="gpt-4o-2024-11-20" />
@@ -111,6 +115,10 @@ const routeStrategyOptions = ['PRIORITY', 'WEIGHT', 'FALLBACK'] as const
 const props = defineProps<{
   visible: boolean
   modelValue?: ModelRedirectConfigRsp | null
+  /** 是否锁定 providerCode 字段（从展开行使用时自动锁定） */
+  providerCodeLocked?: boolean
+  /** 锁定时的 providerCode 预填值 */
+  lockedProviderCode?: string
 }>()
 
 const emit = defineEmits<{
@@ -133,13 +141,13 @@ const rules: FormRules<RedirectFormModel> = {
 }
 
 watch(
-  () => props.modelValue,
-  (value) => {
+  [() => props.modelValue, () => props.lockedProviderCode, () => props.visible],
+  ([value]) => {
     isEdit.value = !!value
     const nextForm = buildFormState(value)
 
     // 记录表单初始值，保证编辑态点击“重置”后回到原始配置，而不是回到默认空表单。
-    initialSnapshot.value = nextForm
+    initialSnapshot.value = { ...nextForm }
     Object.assign(form, nextForm)
   },
   { immediate: true },
@@ -147,7 +155,11 @@ watch(
 
 function buildFormState(value?: ModelRedirectConfigRsp | null): RedirectFormModel {
   if (!value) {
-    return createEmptyForm()
+    return {
+      ...createEmptyForm(),
+      // 锁定模式下预填 providerCode
+      providerCode: props.lockedProviderCode ?? '',
+    }
   }
 
   return {

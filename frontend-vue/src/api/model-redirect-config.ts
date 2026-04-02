@@ -27,3 +27,11 @@ export function deleteModelRedirect(id: number) {
 export function toggleModelRedirect(id: number, versionNo: number) {
   return request.post<never, void>('/admin/model-redirect-config/toggle', { id, versionNo })
 }
+
+/** 按 providerCode 查询全部路由规则（用于展开行加载） */
+export function fetchModelRedirectsByProvider(providerCode: string) {
+  return request.post<ModelRedirectConfigQueryReq, PageResult<ModelRedirectConfigRsp>>(
+    '/admin/model-redirect-config/list',
+    { providerCode, page: 1, pageSize: 100 },
+  )
+}

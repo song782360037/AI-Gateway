@@ -23,11 +23,7 @@
         </el-menu-item>
         <el-menu-item index="/provider">
           <el-icon><Connection /></el-icon>
-          <span>接入通道</span>
-        </el-menu-item>
-        <el-menu-item index="/model-redirect">
-          <el-icon><Share /></el-icon>
-          <span>模型路由规则</span>
+          <span>提供商管理</span>
         </el-menu-item>
         <el-menu-item index="/api-key">
           <el-icon><Key /></el-icon>
@@ -68,7 +64,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Connection, DataAnalysis, Document, Key, Odometer, Share, SwitchButton, User } from '@element-plus/icons-vue'
+import { Connection, DataAnalysis, Document, Key, Odometer, SwitchButton, User } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus'
 import { useAuthStore } from '../stores/auth'
 

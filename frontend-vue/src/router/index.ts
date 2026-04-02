@@ -35,24 +35,18 @@ const router = createRouter({
     {
       path: '/provider',
       name: 'provider',
-      component: () => import('../views/provider/ProviderConfigView.vue'),
+      component: () => import('../views/provider/ProviderManagementView.vue'),
       meta: {
-        eyebrow: '接入通道管理',
-        title: '接入通道',
-        description: '统一维护 Provider 编码、基础地址、密钥与优先级，适合日常配置和后台运维操作。',
-        tag: '通道',
+        eyebrow: '提供商管理',
+        title: '提供商管理',
+        description: '统一管理接入通道和模型路由规则，在一个页面内完成提供商的完整配置。',
+        tag: '提供商',
       },
     },
+    // 旧路径兼容重定向
     {
       path: '/model-redirect',
-      name: 'model-redirect',
-      component: () => import('../views/model/ModelRedirectConfigView.vue'),
-      meta: {
-        eyebrow: '模型路由管理',
-        title: '模型路由规则',
-        description: '管理对外模型名与目标 Provider 的映射关系，用后台化方式集中维护路由决策配置。',
-        tag: '路由',
-      },
+      redirect: '/provider',
     },
     {
       path: '/api-key',
