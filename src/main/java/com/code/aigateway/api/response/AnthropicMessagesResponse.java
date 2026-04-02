@@ -32,6 +32,8 @@ public class AnthropicMessagesResponse {
     public static class ContentBlock {
         private String type;
         private String text;
+        private String thinking;
+        private String signature;
         private String id;
         private String name;
         private Object input;

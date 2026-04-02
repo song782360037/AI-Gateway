@@ -11,6 +11,7 @@ import java.util.Map;
  * <ul>
  *   <li>text: 文本内容</li>
  *   <li>image: 图片内容（URL 或 Base64）</li>
+ *   <li>thinking: 思考内容</li>
  * </ul>
  * </p>
  *
@@ -22,13 +23,13 @@ public class UnifiedPart {
     /**
      * 内容类型
      * <p>
-     * 支持的类型：text、image
+     * 支持的类型：text、image、thinking
      * </p>
      */
     private String type;
 
     /**
-     * 文本内容（当 type 为 text 时使用）
+     * 文本内容（当 type 为 text 或 thinking 时使用）
      */
     private String text;
 

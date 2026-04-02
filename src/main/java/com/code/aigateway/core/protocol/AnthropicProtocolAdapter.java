@@ -103,6 +103,9 @@ public class AnthropicProtocolAdapter implements ProtocolAdapter {
         if ("text_delta".equals(event.getType())) {
             return encodeTextDeltaEvent(event, ctx);
         }
+        if ("thinking_delta".equals(event.getType())) {
+            return encodeThinkingDeltaEvent(event, ctx);
+        }
         if ("tool_call".equals(event.getType())) {
             return encodeToolCallEvent(event, ctx);
         }
@@ -160,6 +163,33 @@ public class AnthropicProtocolAdapter implements ProtocolAdapter {
         Map<String, Object> delta = new LinkedHashMap<>();
         delta.put("type", "text_delta");
         delta.put("text", event.getTextDelta() != null ? event.getTextDelta() : "");
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("type", "content_block_delta");
+        payload.put("index", blockSeq);
+        payload.put("delta", delta);
+        events.add(ServerSentEvent.<String>builder()
+                .event("content_block_delta")
+                .data(toJson(payload))
+                .build());
+
+        return Flux.fromIterable(events);
+    }
+
+    /**
+     * thinking_delta 事件：首个思考 delta 先发送 thinking 类型的 content_block_start。
+     */
+    private Flux<ServerSentEvent<String>> encodeThinkingDeltaEvent(UnifiedStreamEvent event, StreamContext ctx) {
+        List<ServerSentEvent<String>> events = new ArrayList<>();
+
+        if (ctx.tryMarkFirstContentSent()) {
+            int blockSeq = ctx.allocateAndOpenContentBlock();
+            events.add(buildThinkingContentBlockStart(blockSeq));
+        }
+
+        int blockSeq = ctx.getOpenBlockIndex();
+        Map<String, Object> delta = new LinkedHashMap<>();
+        delta.put("type", "thinking_delta");
+        delta.put("thinking", event.getThinkingDelta() != null ? event.getThinkingDelta() : "");
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("type", "content_block_delta");
         payload.put("index", blockSeq);
@@ -257,6 +287,21 @@ public class AnthropicProtocolAdapter implements ProtocolAdapter {
         Map<String, Object> contentBlock = new LinkedHashMap<>();
         contentBlock.put("type", "text");
         contentBlock.put("text", "");
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("type", "content_block_start");
+        payload.put("index", index);
+        payload.put("content_block", contentBlock);
+        return ServerSentEvent.<String>builder()
+                .event("content_block_start")
+                .data(toJson(payload))
+                .build();
+    }
+
+    /** 构建 thinking 类型的 content_block_start 事件 */
+    private ServerSentEvent<String> buildThinkingContentBlockStart(int index) {
+        Map<String, Object> contentBlock = new LinkedHashMap<>();
+        contentBlock.put("type", "thinking");
+        contentBlock.put("thinking", "");
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("type", "content_block_start");
         payload.put("index", index);

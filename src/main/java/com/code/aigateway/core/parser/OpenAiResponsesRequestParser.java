@@ -7,13 +7,16 @@ import com.code.aigateway.core.model.UnifiedGenerationConfig;
 import com.code.aigateway.core.model.UnifiedMessage;
 import com.code.aigateway.core.model.UnifiedPart;
 import com.code.aigateway.core.model.UnifiedRequest;
+import com.code.aigateway.core.model.UnifiedReasoningConfig;
 import com.code.aigateway.core.model.UnifiedTool;
 import com.code.aigateway.core.model.UnifiedToolCall;
 import com.code.aigateway.core.model.UnifiedToolChoice;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -48,12 +51,31 @@ public class OpenAiResponsesRequestParser {
         config.setTemperature(request.getTemperature());
         config.setMaxOutputTokens(request.getMaxOutputTokens());
         config.setParallelToolCalls(request.getParallelToolCalls());
+        config.setStopSequences(parseStopSequences(request.getStop()));
+        Map<String, Object> reasoning = request.getReasoning();
+        if (reasoning != null) {
+            Object effort = reasoning.get("effort");
+            if (effort instanceof String effortValue && !effortValue.isBlank()) {
+                UnifiedReasoningConfig unifiedReasoning = new UnifiedReasoningConfig();
+                unifiedReasoning.setEnabled(true);
+                unifiedReasoning.setEffort(effortValue);
+                config.setReasoning(unifiedReasoning);
+            }
+        }
         unifiedRequest.setGenerationConfig(config);
 
         // 解析 input 数组为消息列表
         unifiedRequest.setMessages(parseInputItems(request.getInput()));
         unifiedRequest.setTools(parseTools(request.getTools()));
         unifiedRequest.setToolChoice(parseToolChoice(request.getToolChoice()));
+
+        if (reasoning != null) {
+            Map<String, Object> metadata = unifiedRequest.getMetadata() == null
+                    ? new LinkedHashMap<>()
+                    : new LinkedHashMap<>(unifiedRequest.getMetadata());
+            metadata.put("openai_reasoning", reasoning);
+            unifiedRequest.setMetadata(metadata);
+        }
 
         return unifiedRequest;
     }
@@ -161,6 +183,24 @@ public class OpenAiResponsesRequestParser {
             result.add(unifiedTool);
         }
         return result;
+    }
+
+    private List<String> parseStopSequences(Object stop) {
+        if (stop == null) {
+            return null;
+        }
+        if (stop instanceof String stopSequence) {
+            return stopSequence.isBlank() ? null : List.of(stopSequence);
+        }
+        if (stop instanceof List<?> stopList) {
+            List<String> stopSequences = stopList.stream()
+                    .filter(String.class::isInstance)
+                    .map(String.class::cast)
+                    .filter(value -> !value.isBlank())
+                    .toList();
+            return stopSequences.isEmpty() ? null : stopSequences;
+        }
+        return null;
     }
 
     private UnifiedToolChoice parseToolChoice(Object toolChoiceObj) {

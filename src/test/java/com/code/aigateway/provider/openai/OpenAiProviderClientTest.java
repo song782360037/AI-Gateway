@@ -9,7 +9,9 @@ import com.code.aigateway.core.model.UnifiedPart;
 import com.code.aigateway.core.model.UnifiedRequest;
 import com.code.aigateway.core.model.UnifiedResponse;
 import com.code.aigateway.core.model.UnifiedStreamEvent;
+import com.code.aigateway.core.capability.ReasoningSemanticMapper;
 import com.code.aigateway.core.resilience.CircuitBreakerManager;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
@@ -114,6 +116,47 @@ class OpenAiProviderClientTest {
         assertTrue(requestBody.get().contains("\"model\":\"gpt-5.4\""));
         assertTrue(requestBody.get().contains("\"stream\":false"));
         assertTrue(requestBody.get().contains("\"messages\""));
+    }
+
+    @Test
+    void chat_requestBody_includesReasoningEffort() throws Exception {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
+                    {
+                      "id": "chatcmpl-reasoning",
+                      "object": "chat.completion",
+                      "created": 1710000000,
+                      "model": "gpt-5.4",
+                      "choices": [
+                        {
+                          "index": 0,
+                          "message": {
+                            "role": "assistant",
+                            "content": "ok"
+                          },
+                          "finish_reason": "stop"
+                        }
+                      ],
+                      "usage": {
+                        "prompt_tokens": 11,
+                        "completion_tokens": 7,
+                        "total_tokens": 18
+                      }
+                    }
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        UnifiedRequest request = buildRequest(false);
+        request.getGenerationConfig().setReasoningEffort("medium");
+
+        StepVerifier.create(providerClient.chat(request))
+                .assertNext(response -> assertEquals("stop", response.getFinishReason()))
+                .verifyComplete();
+
+        JsonNode body = objectMapper.readTree(requestBody.get());
+        assertEquals("medium", body.get("reasoning_effort").asText());
     }
 
     @Test
@@ -584,7 +627,8 @@ class OpenAiProviderClientTest {
         providerProperties.setApiKey("test-openai-key");
         providerProperties.setTimeoutSeconds(timeoutSeconds);
         gatewayProperties.setProviders(Map.of("openai", providerProperties));
-        return new OpenAiProviderClient(WebClient.builder(), objectMapper, gatewayProperties, mockCircuitBreakerManager());
+        return new OpenAiProviderClient(
+                WebClient.builder(), objectMapper, gatewayProperties, mockCircuitBreakerManager(), new ReasoningSemanticMapper());
     }
 
     private UnifiedRequest buildRequest(boolean stream) {

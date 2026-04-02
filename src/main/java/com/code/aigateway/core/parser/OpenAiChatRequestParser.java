@@ -8,6 +8,7 @@ import com.code.aigateway.core.model.UnifiedMessage;
 import com.code.aigateway.core.model.UnifiedPart;
 import com.code.aigateway.core.model.UnifiedRequest;
 import com.code.aigateway.core.model.UnifiedResponseFormat;
+import com.code.aigateway.core.model.UnifiedReasoningConfig;
 import com.code.aigateway.core.model.UnifiedTool;
 import com.code.aigateway.core.model.UnifiedToolCall;
 import com.code.aigateway.core.model.UnifiedToolChoice;
@@ -91,6 +92,12 @@ public class OpenAiChatRequestParser implements RequestParser<OpenAiChatCompleti
         config.setTemperature(request.getTemperature());
         config.setTopP(request.getTopP());
         config.setMaxOutputTokens(resolveMaxOutputTokens(request.getMaxTokens(), request.getMaxCompletionTokens()));
+        if (request.getReasoningEffort() != null && !request.getReasoningEffort().isBlank()) {
+            UnifiedReasoningConfig reasoning = new UnifiedReasoningConfig();
+            reasoning.setEnabled(true);
+            reasoning.setEffort(request.getReasoningEffort());
+            config.setReasoning(reasoning);
+        }
         config.setStopSequences(request.getStop());
         config.setParallelToolCalls(request.getParallelToolCalls());
         return config;

@@ -3,6 +3,7 @@ package com.code.aigateway.provider.openai;
 import com.code.aigateway.config.GatewayProperties;
 import com.code.aigateway.core.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
+import com.code.aigateway.core.capability.ReasoningSemanticMapper;
 import com.code.aigateway.core.resilience.CircuitBreakerManager;
 import com.code.aigateway.core.model.UnifiedMessage;
 import com.code.aigateway.core.model.UnifiedOutput;
@@ -10,6 +11,7 @@ import com.code.aigateway.core.model.UnifiedPart;
 import com.code.aigateway.core.model.UnifiedRequest;
 import com.code.aigateway.core.model.UnifiedResponse;
 import com.code.aigateway.core.model.UnifiedStreamEvent;
+import com.code.aigateway.core.model.UnifiedReasoningConfig;
 import com.code.aigateway.core.model.UnifiedTool;
 import com.code.aigateway.core.model.UnifiedToolCall;
 import com.code.aigateway.core.model.UnifiedToolChoice;
@@ -63,11 +65,15 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
 
     private static final String RESPONSES_PATH = "/v1/responses";
 
+    private final ReasoningSemanticMapper reasoningSemanticMapper;
+
     public OpenAiResponsesProviderClient(WebClient.Builder webClientBuilder,
                                          ObjectMapper objectMapper,
                                          GatewayProperties gatewayProperties,
-                                         CircuitBreakerManager circuitBreakerManager) {
+                                         CircuitBreakerManager circuitBreakerManager,
+                                         ReasoningSemanticMapper reasoningSemanticMapper) {
         super(webClientBuilder, objectMapper, gatewayProperties, circuitBreakerManager);
+        this.reasoningSemanticMapper = reasoningSemanticMapper;
     }
 
     @Override
@@ -154,6 +160,15 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
             }
             if (request.getGenerationConfig().getMaxOutputTokens() != null) {
                 body.put("max_output_tokens", request.getGenerationConfig().getMaxOutputTokens());
+            }
+            if (request.getGenerationConfig().getStopSequences() != null && !request.getGenerationConfig().getStopSequences().isEmpty()) {
+                body.put("stop", request.getGenerationConfig().getStopSequences());
+            }
+            if (request.getGenerationConfig().getReasoning() != null) {
+                String reasoningEffort = reasoningSemanticMapper.toOpenAiEffort(request.getGenerationConfig().getReasoning());
+                if (reasoningEffort != null && !reasoningEffort.isBlank()) {
+                    body.put("reasoning", Map.of("effort", reasoningEffort));
+                }
             }
         }
 
@@ -271,6 +286,7 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
         }
 
         List<UnifiedToolCall> toolCalls = new ArrayList<>();
+        List<UnifiedPart> thinkingParts = new ArrayList<>();
         StringBuilder textBuilder = new StringBuilder();
 
         JsonNode outputArray = json.path("output");
@@ -282,9 +298,25 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
                     JsonNode content = item.path("content");
                     if (content.isArray()) {
                         for (JsonNode c : content) {
-                            if ("output_text".equals(c.path("type").asText()) || "text".equals(c.path("type").asText())) {
+                            String contentType = c.path("type").asText();
+                            if ("output_text".equals(contentType) || "text".equals(contentType)) {
                                 textBuilder.append(c.path("text").asText());
+                            } else if ("reasoning".equals(contentType)) {
+                                UnifiedPart thinkingPart = new UnifiedPart();
+                                thinkingPart.setType("thinking");
+                                thinkingPart.setText(c.path("text").asText());
+                                thinkingParts.add(thinkingPart);
                             }
+                        }
+                    }
+                } else if ("reasoning".equals(type)) {
+                    JsonNode content = item.path("content");
+                    if (content.isArray()) {
+                        for (JsonNode c : content) {
+                            UnifiedPart thinkingPart = new UnifiedPart();
+                            thinkingPart.setType("thinking");
+                            thinkingPart.setText(c.path("text").asText());
+                            thinkingParts.add(thinkingPart);
                         }
                     }
                 } else if ("function_call".equals(type)) {
@@ -298,13 +330,17 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
             }
         }
 
-        UnifiedPart part = new UnifiedPart();
-        part.setType("text");
-        part.setText(textBuilder.toString());
-
         UnifiedOutput output = new UnifiedOutput();
         output.setRole("assistant");
-        output.setParts(textBuilder.isEmpty() && !toolCalls.isEmpty() ? List.of() : List.of(part));
+        List<UnifiedPart> outputParts = new ArrayList<>();
+        if (!textBuilder.isEmpty()) {
+            UnifiedPart part = new UnifiedPart();
+            part.setType("text");
+            part.setText(textBuilder.toString());
+            outputParts.add(part);
+        }
+        outputParts.addAll(thinkingParts);
+        output.setParts(outputParts);
         output.setToolCalls(toolCalls.isEmpty() ? null : toolCalls);
 
         String status = textOrNull(json.get("status"));
@@ -351,8 +387,9 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
 
         return switch (eventType) {
             case "response.output_item.added" -> handleOutputItemAdded(json, state);
-            case "response.content_part.added" -> Flux.empty();
+            case "response.content_part.added" -> handleContentPartAdded(json);
             case "response.output_text.delta" -> handleTextDelta(json);
+            case "response.reasoning.delta" -> handleReasoningDelta(json);
             case "response.function_call_arguments.delta" -> handleFunctionCallDelta(json, state);
             case "response.output_item.done" -> handleOutputItemDone(json, state);
             case "response.completed" -> handleCompleted(json);
@@ -389,6 +426,26 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
         e.setType("text_delta");
         e.setTextDelta(json.path("delta").asText());
         return Flux.just(e);
+    }
+
+    /** 思考内容增量 */
+    private Flux<UnifiedStreamEvent> handleReasoningDelta(JsonNode json) {
+        UnifiedStreamEvent e = new UnifiedStreamEvent();
+        e.setType("thinking_delta");
+        e.setThinkingDelta(json.path("delta").asText());
+        return Flux.just(e);
+    }
+
+    /** content_part 新增事件 */
+    private Flux<UnifiedStreamEvent> handleContentPartAdded(JsonNode json) {
+        JsonNode part = json.path("part");
+        if ("reasoning".equals(part.path("type").asText())) {
+            UnifiedStreamEvent e = new UnifiedStreamEvent();
+            e.setType("thinking_delta");
+            e.setThinkingDelta(part.path("text").asText());
+            return Flux.just(e);
+        }
+        return Flux.empty();
     }
 
     /** 工具参数增量 */

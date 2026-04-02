@@ -38,6 +38,21 @@ public class OpenAiResponsesResponseEncoder {
                     .build());
         }
 
+        // 提取思考输出
+        List<UnifiedPart> thinkingParts = extractThinkingParts(source);
+        for (UnifiedPart thinkingPart : thinkingParts) {
+            OpenAiResponsesResponse.ContentPart contentPart = OpenAiResponsesResponse.ContentPart.builder()
+                    .type("reasoning")
+                    .text(thinkingPart.getText())
+                    .build();
+            outputItems.add(OpenAiResponsesResponse.OutputItem.builder()
+                    .type("reasoning")
+                    .role("assistant")
+                    .content(List.of(contentPart))
+                    .status("completed")
+                    .build());
+        }
+
         // 提取工具调用输出
         List<UnifiedToolCall> toolCalls = extractToolCalls(source);
         for (UnifiedToolCall toolCall : toolCalls) {
@@ -97,6 +112,19 @@ public class OpenAiResponsesResponseEncoder {
         }
         UnifiedOutput output = source.getOutputs().get(0);
         return output.getToolCalls() != null ? output.getToolCalls() : List.of();
+    }
+
+    private List<UnifiedPart> extractThinkingParts(UnifiedResponse source) {
+        if (source.getOutputs() == null || source.getOutputs().isEmpty()) {
+            return List.of();
+        }
+        UnifiedOutput output = source.getOutputs().get(0);
+        if (output.getParts() == null || output.getParts().isEmpty()) {
+            return List.of();
+        }
+        return output.getParts().stream()
+                .filter(part -> "thinking".equals(part.getType()) && part.getText() != null)
+                .toList();
     }
 
     private String mapStatus(String finishReason) {

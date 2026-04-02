@@ -1,12 +1,14 @@
 package com.code.aigateway.provider.anthropic;
 
 import com.code.aigateway.config.GatewayProperties;
+import com.code.aigateway.core.capability.ReasoningSemanticMapper;
 import com.code.aigateway.core.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.resilience.CircuitBreakerManager;
 import com.code.aigateway.core.model.UnifiedMessage;
 import com.code.aigateway.core.model.UnifiedOutput;
 import com.code.aigateway.core.model.UnifiedPart;
+import com.code.aigateway.core.model.UnifiedReasoningConfig;
 import com.code.aigateway.core.model.UnifiedRequest;
 import com.code.aigateway.core.model.UnifiedResponse;
 import com.code.aigateway.core.model.UnifiedStreamEvent;
@@ -56,11 +58,15 @@ public class AnthropicProviderClient extends AbstractProviderClient {
     private static final String DEFAULT_ANTHROPIC_VERSION = "2023-06-01";
     private static final int DEFAULT_MAX_TOKENS = 4096;
 
+    private final ReasoningSemanticMapper reasoningSemanticMapper;
+
     public AnthropicProviderClient(WebClient.Builder webClientBuilder,
                                    ObjectMapper objectMapper,
                                    GatewayProperties gatewayProperties,
-                                   CircuitBreakerManager circuitBreakerManager) {
+                                   CircuitBreakerManager circuitBreakerManager,
+                                   ReasoningSemanticMapper reasoningSemanticMapper) {
         super(webClientBuilder, objectMapper, gatewayProperties, circuitBreakerManager);
+        this.reasoningSemanticMapper = reasoningSemanticMapper;
     }
 
     @Override
@@ -167,8 +173,20 @@ public class AnthropicProviderClient extends AbstractProviderClient {
             if (request.getGenerationConfig().getTopP() != null) {
                 body.put("top_p", request.getGenerationConfig().getTopP());
             }
+            if (request.getGenerationConfig().getTopK() != null) {
+                body.put("top_k", request.getGenerationConfig().getTopK());
+            }
             if (request.getGenerationConfig().getStopSequences() != null && !request.getGenerationConfig().getStopSequences().isEmpty()) {
                 body.put("stop_sequences", request.getGenerationConfig().getStopSequences());
+            }
+            if (request.getGenerationConfig().getReasoning() != null) {
+                Integer budgetTokens = reasoningSemanticMapper.toAnthropicBudgetTokens(request.getGenerationConfig().getReasoning());
+                if (budgetTokens != null) {
+                    Map<String, Object> thinking = new LinkedHashMap<>();
+                    thinking.put("type", "enabled");
+                    thinking.put("budget_tokens", budgetTokens);
+                    body.put("thinking", thinking);
+                }
             }
         }
 
@@ -317,6 +335,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
         }
 
         List<UnifiedToolCall> toolCalls = new ArrayList<>();
+        List<UnifiedPart> thinkingParts = new ArrayList<>();
         StringBuilder textBuilder = new StringBuilder();
         JsonNode contentArray = json.path("content");
 
@@ -325,6 +344,17 @@ public class AnthropicProviderClient extends AbstractProviderClient {
                 String blockType = block.path("type").asText();
                 if ("text".equals(blockType)) {
                     textBuilder.append(block.path("text").asText());
+                } else if ("thinking".equals(blockType) || "redacted_thinking".equals(blockType)) {
+                    UnifiedPart thinkingPart = new UnifiedPart();
+                    thinkingPart.setType("thinking");
+                    thinkingPart.setText(block.has("thinking") ? block.path("thinking").asText() : block.path("text").asText());
+                    Map<String, Object> attributes = new LinkedHashMap<>();
+                    attributes.put("anthropic_type", blockType);
+                    if (block.has("signature")) {
+                        attributes.put("signature", block.path("signature").asText());
+                    }
+                    thinkingPart.setAttributes(attributes);
+                    thinkingParts.add(thinkingPart);
                 } else if ("tool_use".equals(blockType)) {
                     UnifiedToolCall call = new UnifiedToolCall();
                     call.setId(textOrNull(block.get("id")));
@@ -337,13 +367,17 @@ public class AnthropicProviderClient extends AbstractProviderClient {
             }
         }
 
-        UnifiedPart part = new UnifiedPart();
-        part.setType("text");
-        part.setText(textBuilder.toString());
-
         UnifiedOutput output = new UnifiedOutput();
         output.setRole("assistant");
-        output.setParts(textBuilder.isEmpty() && !toolCalls.isEmpty() ? List.of() : List.of(part));
+        List<UnifiedPart> outputParts = new ArrayList<>();
+        if (!textBuilder.isEmpty()) {
+            UnifiedPart part = new UnifiedPart();
+            part.setType("text");
+            part.setText(textBuilder.toString());
+            outputParts.add(part);
+        }
+        outputParts.addAll(thinkingParts);
+        output.setParts(outputParts);
         output.setToolCalls(toolCalls.isEmpty() ? null : toolCalls);
 
         UnifiedResponse response = new UnifiedResponse();
@@ -433,6 +467,14 @@ public class AnthropicProviderClient extends AbstractProviderClient {
             e.setType("text_delta");
             e.setOutputIndex(index);
             e.setTextDelta(delta.path("text").asText());
+            return Flux.just(e);
+        }
+
+        if ("thinking_delta".equals(deltaType)) {
+            UnifiedStreamEvent e = new UnifiedStreamEvent();
+            e.setType("thinking_delta");
+            e.setOutputIndex(index);
+            e.setThinkingDelta(delta.path("thinking").asText());
             return Flux.just(e);
         }
 

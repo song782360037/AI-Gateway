@@ -7,6 +7,7 @@ import com.code.aigateway.core.model.UnifiedGenerationConfig;
 import com.code.aigateway.core.model.UnifiedMessage;
 import com.code.aigateway.core.model.UnifiedPart;
 import com.code.aigateway.core.model.UnifiedRequest;
+import com.code.aigateway.core.model.UnifiedReasoningConfig;
 import com.code.aigateway.core.model.UnifiedTool;
 import com.code.aigateway.core.model.UnifiedToolCall;
 import com.code.aigateway.core.model.UnifiedToolChoice;
@@ -60,7 +61,14 @@ public class AnthropicRequestParser {
         config.setMaxOutputTokens(request.getMaxTokens());
         config.setTemperature(request.getTemperature());
         config.setTopP(request.getTopP());
+        config.setTopK(request.getTopK());
         config.setStopSequences(request.getStopSequences());
+        if (request.getThinking() != null) {
+            UnifiedReasoningConfig reasoning = new UnifiedReasoningConfig();
+            reasoning.setEnabled("enabled".equalsIgnoreCase(request.getThinking().getType()));
+            reasoning.setBudgetTokens(request.getThinking().getBudgetTokens());
+            config.setReasoning(reasoning);
+        }
         unifiedRequest.setGenerationConfig(config);
 
         // 解析消息（含 tool_use / tool_result 块处理）
@@ -106,7 +114,7 @@ public class AnthropicRequestParser {
     /**
      * 解析 assistant 消息
      * <p>
-     * 从 content 块中提取 text 和 tool_use，生成对应的 UnifiedMessage。
+     * 从 content 块中提取 text、thinking 和 tool_use，生成对应的 UnifiedMessage。
      * tool_use 块生成 role=assistant 的 UnifiedMessage + toolCalls。
      * </p>
      */
@@ -114,14 +122,28 @@ public class AnthropicRequestParser {
         List<Map<String, Object>> blocks = parseContentBlocks(msg.getContent(), paramPath);
 
         List<UnifiedToolCall> toolCalls = new ArrayList<>();
-        StringBuilder textBuilder = new StringBuilder();
+        List<UnifiedPart> parts = new ArrayList<>();
 
         for (Map<String, Object> block : blocks) {
             String type = (String) block.get("type");
             if ("text".equals(type)) {
                 if (block.get("text") instanceof String text) {
-                    textBuilder.append(text);
+                    UnifiedPart part = new UnifiedPart();
+                    part.setType("text");
+                    part.setText(text);
+                    parts.add(part);
                 }
+            } else if ("thinking".equals(type) || "redacted_thinking".equals(type)) {
+                UnifiedPart part = new UnifiedPart();
+                part.setType("thinking");
+                part.setText(block.get("thinking") instanceof String thinking ? thinking : (String) block.get("text"));
+                if (block.containsKey("signature")) {
+                    Map<String, Object> attributes = new LinkedHashMap<>();
+                    attributes.put("signature", block.get("signature"));
+                    attributes.put("anthropic_type", type);
+                    part.setAttributes(attributes);
+                }
+                parts.add(part);
             } else if ("tool_use".equals(type)) {
                 UnifiedToolCall toolCall = new UnifiedToolCall();
                 toolCall.setId((String) block.get("id"));
@@ -134,15 +156,12 @@ public class AnthropicRequestParser {
             }
         }
 
-        // 如果有文本内容，先添加文本消息
-        if (!textBuilder.isEmpty()) {
-            UnifiedMessage textMsg = new UnifiedMessage();
-            textMsg.setRole("assistant");
-            UnifiedPart textPart = new UnifiedPart();
-            textPart.setType("text");
-            textPart.setText(textBuilder.toString());
-            textMsg.setParts(List.of(textPart));
-            result.add(textMsg);
+        // 如果有文本/思考内容，先添加消息
+        if (!parts.isEmpty()) {
+            UnifiedMessage contentMsg = new UnifiedMessage();
+            contentMsg.setRole("assistant");
+            contentMsg.setParts(parts);
+            result.add(contentMsg);
         }
 
         // 如果有工具调用，添加 toolCalls 消息
@@ -168,13 +187,16 @@ public class AnthropicRequestParser {
         List<Map<String, Object>> blocks = parseContentBlocks(msg.getContent(), paramPath);
 
         List<UnifiedMessage> toolResults = new ArrayList<>();
-        StringBuilder textBuilder = new StringBuilder();
+        List<UnifiedPart> parts = new ArrayList<>();
 
         for (Map<String, Object> block : blocks) {
             String type = (String) block.get("type");
             if ("text".equals(type)) {
                 if (block.get("text") instanceof String text) {
-                    textBuilder.append(text);
+                    UnifiedPart part = new UnifiedPart();
+                    part.setType("text");
+                    part.setText(text);
+                    parts.add(part);
                 }
             } else if ("tool_result".equals(type)) {
                 UnifiedMessage toolMsg = new UnifiedMessage();
@@ -186,10 +208,10 @@ public class AnthropicRequestParser {
                 String text = "";
                 if (content instanceof String s) {
                     text = s;
-                } else if (content instanceof List<?> parts) {
+                } else if (content instanceof List<?> contentParts) {
                     StringBuilder sb = new StringBuilder();
-                    for (Object part : parts) {
-                        if (part instanceof Map<?, ?> pm && "text".equals(pm.get("type"))) {
+                    for (Object partObj : contentParts) {
+                        if (partObj instanceof Map<?, ?> pm && "text".equals(pm.get("type"))) {
                             sb.append(pm.get("text"));
                         }
                     }
@@ -205,13 +227,10 @@ public class AnthropicRequestParser {
         }
 
         // 先添加文本 user 消息
-        if (!textBuilder.isEmpty()) {
+        if (!parts.isEmpty()) {
             UnifiedMessage textMsg = new UnifiedMessage();
             textMsg.setRole("user");
-            UnifiedPart textPart = new UnifiedPart();
-            textPart.setType("text");
-            textPart.setText(textBuilder.toString());
-            textMsg.setParts(List.of(textPart));
+            textMsg.setParts(parts);
             result.add(textMsg);
         }
 

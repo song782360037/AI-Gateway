@@ -56,6 +56,7 @@ public class AnthropicMessagesRequest implements StatsRequestInfo {
     private Object toolChoice;
 
     /** 停止序列 */
+    @JsonProperty("stop_sequences")
     private List<String> stopSequences;
 
     /** 温度参数 */
@@ -68,6 +69,10 @@ public class AnthropicMessagesRequest implements StatsRequestInfo {
     /** Top-K 采样参数 */
     @JsonProperty("top_k")
     private Integer topK;
+
+    /** 扩展思考配置 */
+    @Valid
+    private Thinking thinking;
 
     /** 扩展元数据 */
     private Map<String, Object> metadata;
@@ -86,6 +91,16 @@ public class AnthropicMessagesRequest implements StatsRequestInfo {
         private String role;
         /** 消息内容（字符串或 ContentBlock 数组） */
         private Object content;
+    }
+
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class Thinking {
+        /** thinking 类型，通常为 enabled */
+        private String type;
+        /** thinking 预算 token 数 */
+        @JsonProperty("budget_tokens")
+        private Integer budgetTokens;
     }
 
     // ===================== 工具定义 =====================

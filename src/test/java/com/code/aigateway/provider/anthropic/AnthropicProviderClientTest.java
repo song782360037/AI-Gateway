@@ -1,6 +1,7 @@
 package com.code.aigateway.provider.anthropic;
 
 import com.code.aigateway.config.GatewayProperties;
+import com.code.aigateway.core.capability.ReasoningSemanticMapper;
 import com.code.aigateway.core.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.model.UnifiedGenerationConfig;
@@ -338,6 +339,37 @@ class AnthropicProviderClientTest {
     // ==================== 7. 消息构建 ====================
 
     @Test
+    void chat_requestBody_includesThinkingConfig() throws Exception {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
+                    {
+                      "id": "msg_thinking",
+                      "type": "message",
+                      "role": "assistant",
+                      "model": "claude-3-5-sonnet-20241022",
+                      "content": [{"type":"text","text":"ok"}],
+                      "stop_reason": "end_turn",
+                      "usage": {"input_tokens": 9, "output_tokens": 1}
+                    }
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        UnifiedRequest request = buildBasicRequest(false);
+        request.getGenerationConfig().setThinkingEnabled(true);
+        request.getGenerationConfig().setThinkingBudgetTokens(4096);
+
+        StepVerifier.create(providerClient.chat(request))
+                .assertNext(response -> assertEquals("stop", response.getFinishReason()))
+                .verifyComplete();
+
+        JsonNode body = objectMapper.readTree(requestBody.get());
+        assertEquals("enabled", body.get("thinking").get("type").asText());
+        assertEquals(4096, body.get("thinking").get("budget_tokens").asInt());
+    }
+
+    @Test
     void chat_requestBody_mapsRolesAndMergesConsecutiveToolResults() throws Exception {
         startServer(exchange -> {
             captureRequest(exchange);
@@ -355,32 +387,22 @@ class AnthropicProviderClientTest {
         });
         providerClient = newProviderClient(5);
 
-        // 构建含 assistant toolCalls + 连续 tool result 的请求
         UnifiedRequest request = buildRequestWithToolHistory(false);
 
         StepVerifier.create(providerClient.chat(request))
                 .assertNext(response -> assertEquals("stop", response.getFinishReason()))
                 .verifyComplete();
 
-        // 验证请求体：连续 tool_result 应合并到单条 user 消息
         JsonNode body = objectMapper.readTree(requestBody.get());
-
-        // system → 独立字段
         assertEquals("你是一个助手", body.get("system").asText());
 
         JsonNode messages = body.get("messages");
         assertEquals(3, messages.size());
-
-        // user 消息
         assertEquals("user", messages.get(0).get("role").asText());
         assertEquals("请帮我查询天气", messages.get(0).get("content").asText());
-
-        // assistant 消息含 tool_use
         assertEquals("assistant", messages.get(1).get("role").asText());
         assertTrue(messages.get(1).get("content").isArray());
         assertEquals("tool_use", messages.get(1).get("content").get(1).get("type").asText());
-
-        // 两条连续 tool_result 合并为一条 user 消息
         assertEquals("user", messages.get(2).get("role").asText());
         assertEquals(2, messages.get(2).get("content").size());
         assertEquals("tool_result", messages.get(2).get("content").get(0).get("type").asText());
@@ -436,7 +458,7 @@ class AnthropicProviderClientTest {
         // 不需要启动 server，直接构造 client
         GatewayProperties props = new GatewayProperties();
         AnthropicProviderClient client = new AnthropicProviderClient(
-                WebClient.builder(), objectMapper, props, mockCircuitBreakerManager());
+                WebClient.builder(), objectMapper, props, mockCircuitBreakerManager(), new ReasoningSemanticMapper());
         assertEquals(ProviderType.ANTHROPIC, client.getProviderType());
     }
 
@@ -463,7 +485,8 @@ class AnthropicProviderClientTest {
         providerProps.setApiKey("test-anthropic-key");
         providerProps.setTimeoutSeconds(timeoutSeconds);
         props.setProviders(Map.of("anthropic", providerProps));
-        return new AnthropicProviderClient(WebClient.builder(), objectMapper, props, mockCircuitBreakerManager());
+        return new AnthropicProviderClient(
+                WebClient.builder(), objectMapper, props, mockCircuitBreakerManager(), new ReasoningSemanticMapper());
     }
 
     private UnifiedRequest buildBasicRequest(boolean stream) {

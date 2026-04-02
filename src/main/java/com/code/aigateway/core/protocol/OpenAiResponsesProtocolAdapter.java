@@ -82,6 +82,17 @@ public class OpenAiResponsesProtocolAdapter implements ProtocolAdapter {
                     .build());
         }
 
+        if ("thinking_delta".equals(event.getType())) {
+            Map<String, Object> payload = Map.of(
+                    "type", "response.reasoning.delta",
+                    "delta", event.getThinkingDelta() != null ? event.getThinkingDelta() : ""
+            );
+            return Flux.just(ServerSentEvent.<String>builder()
+                    .event("response.reasoning.delta")
+                    .data(toJson(payload))
+                    .build());
+        }
+
         if ("tool_call".equals(event.getType())) {
             // Responses API 函数调用开始事件
             Map<String, Object> output = new java.util.LinkedHashMap<>();

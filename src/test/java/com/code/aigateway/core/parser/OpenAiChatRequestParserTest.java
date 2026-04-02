@@ -143,6 +143,19 @@ class OpenAiChatRequestParserTest {
         assertEquals(Boolean.TRUE, unifiedRequest.getGenerationConfig().getParallelToolCalls());
     }
 
+
+    @Test
+    void parse_mapsReasoningEffortToGenerationConfig() {
+        OpenAiChatCompletionRequest request = new OpenAiChatCompletionRequest();
+        request.setModel("o3");
+        request.setReasoningEffort("high");
+        request.setMessages(List.of(message("user", "你好")));
+
+        UnifiedRequest unifiedRequest = parser.parse(request);
+
+        assertNotNull(unifiedRequest.getGenerationConfig());
+        assertEquals("high", unifiedRequest.getGenerationConfig().getReasoningEffort());
+    }
     @Test
     void parse_throwsInvalidRequest_whenJsonSchemaSchemaMissing() {
         OpenAiChatCompletionRequest request = new OpenAiChatCompletionRequest();

@@ -68,6 +68,15 @@ public class OpenAiChatCompletionRequest implements StatsRequestInfo {
     private Integer maxCompletionTokens;
 
     /**
+     * 推理强度
+     * <p>
+     * 主要用于 o-series / reasoning 模型。
+     * </p>
+     */
+    @JsonProperty("reasoning_effort")
+    private String reasoningEffort;
+
+    /**
      * 停止序列列表
      * <p>
      * 兼容单字符串与字符串数组两种输入形式。

@@ -19,6 +19,7 @@ public class UnifiedStreamEvent {
      * 支持的类型：
      * <ul>
      *   <li>text_delta: 文本增量</li>
+     *   <li>thinking_delta: 思考内容增量</li>
      *   <li>tool_call: 工具调用</li>
      *   <li>done: 完成事件</li>
      *   <li>error: 错误事件</li>
@@ -36,6 +37,11 @@ public class UnifiedStreamEvent {
      * 文本增量内容
      */
     private String textDelta;
+
+    /**
+     * 思考内容增量
+     */
+    private String thinkingDelta;
 
     /**
      * 工具调用 ID

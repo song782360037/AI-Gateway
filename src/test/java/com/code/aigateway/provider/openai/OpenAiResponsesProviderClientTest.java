@@ -11,6 +11,7 @@ import com.code.aigateway.core.model.UnifiedStreamEvent;
 import com.code.aigateway.core.model.UnifiedTool;
 import com.code.aigateway.core.model.UnifiedToolCall;
 import com.code.aigateway.core.model.UnifiedToolChoice;
+import com.code.aigateway.core.capability.ReasoningSemanticMapper;
 import com.code.aigateway.core.resilience.CircuitBreakerManager;
 import com.code.aigateway.provider.ProviderType;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -329,6 +330,61 @@ class OpenAiResponsesProviderClientTest {
     // ==================== 7. 请求体验证 ====================
 
     @Test
+    void chat_requestBody_includesReasoningEffort() throws Exception {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
+                    {
+                      "id": "resp_reasoning",
+                      "model": "gpt-4o",
+                      "status": "completed",
+                      "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "ok"}]}],
+                      "usage": {"input_tokens": 5, "output_tokens": 2, "total_tokens": 7}
+                    }
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        UnifiedRequest request = buildBasicRequest(false);
+        request.getGenerationConfig().setReasoningEffort("high");
+
+        StepVerifier.create(providerClient.chat(request))
+                .assertNext(response -> assertEquals("stop", response.getFinishReason()))
+                .verifyComplete();
+
+        JsonNode body = objectMapper.readTree(requestBody.get());
+        assertEquals("high", body.get("reasoning").get("effort").asText());
+    }
+
+    @Test
+    void chat_requestBody_usesStopSequences() throws Exception {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
+                    {
+                      "id": "resp_stop",
+                      "model": "gpt-4o",
+                      "status": "completed",
+                      "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "ok"}]}],
+                      "usage": {"input_tokens": 5, "output_tokens": 2, "total_tokens": 7}
+                    }
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        UnifiedRequest request = buildBasicRequest(false);
+        request.getGenerationConfig().setStopSequences(List.of("DONE"));
+
+        StepVerifier.create(providerClient.chat(request))
+                .assertNext(response -> assertEquals("stop", response.getFinishReason()))
+                .verifyComplete();
+
+        JsonNode body = objectMapper.readTree(requestBody.get());
+        assertTrue(body.has("stop"));
+        assertEquals("DONE", body.get("stop").get(0).asText());
+    }
+
+    @Test
     void chat_requestBody_usesInstructionsAndInput() throws Exception {
         startServer(exchange -> {
             captureRequest(exchange);
@@ -344,7 +400,6 @@ class OpenAiResponsesProviderClientTest {
         });
         providerClient = newProviderClient(5);
 
-        // 构建含工具调用历史的请求
         UnifiedRequest request = buildRequestWithToolHistory(false);
 
         StepVerifier.create(providerClient.chat(request))
@@ -352,25 +407,14 @@ class OpenAiResponsesProviderClientTest {
                 .verifyComplete();
 
         JsonNode body = objectMapper.readTree(requestBody.get());
-
-        // system prompt → instructions
         assertEquals("你是一个助手", body.get("instructions").asText());
-
-        // messages → input
         assertTrue(body.has("input"));
         JsonNode input = body.get("input");
-        // user(0) + function_call(1) + function_call_output(2) = 3
         assertEquals(3, input.size());
-
-        // user 消息
         assertEquals("user", input.get(0).get("role").asText());
-
-        // assistant toolCalls → function_call 条目
         assertEquals("function_call", input.get(1).get("type").asText());
         assertEquals("get_weather", input.get(1).get("name").asText());
         assertEquals("call_1", input.get(1).get("call_id").asText());
-
-        // tool → function_call_output
         assertEquals("function_call_output", input.get(2).get("type").asText());
         assertEquals("call_1", input.get(2).get("call_id").asText());
     }
@@ -438,7 +482,7 @@ class OpenAiResponsesProviderClientTest {
     @Test
     void getProviderType_returnsOpenAiResponses() {
         OpenAiResponsesProviderClient client = new OpenAiResponsesProviderClient(
-                WebClient.builder(), objectMapper, new GatewayProperties(), mockCircuitBreakerManager());
+                WebClient.builder(), objectMapper, new GatewayProperties(), mockCircuitBreakerManager(), new ReasoningSemanticMapper());
         assertEquals(ProviderType.OPENAI_RESPONSES, client.getProviderType());
     }
 
@@ -477,7 +521,8 @@ class OpenAiResponsesProviderClientTest {
         providerProps.setApiKey("test-responses-key");
         providerProps.setTimeoutSeconds(timeoutSeconds);
         props.setProviders(Map.of("openai-responses", providerProps));
-        return new OpenAiResponsesProviderClient(WebClient.builder(), objectMapper, props, mockCircuitBreakerManager());
+        return new OpenAiResponsesProviderClient(
+                WebClient.builder(), objectMapper, props, mockCircuitBreakerManager(), new ReasoningSemanticMapper());
     }
 
     private UnifiedRequest buildBasicRequest(boolean stream) {

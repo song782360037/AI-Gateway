@@ -44,6 +44,12 @@ public class OpenAiResponsesRequest implements StatsRequestInfo {
     @JsonProperty("max_output_tokens")
     private Integer maxOutputTokens;
 
+    /** 推理配置 */
+    private Map<String, Object> reasoning;
+
+    /** 停止序列 */
+    private Object stop;
+
     /** 是否启用流式输出 */
     private Boolean stream = false;
 

@@ -1,5 +1,8 @@
 package com.code.aigateway.core.capability;
 
+import com.code.aigateway.core.error.ErrorCode;
+import com.code.aigateway.core.error.GatewayException;
+import com.code.aigateway.core.model.UnifiedGenerationConfig;
 import com.code.aigateway.core.model.UnifiedMessage;
 import com.code.aigateway.core.model.UnifiedPart;
 import com.code.aigateway.core.model.UnifiedRequest;
@@ -13,6 +16,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class DefaultCapabilityCheckerTest {
 
@@ -76,11 +81,73 @@ class DefaultCapabilityCheckerTest {
         assertDoesNotThrow(() -> capabilityChecker.validate(request, openAiRoute()));
     }
 
+    @Test
+    void validate_anthropicThinkingOnOpenAi_passesThrough() {
+        UnifiedGenerationConfig config = new UnifiedGenerationConfig();
+        config.setThinkingEnabled(true);
+        config.setThinkingBudgetTokens(1024);
+
+        UnifiedRequest request = new UnifiedRequest();
+        request.setGenerationConfig(config);
+
+        assertDoesNotThrow(() -> capabilityChecker.validate(request, openAiRoute()));
+    }
+
+    @Test
+    void validate_anthropicThinkingOnAnthropic_passes() {
+        UnifiedGenerationConfig config = new UnifiedGenerationConfig();
+        config.setThinkingEnabled(true);
+        config.setThinkingBudgetTokens(1024);
+
+        UnifiedRequest request = new UnifiedRequest();
+        request.setGenerationConfig(config);
+
+        assertDoesNotThrow(() -> capabilityChecker.validate(request, anthropicRoute()));
+    }
+
+    @Test
+    void validate_reasoningEffortOnAnthropic_passesThrough() {
+        UnifiedGenerationConfig config = new UnifiedGenerationConfig();
+        config.setReasoningEffort("high");
+
+        UnifiedRequest request = new UnifiedRequest();
+        request.setGenerationConfig(config);
+
+        assertDoesNotThrow(() -> capabilityChecker.validate(request, anthropicRoute()));
+    }
+
+    @Test
+    void validate_reasoningEffortOnOpenAiResponses_passes() {
+        UnifiedGenerationConfig config = new UnifiedGenerationConfig();
+        config.setReasoningEffort("medium");
+
+        UnifiedRequest request = new UnifiedRequest();
+        request.setGenerationConfig(config);
+
+        assertDoesNotThrow(() -> capabilityChecker.validate(request, openAiResponsesRoute()));
+    }
+
     private RouteResult openAiRoute() {
         return RouteResult.builder()
                 .providerType(ProviderType.OPENAI)
                 .providerName("openai")
                 .targetModel("gpt-5.4")
+                .build();
+    }
+
+    private RouteResult anthropicRoute() {
+        return RouteResult.builder()
+                .providerType(ProviderType.ANTHROPIC)
+                .providerName("anthropic")
+                .targetModel("claude-3-7-sonnet")
+                .build();
+    }
+
+    private RouteResult openAiResponsesRoute() {
+        return RouteResult.builder()
+                .providerType(ProviderType.OPENAI_RESPONSES)
+                .providerName("openai-responses")
+                .targetModel("o3")
                 .build();
     }
 }

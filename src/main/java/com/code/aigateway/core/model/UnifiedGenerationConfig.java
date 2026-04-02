@@ -32,6 +32,14 @@ public class UnifiedGenerationConfig {
     private Double topP;
 
     /**
+     * Top-K 采样参数
+     * <p>
+     * Anthropic 等协议会使用该字段控制候选 token 数量。
+     * </p>
+     */
+    private Integer topK;
+
+    /**
      * 最大输出 token 数
      */
     private Integer maxOutputTokens;
@@ -48,4 +56,74 @@ public class UnifiedGenerationConfig {
      * 是否并行调用多个工具
      */
     private Boolean parallelToolCalls;
+
+    /**
+     * 统一 reasoning / thinking 语义
+     */
+    private UnifiedReasoningConfig reasoning;
+
+    /**
+     * OpenAI reasoning_effort 参数
+     * <p>
+     * 兼容存量调用，内部会同步到 reasoning.effort。
+     * </p>
+     */
+    private String reasoningEffort;
+
+    /**
+     * Anthropic thinking 开关
+     * <p>
+     * 兼容存量调用，内部会同步到 reasoning.enabled。
+     * </p>
+     */
+    private Boolean thinkingEnabled;
+
+    /**
+     * Anthropic thinking 预算 token 数
+     * <p>
+     * 兼容存量调用，内部会同步到 reasoning.budgetTokens。
+     * </p>
+     */
+    private Integer thinkingBudgetTokens;
+
+    public void setReasoning(UnifiedReasoningConfig reasoning) {
+        this.reasoning = reasoning;
+        if (reasoning == null) {
+            this.reasoningEffort = null;
+            this.thinkingEnabled = null;
+            this.thinkingBudgetTokens = null;
+            return;
+        }
+        this.reasoningEffort = reasoning.getEffort();
+        this.thinkingEnabled = reasoning.getEnabled();
+        this.thinkingBudgetTokens = reasoning.getBudgetTokens();
+    }
+
+    public void setReasoningEffort(String reasoningEffort) {
+        this.reasoningEffort = reasoningEffort;
+        ensureReasoning().setEffort(reasoningEffort);
+        if (reasoningEffort != null && !reasoningEffort.isBlank() && ensureReasoning().getEnabled() == null) {
+            ensureReasoning().setEnabled(true);
+        }
+    }
+
+    public void setThinkingEnabled(Boolean thinkingEnabled) {
+        this.thinkingEnabled = thinkingEnabled;
+        ensureReasoning().setEnabled(thinkingEnabled);
+    }
+
+    public void setThinkingBudgetTokens(Integer thinkingBudgetTokens) {
+        this.thinkingBudgetTokens = thinkingBudgetTokens;
+        ensureReasoning().setBudgetTokens(thinkingBudgetTokens);
+        if (thinkingBudgetTokens != null && ensureReasoning().getEnabled() == null) {
+            ensureReasoning().setEnabled(true);
+        }
+    }
+
+    private UnifiedReasoningConfig ensureReasoning() {
+        if (reasoning == null) {
+            reasoning = new UnifiedReasoningConfig();
+        }
+        return reasoning;
+    }
 }

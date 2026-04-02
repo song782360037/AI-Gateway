@@ -40,6 +40,18 @@ public class AnthropicResponseEncoder {
                     .build());
         }
 
+        // 提取思考内容
+        List<UnifiedPart> thinkingParts = extractThinkingParts(source);
+        for (UnifiedPart thinkingPart : thinkingParts) {
+            AnthropicMessagesResponse.ContentBlock.ContentBlockBuilder builder = AnthropicMessagesResponse.ContentBlock.builder()
+                    .type("thinking")
+                    .thinking(thinkingPart.getText());
+            if (thinkingPart.getAttributes() != null && thinkingPart.getAttributes().get("signature") != null) {
+                builder.signature(String.valueOf(thinkingPart.getAttributes().get("signature")));
+            }
+            contentBlocks.add(builder.build());
+        }
+
         // 提取工具调用
         List<UnifiedToolCall> toolCalls = extractToolCalls(source);
         for (UnifiedToolCall toolCall : toolCalls) {
@@ -96,6 +108,19 @@ public class AnthropicResponseEncoder {
         }
         UnifiedOutput output = source.getOutputs().get(0);
         return output.getToolCalls() != null ? output.getToolCalls() : List.of();
+    }
+
+    private List<UnifiedPart> extractThinkingParts(UnifiedResponse source) {
+        if (source.getOutputs() == null || source.getOutputs().isEmpty()) {
+            return List.of();
+        }
+        UnifiedOutput output = source.getOutputs().get(0);
+        if (output.getParts() == null || output.getParts().isEmpty()) {
+            return List.of();
+        }
+        return output.getParts().stream()
+                .filter(part -> "thinking".equals(part.getType()) && part.getText() != null)
+                .toList();
     }
 
     private String mapStopReason(String finishReason) {

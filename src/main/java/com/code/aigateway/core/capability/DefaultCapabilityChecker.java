@@ -7,9 +7,9 @@ import org.springframework.stereotype.Component;
 /**
  * 默认能力检查器
  * <p>
- * 提供基本的能力检查实现，验证请求特性是否被当前网关输出契约支持。
- * tools / tool_choice 等功能由各 ProviderClient 负责转发，
- * 若上游不支持则由 provider 侧返回错误。
+ * 当前阶段 tools、tool_choice、thinking、reasoning 等能力优先交由
+ * Parser 与 ProviderClient 做语义归一和协议映射。
+ * 这里仅保留最轻量的兜底入口，避免在主链路提前拦截可转换场景。
  * </p>
  *
  * @author sst
@@ -20,9 +20,8 @@ public class DefaultCapabilityChecker implements CapabilityChecker {
     /**
      * 验证请求能力
      * <p>
-     * 当前阶段 tools、tool_choice、tool 角色消息等
-     * 已由 ProviderClient 负责转发，无需在网关层拦截。
-     * 如后续需要针对特定 provider 做能力限制，可在此扩展。
+     * reasoning / thinking 跨协议场景允许继续透传，由目标 ProviderClient
+     * 在出站阶段完成字段映射，不在这里直接 reject。
      * </p>
      *
      * @param request      统一的请求模型
@@ -30,6 +29,6 @@ public class DefaultCapabilityChecker implements CapabilityChecker {
      */
     @Override
     public void validate(UnifiedRequest request, RouteResult routeResult) {
-        // tools 相关能力已由各 ProviderClient 支持并转发
+        // 当前不对 reasoning / thinking 做前置拦截，避免误伤可转换链路。
     }
 }

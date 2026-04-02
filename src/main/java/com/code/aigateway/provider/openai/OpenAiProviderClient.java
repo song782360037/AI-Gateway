@@ -3,6 +3,7 @@ package com.code.aigateway.provider.openai;
 import com.code.aigateway.config.GatewayProperties;
 import com.code.aigateway.core.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
+import com.code.aigateway.core.capability.ReasoningSemanticMapper;
 import com.code.aigateway.core.resilience.CircuitBreakerManager;
 import com.code.aigateway.core.model.UnifiedMessage;
 import com.code.aigateway.core.model.UnifiedOutput;
@@ -10,6 +11,7 @@ import com.code.aigateway.core.model.UnifiedPart;
 import com.code.aigateway.core.model.UnifiedRequest;
 import com.code.aigateway.core.model.UnifiedResponse;
 import com.code.aigateway.core.model.UnifiedResponseFormat;
+import com.code.aigateway.core.model.UnifiedReasoningConfig;
 import com.code.aigateway.core.model.UnifiedStreamEvent;
 import com.code.aigateway.core.model.UnifiedTool;
 import com.code.aigateway.core.model.UnifiedToolCall;
@@ -53,11 +55,15 @@ public class OpenAiProviderClient extends AbstractProviderClient {
 
     private static final String CHAT_COMPLETIONS_PATH = "/v1/chat/completions";
 
+    private final ReasoningSemanticMapper reasoningSemanticMapper;
+
     public OpenAiProviderClient(WebClient.Builder webClientBuilder,
                                 ObjectMapper objectMapper,
                                 GatewayProperties gatewayProperties,
-                                CircuitBreakerManager circuitBreakerManager) {
+                                CircuitBreakerManager circuitBreakerManager,
+                                ReasoningSemanticMapper reasoningSemanticMapper) {
         super(webClientBuilder, objectMapper, gatewayProperties, circuitBreakerManager);
+        this.reasoningSemanticMapper = reasoningSemanticMapper;
     }
 
     @Override
@@ -145,8 +151,11 @@ public class OpenAiProviderClient extends AbstractProviderClient {
             if (request.getGenerationConfig().getStopSequences() != null && !request.getGenerationConfig().getStopSequences().isEmpty()) {
                 body.put("stop", request.getGenerationConfig().getStopSequences());
             }
-            if (request.getGenerationConfig().getParallelToolCalls() != null) {
-                body.put("parallel_tool_calls", request.getGenerationConfig().getParallelToolCalls());
+            if (request.getGenerationConfig().getReasoning() != null) {
+                String reasoningEffort = reasoningSemanticMapper.toOpenAiEffort(request.getGenerationConfig().getReasoning());
+                if (reasoningEffort != null && !reasoningEffort.isBlank()) {
+                    body.put("reasoning_effort", reasoningEffort);
+                }
             }
         }
 
