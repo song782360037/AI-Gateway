@@ -31,16 +31,7 @@ public class AnthropicResponseEncoder {
     public AnthropicMessagesResponse encode(UnifiedResponse source) {
         List<AnthropicMessagesResponse.ContentBlock> contentBlocks = new ArrayList<>();
 
-        // 提取文本内容
-        String text = extractText(source);
-        if (!text.isEmpty()) {
-            contentBlocks.add(AnthropicMessagesResponse.ContentBlock.builder()
-                    .type("text")
-                    .text(text)
-                    .build());
-        }
-
-        // 提取思考内容
+        // 提取思考内容（Anthropic 协议要求 thinking 在 text 之前）
         List<UnifiedPart> thinkingParts = extractThinkingParts(source);
         for (UnifiedPart thinkingPart : thinkingParts) {
             AnthropicMessagesResponse.ContentBlock.ContentBlockBuilder builder = AnthropicMessagesResponse.ContentBlock.builder()
@@ -50,6 +41,15 @@ public class AnthropicResponseEncoder {
                 builder.signature(String.valueOf(thinkingPart.getAttributes().get("signature")));
             }
             contentBlocks.add(builder.build());
+        }
+
+        // 提取文本内容
+        String text = extractText(source);
+        if (!text.isEmpty()) {
+            contentBlocks.add(AnthropicMessagesResponse.ContentBlock.builder()
+                    .type("text")
+                    .text(text)
+                    .build());
         }
 
         // 提取工具调用

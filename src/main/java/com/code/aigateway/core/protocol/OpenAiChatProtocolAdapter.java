@@ -138,6 +138,11 @@ public class OpenAiChatProtocolAdapter implements ProtocolAdapter {
             return Flux.just(ServerSentEvent.builder(toJson(chunk)).build());
         }
 
+        // thinking_delta 事件：OpenAI Chat 不原生支持 thinking，静默丢弃避免产生空 content
+        if ("thinking_delta".equals(event.getType())) {
+            return Flux.empty();
+        }
+
         // 文本增量事件
         // 首个 content chunk 携带 role 字段，符合 OpenAI SSE 协议
         OpenAiChatCompletionChunkResponse.Delta.DeltaBuilder deltaBuilder = OpenAiChatCompletionChunkResponse.Delta.builder()

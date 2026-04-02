@@ -24,6 +24,8 @@ public class StreamContext {
     private final AtomicBoolean firstContentSent = new AtomicBoolean(false);
     /** 当前打开的 content block 索引，-1 表示无打开的块 */
     private volatile int openBlockIndex = -1;
+    /** 当前打开的 content block 类型（"text"、"thinking"、"tool_use"），null 表示无打开的块 */
+    private volatile String openBlockType;
     /** 下一个 content block 的 Anthropic 序号（跨块递增，独立于 Provider 的 outputIndex） */
     private volatile int nextContentBlockSeq = 0;
     /** 输入 token 数，用于 Anthropic message_start 的 usage */
@@ -47,11 +49,13 @@ public class StreamContext {
 
     /**
      * 分配下一个 Anthropic content block 序号并打开块
+     * @param type 块类型（"text"、"thinking"、"tool_use"）
      * @return 分配的序号
      */
-    public int allocateAndOpenContentBlock() {
+    public int allocateAndOpenContentBlock(String type) {
         int seq = nextContentBlockSeq++;
         this.openBlockIndex = seq;
+        this.openBlockType = type;
         return seq;
     }
 
@@ -62,6 +66,7 @@ public class StreamContext {
     public int closeContentBlock() {
         int idx = this.openBlockIndex;
         this.openBlockIndex = -1;
+        this.openBlockType = null;
         return idx;
     }
 
@@ -73,6 +78,11 @@ public class StreamContext {
     /** 获取当前打开的 content block 索引，-1 表示无打开的块 */
     public int getOpenBlockIndex() {
         return openBlockIndex;
+    }
+
+    /** 获取当前打开的 content block 类型，null 表示无打开的块 */
+    public String getOpenBlockType() {
+        return openBlockType;
     }
 
     public int getInputTokens() {

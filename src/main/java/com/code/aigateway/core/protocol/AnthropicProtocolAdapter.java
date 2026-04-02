@@ -147,14 +147,18 @@ public class AnthropicProtocolAdapter implements ProtocolAdapter {
     }
 
     /**
-     * text_delta 事件：首个 delta 先发送 content_block_start（文本块 index=0）
+     * text_delta 事件：确保当前打开的是 text 块，否则关闭旧块并创建新的 text 块
      */
     private Flux<ServerSentEvent<String>> encodeTextDeltaEvent(UnifiedStreamEvent event, StreamContext ctx) {
         List<ServerSentEvent<String>> events = new ArrayList<>();
 
-        // 首个 text_delta：先发送 content_block_start（文本块）
-        if (ctx.tryMarkFirstContentSent()) {
-            int blockSeq = ctx.allocateAndOpenContentBlock();
+        // 当前没有打开的 text 块，需要关闭旧块并创建新的 text 块
+        if (!"text".equals(ctx.getOpenBlockType())) {
+            int closedIndex = ctx.closeContentBlock();
+            if (closedIndex >= 0) {
+                events.add(buildContentBlockStop(closedIndex));
+            }
+            int blockSeq = ctx.allocateAndOpenContentBlock("text");
             events.add(buildTextContentBlockStart(blockSeq));
         }
 
@@ -176,13 +180,18 @@ public class AnthropicProtocolAdapter implements ProtocolAdapter {
     }
 
     /**
-     * thinking_delta 事件：首个思考 delta 先发送 thinking 类型的 content_block_start。
+     * thinking_delta 事件：确保当前打开的是 thinking 块，否则关闭旧块并创建新的 thinking 块
      */
     private Flux<ServerSentEvent<String>> encodeThinkingDeltaEvent(UnifiedStreamEvent event, StreamContext ctx) {
         List<ServerSentEvent<String>> events = new ArrayList<>();
 
-        if (ctx.tryMarkFirstContentSent()) {
-            int blockSeq = ctx.allocateAndOpenContentBlock();
+        // 当前没有打开的 thinking 块，需要关闭旧块并创建新的 thinking 块
+        if (!"thinking".equals(ctx.getOpenBlockType())) {
+            int closedIndex = ctx.closeContentBlock();
+            if (closedIndex >= 0) {
+                events.add(buildContentBlockStop(closedIndex));
+            }
+            int blockSeq = ctx.allocateAndOpenContentBlock("thinking");
             events.add(buildThinkingContentBlockStart(blockSeq));
         }
 
@@ -215,7 +224,7 @@ public class AnthropicProtocolAdapter implements ProtocolAdapter {
         }
 
         // 分配新的 content block 序号（独立于 Provider 的 outputIndex）
-        int blockSeq = ctx.allocateAndOpenContentBlock();
+        int blockSeq = ctx.allocateAndOpenContentBlock("tool_use");
         Map<String, Object> contentBlock = new LinkedHashMap<>();
         contentBlock.put("type", "tool_use");
         contentBlock.put("id", event.getToolCallId());
