@@ -80,6 +80,7 @@ test-output/
 
 ### Node.js ###
 node_modules/
+frontend-vue/node/
 frontend-vue/node_modules/
 frontend-vue/dist/
 
