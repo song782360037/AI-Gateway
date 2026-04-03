@@ -15,7 +15,7 @@ import java.util.function.Function;
 /**
  * Provider 故障转移策略
  * <p>
- * 遍历路由候选列表，按优先级依次尝试。
+ * 遍历路由候选列表，按优先级从高到低依次尝试。
  * 跳过熔断已打开的 Provider，主 Provider 失败时自动切换到备选。
  * 流式请求仅首 token 前可故障转移，避免客户端收到重复/缺失内容。
  * </p>
@@ -30,7 +30,7 @@ public class FailoverStrategy {
     /**
      * 非流式请求故障转移
      *
-     * @param candidates   候选路由列表（按优先级排序）
+     * @param candidates   候选路由列表（按优先级排序，index 0 最高）
      * @param callFunction 调用函数，接收 RouteResult 返回 Mono
      * @param correlationId 请求链路追踪 ID
      * @param <T>          响应类型
@@ -48,12 +48,11 @@ public class FailoverStrategy {
             return callFunction.apply(candidates.get(0));
         }
 
-        // 多候选：按优先级尝试，跳过熔断打开的
+        // 从前往后构建 switchIfEmpty 链：index 0 在最内层（最先执行），index N 在最外层（最后执行）
         Mono<T> chain = Mono.empty();
-        for (int i = candidates.size() - 1; i >= 0; i--) {
+        for (int i = 0; i < candidates.size(); i++) {
             RouteResult candidate = candidates.get(i);
             final int index = i;
-            // 从后往前构建 fallback 链：后面的候选作为前面失败时的备选
             chain = chain.switchIfEmpty(Mono.defer(() -> {
                 // 按 provider+model 维度检查熔断状态
                 if (circuitBreakerManager.isCircuitOpen(candidate.getProviderName(), candidate.getTargetModel())) {
@@ -70,8 +69,12 @@ public class FailoverStrategy {
                                         index, candidate.getProviderName(), correlationId);
                             }
                         })
-                        .doOnError(ex -> log.warn("[故障转移] 候选 #{} 失败: provider={}, error={}, correlationId={}",
-                                index, candidate.getProviderName(), ex.getMessage(), correlationId));
+                        // 将 error 转为 empty，使 switchIfEmpty 能尝试下一个候选
+                        .onErrorResume(ex -> {
+                            log.warn("[故障转移] 候选 #{} 失败: provider={}, error={}, correlationId={}",
+                                    index, candidate.getProviderName(), ex.getMessage(), correlationId);
+                            return Mono.empty();
+                        });
             }));
         }
 
@@ -94,8 +97,9 @@ public class FailoverStrategy {
             return callFunction.apply(candidates.get(0));
         }
 
+        // 从前往后构建 switchIfEmpty 链：index 0 在最内层（最先执行），index N 在最外层（最后执行）
         Flux<T> chain = Flux.empty();
-        for (int i = candidates.size() - 1; i >= 0; i--) {
+        for (int i = 0; i < candidates.size(); i++) {
             RouteResult candidate = candidates.get(i);
             final int index = i;
             chain = chain.switchIfEmpty(Flux.defer(() -> {
@@ -106,8 +110,13 @@ public class FailoverStrategy {
                     return Flux.empty();
                 }
                 return callFunction.apply(candidate)
-                        .doOnError(ex -> log.warn("[故障转移-流式] 候选 #{} 失败: provider={}, error={}, correlationId={}",
-                                index, candidate.getProviderName(), ex.getMessage(), correlationId));
+                        // 将 error 转为 empty，使 switchIfEmpty 能尝试下一个候选
+                        .onErrorResume(ex -> {
+                            log.warn("[故障转移-流式] 候选 #{} 失败: provider={}, model={}, error={}, correlationId={}",
+                                    index, candidate.getProviderName(), candidate.getTargetModel(),
+                                    ex.getMessage(), correlationId);
+                            return Flux.empty();
+                        });
             }));
         }
 
