@@ -17,6 +17,7 @@ import java.util.List;
  *
  * <p>优先读取本地不可变快照完成路由，避免聊天热路径直接访问 MySQL / Redis。</p>
  * <p>当本地快照缺失或未命中时，自动降级到 YAML 路由器。</p>
+ * <p>当快照和 YAML 都未命中路由规则时，走透传分支：按 Provider 优先级透传原始模型名。</p>
  */
 @Slf4j
 @Primary
@@ -46,7 +47,15 @@ public class PersistentModelRouter implements ModelRouter {
         if (candidates.isEmpty()) {
             log.info("[持久化路由] 快照未命中，回退到 YAML 路由，model: {}，快照版本: {}",
                     request.getModel(), snapshot.getVersion());
-            return fallbackRouter.route(request);
+            try {
+                return fallbackRouter.route(request);
+            } catch (GatewayException ex) {
+                // 仅当 YAML 也找不到模型别名时，才走透传分支
+                if (ex.getErrorCode() == ErrorCode.MODEL_NOT_FOUND) {
+                    return buildPassthroughCandidates(snapshot, request.getModel()).get(0);
+                }
+                throw ex;
+            }
         }
 
         RouteCandidate selected = candidates.get(0);
@@ -78,6 +87,7 @@ public class PersistentModelRouter implements ModelRouter {
      * 返回全部候选路由（用于故障转移）
      * <p>
      * 将快照中的所有候选转换为 RouteResult 列表，按优先级从高到低排序。
+     * 当快照和 YAML 都未命中路由规则时，走透传分支。
      * </p>
      */
     @Override
@@ -93,7 +103,15 @@ public class PersistentModelRouter implements ModelRouter {
 
         List<RouteCandidate> candidates = snapshot.getCandidates(request.getModel());
         if (candidates.isEmpty()) {
-            return fallbackRouter.routeAll(request);
+            try {
+                return fallbackRouter.routeAll(request);
+            } catch (GatewayException ex) {
+                // 仅当 YAML 也找不到模型别名时，才走透传分支
+                if (ex.getErrorCode() == ErrorCode.MODEL_NOT_FOUND) {
+                    return buildPassthroughCandidates(snapshot, request.getModel());
+                }
+                throw ex;
+            }
         }
 
         return candidates.stream()
@@ -106,5 +124,33 @@ public class PersistentModelRouter implements ModelRouter {
                         .providerApiKey(c.getProviderApiKey())
                         .build())
                 .toList();
+    }
+
+    /**
+     * 构建透传候选列表：使用快照中全部已启用的 Provider，targetModel 保持原始模型名。
+     * <p>
+     * 当请求模型在快照和 YAML 中均未命中路由规则时调用。
+     * 候选按 Provider 优先级降序排列，复用现有故障转移与熔断机制。
+     * </p>
+     *
+     * @param snapshot    当前路由配置快照
+     * @param originalModel 原始请求模型名
+     * @return 透传候选列表，按 Provider 优先级排序
+     */
+    private List<RouteResult> buildPassthroughCandidates(RoutingConfigSnapshot snapshot, String originalModel) {
+        List<RouteResult> passthroughCandidates = snapshot.getAllProvidersByPriority().stream()
+                .map(entry -> RouteResult.builder()
+                        .providerType(resolveProviderType(entry.providerType(), originalModel))
+                        .providerName(entry.providerCode())
+                        .targetModel(originalModel)
+                        .providerBaseUrl(entry.baseUrl())
+                        .providerApiKey(entry.apiKey())
+                        .providerTimeoutSeconds(entry.timeoutSeconds())
+                        .build())
+                .toList();
+
+        log.info("[持久化路由] 无路由规则，走透传分支，model: {}，候选数: {}",
+                originalModel, passthroughCandidates.size());
+        return passthroughCandidates;
     }
 }

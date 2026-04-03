@@ -1,6 +1,7 @@
 package com.code.aigateway.core.router;
 
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -100,6 +101,20 @@ public final class RoutingConfigSnapshot {
      */
     public int getCandidatesMapSize() {
         return aliasRouteMap.size();
+    }
+
+    /**
+     * 获取全部已启用提供商，按优先级降序排列。
+     * <p>
+     * 用于无路由规则时的模型名透传场景：请求模型未命中任何别名映射，
+     * 但仍需将请求按 Provider 优先级发送至下游。
+     * </p>
+     */
+    public List<ProviderEntry> getAllProvidersByPriority() {
+        return providerMap.values().stream()
+                .filter(ProviderEntry::enabled)
+                .sorted(Comparator.comparingInt(ProviderEntry::priority).reversed())
+                .toList();
     }
 
     /**
