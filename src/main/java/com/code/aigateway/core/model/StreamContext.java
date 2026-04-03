@@ -20,7 +20,8 @@ public class StreamContext {
 
     private final String responseId;
     private final long created;
-    private final String model;
+    /** 模型名称，failover 后可能被更新为实际使用的模型 */
+    private volatile String model;
     private final AtomicBoolean firstContentSent = new AtomicBoolean(false);
     /** 当前打开的 content block 索引，-1 表示无打开的块 */
     private volatile int openBlockIndex = -1;
@@ -103,5 +104,10 @@ public class StreamContext {
 
     public String getModel() {
         return model;
+    }
+
+    /** failover 切换候选后，更新为实际使用的模型名称 */
+    public void setModel(String model) {
+        this.model = model;
     }
 }

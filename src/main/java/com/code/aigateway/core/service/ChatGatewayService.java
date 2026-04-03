@@ -65,6 +65,9 @@ public class ChatGatewayService {
 
         return failoverStrategy.executeWithFailover(candidates, routeResult -> {
             applyRouteContext(unifiedRequest, routeResult, correlationId);
+            if (context != null) {
+                context.setRouteResult(routeResult);
+            }
             ProviderClient client = providerClientFactory.getClient(routeResult.getProviderType());
             return client.chat(unifiedRequest);
         }, correlationId)
@@ -96,6 +99,11 @@ public class ChatGatewayService {
                     // 主事件流：每个 UnifiedStreamEvent 可能产生 0~N 个 SSE 事件
                     failoverStrategy.executeStreamWithFailover(candidates, routeResult -> {
                         applyRouteContext(unifiedRequest, routeResult, correlationId);
+                        if (context != null) {
+                            context.setRouteResult(routeResult);
+                        }
+                        // failover 后同步更新 StreamContext 中的实际模型名
+                        streamCtx.setModel(routeResult.getTargetModel());
                         ProviderClient client = providerClientFactory.getClient(routeResult.getProviderType());
                         return client.streamChat(unifiedRequest);
                     }, correlationId)

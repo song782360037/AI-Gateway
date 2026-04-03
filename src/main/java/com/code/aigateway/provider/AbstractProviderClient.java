@@ -291,24 +291,24 @@ public abstract class AbstractProviderClient implements ProviderClient {
 
     /**
      * 使用熔断器包裹 Mono 调用。
-     * 子类在构建 provider 调用链时调用此方法，自动应用熔断保护。
-     * 熔断打开时会抛出 PROVIDER_CIRCUIT_OPEN 异常。
+     * 熔断维度为 provider+model，避免单个模型失败影响同 Provider 下其他模型。
      *
-     * @param providerCode provider 编码，用于区分不同熔断实例
+     * @param providerCode provider 编码
+     * @param model        目标模型名
      * @param mono         原始调用
      */
-    protected <T> Mono<T> withCircuitBreaker(String providerCode, Mono<T> mono) {
+    protected <T> Mono<T> withCircuitBreaker(String providerCode, String model, Mono<T> mono) {
         return mono.transformDeferred(io.github.resilience4j.reactor.circuitbreaker.operator.CircuitBreakerOperator.of(
-                circuitBreakerManager.getOrCreate(providerCode)));
+                circuitBreakerManager.getOrCreate(providerCode, model)));
     }
 
     /**
      * 使用熔断器包裹 Flux 流式调用。
      */
     protected <T> reactor.core.publisher.Flux<T> withCircuitBreakerFlux(
-            String providerCode, reactor.core.publisher.Flux<T> flux) {
+            String providerCode, String model, reactor.core.publisher.Flux<T> flux) {
         return flux.transformDeferred(io.github.resilience4j.reactor.circuitbreaker.operator.CircuitBreakerOperator.of(
-                circuitBreakerManager.getOrCreate(providerCode)));
+                circuitBreakerManager.getOrCreate(providerCode, model)));
     }
 
     /**

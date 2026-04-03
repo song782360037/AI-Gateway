@@ -106,7 +106,7 @@ public class GeminiProviderClient extends AbstractProviderClient {
             responseMono = responseMono.retryWhen(buildRetrySpec(config));
         }
 
-        return withCircuitBreaker(config.providerName(), responseMono)
+        return withCircuitBreaker(config.providerName(), request.getModel(), responseMono)
                 .onErrorMap(this::mapTransportError)
                 .map(json -> parseResponse(json, request.getModel()));
     }
@@ -135,7 +135,7 @@ public class GeminiProviderClient extends AbstractProviderClient {
                     .retryWhen(buildStreamRetrySpec(config, firstTokenReceived));
         }
 
-        return withCircuitBreakerFlux(config.providerName(), sseFlux)
+        return withCircuitBreakerFlux(config.providerName(), request.getModel(), sseFlux)
                 .onErrorMap(this::mapTransportError)
                 .filter(event -> event.data() != null && !event.data().isBlank())
                 .flatMap(event -> parseStreamChunks(event.data()));

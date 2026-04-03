@@ -101,7 +101,7 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
             responseMono = responseMono.retryWhen(buildRetrySpec(config));
         }
 
-        return withCircuitBreaker(config.providerName(), responseMono)
+        return withCircuitBreaker(config.providerName(), request.getModel(), responseMono)
                 .onErrorMap(this::mapTransportError)
                 .map(this::parseResponse);
     }
@@ -130,7 +130,7 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
                     .retryWhen(buildStreamRetrySpec(config, firstTokenReceived));
         }
 
-        return withCircuitBreakerFlux(config.providerName(), sseFlux)
+        return withCircuitBreakerFlux(config.providerName(), request.getModel(), sseFlux)
                 .onErrorMap(this::mapTransportError)
                 .flatMap(event -> parseStreamEvent(event, state));
     }

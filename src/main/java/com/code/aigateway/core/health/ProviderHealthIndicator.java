@@ -78,29 +78,22 @@ public class ProviderHealthIndicator implements ReactiveHealthIndicator {
             RoutingConfigSnapshot.ProviderEntry provider = entry.getValue();
 
             totalProviders++;
-            boolean circuitOpen = circuitBreakerManager.isCircuitOpen(providerCode);
-            if (circuitOpen) {
+            // 单次遍历获取 provider 下所有模型的熔断聚合
+            CircuitBreakerManager.ProviderCircuitSummary summary =
+                    circuitBreakerManager.getProviderSummary(providerCode);
+            if (summary.anyOpen()) {
                 openCircuits++;
             }
 
             Map<String, Object> detail = new LinkedHashMap<>();
             detail.put("enabled", provider.enabled());
             detail.put("type", provider.providerType());
-            detail.put("circuitOpen", circuitOpen);
+            detail.put("circuitOpen", summary.anyOpen());
 
-            if (circuitOpen) {
-                detail.put("status", "OPEN");
+            if (summary.anyOpen()) {
+                detail.put("status", "OPEN (" + summary.openCount() + "/" + summary.totalCount() + " models)");
             } else {
                 detail.put("status", "CLOSED");
-            }
-
-            // 获取熔断器指标
-            var metrics = circuitBreakerManager.getMetrics(providerCode);
-            if (metrics != null) {
-                detail.put("failureRate", String.format("%.1f%%", metrics.getFailureRate()));
-                detail.put("slowCallRate", String.format("%.1f%%", metrics.getSlowCallRate()));
-                detail.put("bufferedCalls", metrics.getNumberOfBufferedCalls());
-                detail.put("failedCalls", metrics.getNumberOfFailedCalls());
             }
 
             providerDetails.put(providerCode, detail);

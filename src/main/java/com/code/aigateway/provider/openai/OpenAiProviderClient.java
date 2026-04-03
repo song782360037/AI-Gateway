@@ -92,7 +92,7 @@ public class OpenAiProviderClient extends AbstractProviderClient {
         }
 
         // 熔断器包裹：在 retry 之后、错误映射之前
-        return withCircuitBreaker(config.providerName(), responseMono)
+        return withCircuitBreaker(config.providerName(), request.getModel(), responseMono)
                 .onErrorMap(this::mapTransportError)
                 .map(this::parseChatResponse);
     }
@@ -123,7 +123,7 @@ public class OpenAiProviderClient extends AbstractProviderClient {
                     .retryWhen(buildStreamRetrySpec(config, firstTokenReceived));
         }
 
-        return withCircuitBreakerFlux(config.providerName(), sseFlux)
+        return withCircuitBreakerFlux(config.providerName(), request.getModel(), sseFlux)
                 .onErrorMap(this::mapTransportError)
                 .flatMap(event -> parseStreamEvent(event, state));
     }

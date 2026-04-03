@@ -55,10 +55,10 @@ public class FailoverStrategy {
             final int index = i;
             // 从后往前构建 fallback 链：后面的候选作为前面失败时的备选
             chain = chain.switchIfEmpty(Mono.defer(() -> {
-                // 检查熔断状态
-                if (circuitBreakerManager.isCircuitOpen(candidate.getProviderName())) {
-                    log.warn("[故障转移] provider={} 熔断已打开，跳过, correlationId={}",
-                            candidate.getProviderName(), correlationId);
+                // 按 provider+model 维度检查熔断状态
+                if (circuitBreakerManager.isCircuitOpen(candidate.getProviderName(), candidate.getTargetModel())) {
+                    log.warn("[故障转移] provider={}, model={} 熔断已打开，跳过, correlationId={}",
+                            candidate.getProviderName(), candidate.getTargetModel(), correlationId);
                     return Mono.empty();
                 }
                 log.debug("[故障转移] 尝试候选 #{}: provider={}, model={}, correlationId={}",
@@ -99,9 +99,10 @@ public class FailoverStrategy {
             RouteResult candidate = candidates.get(i);
             final int index = i;
             chain = chain.switchIfEmpty(Flux.defer(() -> {
-                if (circuitBreakerManager.isCircuitOpen(candidate.getProviderName())) {
-                    log.warn("[故障转移-流式] provider={} 熔断已打开，跳过, correlationId={}",
-                            candidate.getProviderName(), correlationId);
+                // 按 provider+model 维度检查熔断状态
+                if (circuitBreakerManager.isCircuitOpen(candidate.getProviderName(), candidate.getTargetModel())) {
+                    log.warn("[故障转移-流式] provider={}, model={} 熔断已打开，跳过, correlationId={}",
+                            candidate.getProviderName(), candidate.getTargetModel(), correlationId);
                     return Flux.empty();
                 }
                 return callFunction.apply(candidate)
