@@ -29,6 +29,7 @@ export interface RequestLogRsp {
   durationMs: number | null
   status: string
   errorCode: string | null
+  errorMessage: string | null
   sourceIp: string | null
   createTime: string
 }

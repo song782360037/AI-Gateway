@@ -48,6 +48,9 @@ public class RequestLogRsp {
     /** 错误码（失败时记录） */
     private String errorCode;
 
+    /** 错误详情（失败时记录上游原始错误描述） */
+    private String errorMessage;
+
     /** 来源 IP */
     private String sourceIp;
 

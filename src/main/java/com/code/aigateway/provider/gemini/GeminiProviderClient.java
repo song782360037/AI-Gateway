@@ -548,6 +548,25 @@ public class GeminiProviderClient extends AbstractProviderClient {
         return "";
     }
 
+    /**
+     * 提取 Gemini 错误状态：error.status（如 INVALID_ARGUMENT、RESOURCE_EXHAUSTED）
+     */
+    @Override
+    protected String extractErrorType(String body) {
+        if (body == null || body.isBlank()) {
+            return "";
+        }
+        try {
+            JsonNode json = objectMapper.readTree(body);
+            JsonNode statusNode = json.path("error").path("status");
+            if (!statusNode.isMissingNode() && !statusNode.isNull()) {
+                return statusNode.asText();
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
+    }
+
     // ==================== 工具方法 ====================
 
     private String mapFinishReason(String reason) {

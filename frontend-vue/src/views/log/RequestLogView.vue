@@ -116,9 +116,15 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="errorCode" label="错误码" min-width="100" show-overflow-tooltip>
+        <el-table-column prop="errorCode" label="错误码" min-width="110" show-overflow-tooltip>
           <template #default="{ row }">
             <span v-if="row.errorCode">{{ row.errorCode }}</span>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="errorMessage" label="错误详情" min-width="200" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.errorMessage" class="error-detail">{{ row.errorMessage }}</span>
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
@@ -315,5 +321,11 @@ onMounted(loadData)
 /* 次要文本 */
 .text-muted {
   color: var(--text-placeholder);
+}
+
+/* 错误详情 */
+.error-detail {
+  color: var(--el-color-danger);
+  font-size: 12px;
 }
 </style>

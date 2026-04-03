@@ -73,7 +73,7 @@ public class RequestStatsCollector {
         if (context == null || context.getRequestInfo() == null || !context.tryMarkCollected()) {
             return;
         }
-        RequestLogDO logDO = buildLog(context, "SUCCESS", null);
+        RequestLogDO logDO = buildLog(context, "SUCCESS", null, null);
         if (usage != null) {
             logDO.setPromptTokens(usage.getInputTokens());
             logDO.setCompletionTokens(usage.getOutputTokens());
@@ -89,7 +89,7 @@ public class RequestStatsCollector {
         if (context == null || context.getRequestInfo() == null || !context.tryMarkCollected()) {
             return;
         }
-        RequestLogDO logDO = buildLog(context, "SUCCESS", null);
+        RequestLogDO logDO = buildLog(context, "SUCCESS", null, null);
         if (usage != null) {
             logDO.setPromptTokens(usage.getInputTokens());
             logDO.setCompletionTokens(usage.getOutputTokens());
@@ -105,7 +105,14 @@ public class RequestStatsCollector {
         if (context == null || context.getRequestInfo() == null || !context.tryMarkCollected()) {
             return;
         }
-        RequestLogDO logDO = buildLog(context, "ERROR", resolveErrorCode(ex));
+        String errorCode = resolveErrorCode(ex);
+        String errorMessage = resolveErrorMessage(ex);
+        RequestLogDO logDO = buildLog(context, "ERROR", errorCode, errorMessage);
+        log.warn("[请求失败] requestId={}, model={}, provider={}, errorCode={}, error={}",
+                logDO.getRequestId(),
+                context.getRequestInfo().getModel(),
+                context.getRouteResult() != null ? context.getRouteResult().getProviderName() : "N/A",
+                errorCode, errorMessage);
         emit(logDO);
     }
 
@@ -169,7 +176,7 @@ public class RequestStatsCollector {
         }
     }
 
-    private RequestLogDO buildLog(RequestStatsContext context, String status, String errorCode) {
+    private RequestLogDO buildLog(RequestStatsContext context, String status, String errorCode, String errorMessage) {
         RequestLogDO logDO = new RequestLogDO();
         // 优先使用 correlationId 作为 requestId，便于链路追踪
         logDO.setRequestId(context.getCorrelationId() != null
@@ -182,6 +189,7 @@ public class RequestStatsCollector {
         logDO.setDurationMs((int) context.elapsedMs());
         logDO.setStatus(status);
         logDO.setErrorCode(errorCode);
+        logDO.setErrorMessage(errorMessage);
         logDO.setSourceIp(context.getSourceIp());
         logDO.setCreateTime(LocalDateTime.now());
         return logDO;
@@ -192,6 +200,33 @@ public class RequestStatsCollector {
             return ge.getErrorCode().name();
         }
         return "INTERNAL_ERROR";
+    }
+
+    /**
+     * 从异常中提取错误详情，拼接 HTTP 状态码 + 错误类型 + 错误描述
+     */
+    private String resolveErrorMessage(Throwable ex) {
+        if (ex instanceof com.code.aigateway.core.error.GatewayException ge) {
+            StringBuilder sb = new StringBuilder();
+            if (ge.getUpstreamHttpStatus() != null) {
+                sb.append("HTTP ").append(ge.getUpstreamHttpStatus());
+            }
+            if (ge.getUpstreamErrorType() != null && !ge.getUpstreamErrorType().isBlank()) {
+                if (!sb.isEmpty()) sb.append(" | ");
+                sb.append(ge.getUpstreamErrorType());
+            }
+            if (ge.getMessage() != null && !ge.getMessage().isBlank()) {
+                if (!sb.isEmpty()) sb.append(" | ");
+                // 截断过长消息，避免超出数据库字段长度
+                String msg = ge.getMessage();
+                sb.append(msg.length() > 400 ? msg.substring(0, 400) + "..." : msg);
+            }
+            return sb.isEmpty() ? null : sb.toString();
+        }
+        // 非网关异常也截断，避免超出数据库字段长度
+        String msg = ex.getMessage();
+        if (msg == null) return null;
+        return msg.length() > 400 ? msg.substring(0, 400) + "..." : msg;
     }
 
     private int nullToZero(Integer value) {

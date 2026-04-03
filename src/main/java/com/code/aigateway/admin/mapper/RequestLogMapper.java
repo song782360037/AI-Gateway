@@ -27,13 +27,14 @@ public interface RequestLogMapper {
             @Result(property = "durationMs", column = "duration_ms"),
             @Result(property = "status", column = "status"),
             @Result(property = "errorCode", column = "error_code"),
+            @Result(property = "errorMessage", column = "error_message"),
             @Result(property = "sourceIp", column = "source_ip"),
             @Result(property = "createTime", column = "create_time")
     })
     @Select("""
             SELECT id, request_id, alias_model, target_model, provider_code, provider_type,
                    is_stream, prompt_tokens, completion_tokens, total_tokens, duration_ms,
-                   status, error_code, source_ip, create_time
+                   status, error_code, error_message, source_ip, create_time
             FROM request_log
             WHERE id = #{id}
             """)
@@ -46,25 +47,25 @@ public interface RequestLogMapper {
             INSERT INTO request_log (
                 request_id, alias_model, target_model, provider_code, provider_type,
                 is_stream, prompt_tokens, completion_tokens, total_tokens, duration_ms,
-                status, error_code, source_ip, create_time
+                status, error_code, error_message, source_ip, create_time
             ) VALUES (
                 #{requestId}, #{aliasModel}, #{targetModel}, #{providerCode}, #{providerType},
                 #{isStream}, #{promptTokens}, #{completionTokens}, #{totalTokens}, #{durationMs},
-                #{status}, #{errorCode}, #{sourceIp}, #{createTime}
+                #{status}, #{errorCode}, #{errorMessage}, #{sourceIp}, #{createTime}
             )
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(RequestLogDO record);
 
     /**
-     * 分页查询请求日志（XML mapper 实现，支持动态条件）
+     * 分页查询请求日志
      */
     List<RequestLogDO> selectPage(@Param("req") RequestLogQueryReq req,
                                   @Param("offset") int offset,
                                   @Param("limit") int limit);
 
     /**
-     * 统计分页总数（XML mapper 实现，支持动态条件）
+     * 统计分页总数
      */
     long countPage(@Param("req") RequestLogQueryReq req);
 
@@ -74,7 +75,7 @@ public interface RequestLogMapper {
     @Select("""
             SELECT id, request_id, alias_model, target_model, provider_code, provider_type,
                    is_stream, prompt_tokens, completion_tokens, total_tokens, duration_ms,
-                   status, error_code, source_ip, create_time
+                   status, error_code, error_message, source_ip, create_time
             FROM request_log
             ORDER BY create_time DESC
             LIMIT #{limit}

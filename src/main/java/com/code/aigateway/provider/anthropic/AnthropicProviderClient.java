@@ -529,7 +529,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
     // ==================== 错误处理 ====================
 
     /**
-     * Anthropic 错误格式：{"type":"error","error":{"type":"...","message":"..."}}
+     * Anthropic 错误格式：{"type":"error","error":{"type":"overloaded_error","message":"..."}}
      */
     @Override
     protected String extractErrorMessage(String body) {
@@ -541,6 +541,25 @@ public class AnthropicProviderClient extends AbstractProviderClient {
             JsonNode msgNode = json.path("error").path("message");
             if (!msgNode.isMissingNode() && !msgNode.isNull()) {
                 return msgNode.asText();
+            }
+        } catch (JsonProcessingException ignored) {
+        }
+        return "";
+    }
+
+    /**
+     * 提取 Anthropic 错误类型：error.type（如 overloaded_error、invalid_request_error）
+     */
+    @Override
+    protected String extractErrorType(String body) {
+        if (body == null || body.isBlank()) {
+            return "";
+        }
+        try {
+            JsonNode json = objectMapper.readTree(body);
+            JsonNode typeNode = json.path("error").path("type");
+            if (!typeNode.isMissingNode() && !typeNode.isNull()) {
+                return typeNode.asText();
             }
         } catch (JsonProcessingException ignored) {
         }

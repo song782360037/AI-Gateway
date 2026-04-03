@@ -28,7 +28,7 @@
     <select id="selectPage" resultType="com.code.aigateway.admin.model.dataobject.RequestLogDO">
         SELECT id, request_id, alias_model, target_model, provider_code, provider_type,
                is_stream, prompt_tokens, completion_tokens, total_tokens, duration_ms,
-               status, error_code, source_ip, create_time
+               status, error_code, error_message, source_ip, create_time
         FROM request_log
         WHERE 1=1
         <include refid="pageConditions"/>

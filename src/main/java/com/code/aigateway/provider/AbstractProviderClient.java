@@ -214,29 +214,45 @@ public abstract class AbstractProviderClient implements ProviderClient {
 
     /**
      * 将上游错误 HTTP 响应映射为统一异常。
-     * 子类可覆盖以处理不同的错误响应格式。
+     * 提取完整错误上下文（HTTP 状态码、错误类型、错误描述）并记录日志。
+     * 子类可覆盖 extractErrorType / extractErrorMessage 以适配不同的错误响应格式。
      */
     protected Mono<? extends Throwable> mapErrorResponse(ClientResponse response, ProviderRuntimeConfig config) {
+        HttpStatusCode statusCode = response.statusCode();
         return response.bodyToMono(String.class)
                 .defaultIfEmpty("")
                 .map(body -> {
-                    String message = extractErrorMessage(body);
-                    if (response.statusCode().value() == 429) {
-                        return new GatewayException(ErrorCode.PROVIDER_RATE_LIMIT,
-                                message.isBlank() ? "provider rate limited" : message);
+                    String errorMessage = extractErrorMessage(body);
+                    String errorType = extractErrorType(body);
+
+                    // 记录上游完整错误上下文，便于排查
+                    log.warn("[上游错误] 提供商: {}, HTTP状态: {}, 错误类型: {}, 错误描述: {}, 原始响应: {}",
+                            config.providerName(), statusCode.value(),
+                            errorType.isBlank() ? "N/A" : errorType,
+                            errorMessage.isBlank() ? "N/A" : errorMessage,
+                            truncateForLog(body, 500));
+
+                    ErrorCode errorCode;
+                    if (statusCode.value() == 429) {
+                        errorCode = ErrorCode.PROVIDER_RATE_LIMIT;
+                    } else if (statusCode.is5xxServerError()) {
+                        errorCode = ErrorCode.PROVIDER_SERVER_ERROR;
+                    } else {
+                        errorCode = ErrorCode.PROVIDER_ERROR;
                     }
-                    if (response.statusCode().is5xxServerError()) {
-                        return new GatewayException(ErrorCode.PROVIDER_SERVER_ERROR,
-                                message.isBlank() ? "provider server error" : message);
-                    }
-                    return new GatewayException(ErrorCode.PROVIDER_ERROR,
-                            message.isBlank() ? "provider request failed" : message);
+
+                    String message = errorMessage.isBlank()
+                            ? errorCode.name().toLowerCase().replace('_', ' ')
+                            : errorMessage;
+
+                    return new GatewayException(errorCode, message, null,
+                            statusCode.value(), errorType);
                 });
     }
 
     /**
-     * 提取上游错误消息，默认解析 OpenAI 格式 {"error":{"message":"..."}}。
-     * 子类可覆盖以适配不同的错误响应格式。
+     * 从上游错误响应体中提取错误消息。
+     * 默认解析 OpenAI 格式 {"error":{"message":"..."}}，子类可覆盖。
      */
     protected String extractErrorMessage(String body) {
         if (body == null || body.isBlank()) {
@@ -249,9 +265,37 @@ public abstract class AbstractProviderClient implements ProviderClient {
                 return messageNode.asText();
             }
         } catch (JsonProcessingException ignored) {
-            // 非 JSON 响应体，不泄露上游内部细节
         }
         return "";
+    }
+
+    /**
+     * 从上游错误响应体中提取错误类型。
+     * 默认解析 OpenAI 格式 {"error":{"type":"..."}}，子类可覆盖。
+     */
+    protected String extractErrorType(String body) {
+        if (body == null || body.isBlank()) {
+            return "";
+        }
+        try {
+            JsonNode jsonNode = objectMapper.readTree(body);
+            JsonNode typeNode = jsonNode.path("error").path("type");
+            if (!typeNode.isMissingNode() && !typeNode.isNull()) {
+                return typeNode.asText();
+            }
+        } catch (JsonProcessingException ignored) {
+        }
+        return "";
+    }
+
+    /**
+     * 截断长文本用于日志输出，避免日志过长
+     */
+    private String truncateForLog(String text, int maxLength) {
+        if (text == null || text.length() <= maxLength) {
+            return text;
+        }
+        return text.substring(0, maxLength) + "...(truncated)";
     }
 
     // ==================== 工具方法 ====================

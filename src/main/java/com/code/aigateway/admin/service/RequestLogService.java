@@ -51,6 +51,7 @@ public class RequestLogService {
         rsp.setDurationMs(record.getDurationMs());
         rsp.setStatus(record.getStatus());
         rsp.setErrorCode(record.getErrorCode());
+        rsp.setErrorMessage(record.getErrorMessage());
         rsp.setSourceIp(record.getSourceIp());
         rsp.setCreateTime(record.getCreateTime());
         return rsp;
