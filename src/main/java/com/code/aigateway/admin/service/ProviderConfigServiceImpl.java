@@ -124,6 +124,34 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
     }
 
     @Override
+    public void toggle(Long id, Long versionNo) {
+        // 先查询当前记录，获取当前启用状态
+        ProviderConfigDO existing = providerConfigMapper.selectById(id);
+        if (existing == null) {
+            throw new BizException("CONFIG_NOT_FOUND", "提供商配置不存在，id: " + id);
+        }
+
+        // 构建仅更新 enabled 字段的记录，使用乐观锁保证并发安全
+        ProviderConfigDO record = new ProviderConfigDO();
+        record.setId(id);
+        record.setVersionNo(versionNo);
+        record.setEnabled(!existing.getEnabled());
+        record.setUpdater("");
+        record.setUpdateTime(LocalDateTime.now());
+
+        int rows = providerConfigMapper.updateEnabled(record);
+        if (rows <= 0) {
+            throw new BizException("CONFIG_CONCURRENT_MODIFIED",
+                    "数据已被其他请求修改，请刷新后重试，id: " + id);
+        }
+        log.info("[提供商配置] 状态切换成功，id: {}，enabled: {} -> {}",
+                id, existing.getEnabled(), !existing.getEnabled());
+
+        // 状态变更后必须刷新运行时快照，使变更立即生效
+        ensureRuntimeConfigReloaded("admin-toggle-provider");
+    }
+
+    @Override
     public ProviderConfigRsp getById(Long id) {
         ProviderConfigDO record = providerConfigMapper.selectById(id);
         if (record == null) {
@@ -168,11 +196,8 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         record.setBaseUrl(req.getBaseUrl());
         record.setApiKeyCiphertext(encryptResult.ciphertext());
         record.setApiKeyIv(encryptResult.iv());
-        record.setApiVersion(req.getApiVersion());
         record.setTimeoutSeconds(req.getTimeoutSeconds());
         record.setPriority(req.getPriority());
-        // 空白字符串不是合法 JSON，MySQL JSON 列写入空串会报 Data truncation
-        record.setExtConfigJson(normalizeToJson(req.getExtConfigJson()));
         record.setDeleted(false);
         record.setCreateTime(LocalDateTime.now());
         record.setUpdateTime(LocalDateTime.now());
@@ -188,24 +213,10 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         record.setDisplayName(req.getDisplayName());
         record.setEnabled(req.getEnabled());
         record.setBaseUrl(req.getBaseUrl());
-        record.setApiVersion(req.getApiVersion());
         record.setTimeoutSeconds(req.getTimeoutSeconds());
         record.setPriority(req.getPriority());
-        record.setExtConfigJson(normalizeToJson(req.getExtConfigJson()));
         record.setUpdateTime(LocalDateTime.now());
         return record;
-    }
-
-    /**
-     * 将 extConfigJson 归一化：空白字符串 → null，合法 JSON 保留原样。
-     *
-     * <p>MySQL JSON 列不接受空字符串，只接受合法 JSON 或 NULL。</p>
-     */
-    private String normalizeToJson(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return value;
     }
 
     /**
@@ -221,10 +232,8 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         rsp.setDisplayName(record.getDisplayName());
         rsp.setEnabled(record.getEnabled());
         rsp.setBaseUrl(record.getBaseUrl());
-        rsp.setApiVersion(record.getApiVersion());
         rsp.setTimeoutSeconds(record.getTimeoutSeconds());
         rsp.setPriority(record.getPriority());
-        rsp.setExtConfigJson(record.getExtConfigJson());
         rsp.setVersionNo(record.getVersionNo());
         rsp.setCreateTime(record.getCreateTime());
         rsp.setUpdateTime(record.getUpdateTime());

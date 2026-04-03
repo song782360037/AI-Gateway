@@ -38,11 +38,6 @@ public class RouteResult {
     private String providerBaseUrl;
 
     /**
-     * 提供商版本号
-     */
-    private String providerVersion;
-
-    /**
      * 提供商请求超时时间（秒）
      */
     private Integer providerTimeoutSeconds;

@@ -13,10 +13,8 @@ export interface ProviderConfigAddReq {
   enabled: boolean
   baseUrl: string
   apiKey: string
-  apiVersion?: string
   timeoutSeconds: number
   priority: number
-  extConfigJson?: string
 }
 
 export interface ProviderConfigUpdateReq {
@@ -28,10 +26,8 @@ export interface ProviderConfigUpdateReq {
   enabled: boolean
   baseUrl: string
   apiKey?: string
-  apiVersion?: string
   timeoutSeconds: number
   priority: number
-  extConfigJson?: string
 }
 
 export interface ProviderConfigRsp {
@@ -42,10 +38,8 @@ export interface ProviderConfigRsp {
   enabled: boolean
   baseUrl: string
   apiKeyMasked?: string
-  apiVersion?: string
   timeoutSeconds: number
   priority: number
-  extConfigJson?: string
   versionNo: number
   createTime?: string
   updateTime?: string

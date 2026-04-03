@@ -8,6 +8,8 @@ import com.code.aigateway.admin.service.IProviderConfigService;
 import com.code.aigateway.common.result.PageResult;
 import com.code.aigateway.common.result.R;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
+import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -96,5 +98,30 @@ public class ProviderConfigController {
         return Mono.fromCallable(() -> providerConfigService.list(req))
                 .subscribeOn(Schedulers.boundedElastic())
                 .map(R::ok);
+    }
+
+    /**
+     * 切换提供商配置启用/禁用状态
+     *
+     * @param req 包含 id 和 versionNo 的切换请求
+     */
+    @PostMapping("/toggle")
+    public Mono<R<Void>> toggle(@Valid @RequestBody ProviderConfigToggleReq req) {
+        // 阻塞型写操作统一放到弹性线程池执行，避免影响响应式主链路。
+        return Mono.fromRunnable(() -> providerConfigService.toggle(req.getId(), req.getVersionNo()))
+                .subscribeOn(Schedulers.boundedElastic())
+                .thenReturn(R.ok());
+    }
+
+    /**
+     * 提供商配置状态切换请求参数
+     */
+    @Data
+    static class ProviderConfigToggleReq {
+        @NotNull(message = "ID 不能为空")
+        private Long id;
+
+        @NotNull(message = "版本号不能为空")
+        private Long versionNo;
     }
 }

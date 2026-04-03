@@ -103,11 +103,6 @@ public class UnifiedRequest {
         private String providerBaseUrl;
 
         /**
-         * Provider 版本号
-         */
-        private String providerVersion;
-
-        /**
          * Provider 请求超时时间（秒）
          */
         private Integer providerTimeoutSeconds;

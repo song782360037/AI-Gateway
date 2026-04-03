@@ -34,19 +34,4 @@ public class ModelRedirectConfigUpdateReq {
 
     /** 是否启用 */
     private Boolean enabled = true;
-
-    /** 路由优先级，数值越大优先级越高 */
-    private Integer priority = 0;
-
-    /** 路由策略，默认按优先级路由 */
-    private String routeStrategy = "PRIORITY";
-
-    /** 路由权重，默认 100，用于权重路由场景 */
-    private Integer weight = 100;
-
-    /** 匹配条件 JSON，用于扩展复杂路由条件 */
-    private String matchConditionJson;
-
-    /** 扩展配置 JSON，用于存储额外参数 */
-    private String extConfigJson;
 }

@@ -36,31 +36,6 @@ public class ModelRedirectConfigDO {
     private Boolean enabled;
 
     /**
-     * 优先级，值越大越优先
-     */
-    private Integer priority;
-
-    /**
-     * 路由策略
-     */
-    private String routeStrategy;
-
-    /**
-     * 路由权重
-     */
-    private Integer weight;
-
-    /**
-     * 匹配条件 JSON
-     */
-    private String matchConditionJson;
-
-    /**
-     * 扩展配置 JSON
-     */
-    private String extConfigJson;
-
-    /**
      * 乐观锁版本号
      */
     private Long versionNo;

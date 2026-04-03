@@ -51,11 +51,6 @@ public class ProviderConfigDO {
     private String apiKeyIv;
 
     /**
-     * API 版本
-     */
-    private String apiVersion;
-
-    /**
      * 请求超时时间，单位秒
      */
     private Integer timeoutSeconds;
@@ -64,11 +59,6 @@ public class ProviderConfigDO {
      * 优先级，值越大优先级越高
      */
     private Integer priority;
-
-    /**
-     * 扩展配置 JSON
-     */
-    private String extConfigJson;
 
     /**
      * 乐观锁版本号

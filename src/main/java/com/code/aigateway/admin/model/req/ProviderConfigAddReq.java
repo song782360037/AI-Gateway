@@ -33,15 +33,9 @@ public class ProviderConfigAddReq {
     @NotBlank(message = "API Key 不能为空")
     private String apiKey;
 
-    /** 提供商 API 版本号，部分提供商可选 */
-    private String apiVersion;
-
     /** 调用超时时间，单位秒，默认 60 秒 */
     private Integer timeoutSeconds = 60;
 
     /** 提供商优先级，数值越大优先级越高 */
     private Integer priority = 0;
-
-    /** 扩展配置 JSON，用于存储提供商个性化参数 */
-    private String extConfigJson;
 }

@@ -12,11 +12,6 @@ export interface ModelRedirectConfigAddReq {
   providerCode: string
   targetModel: string
   enabled: boolean
-  priority: number
-  routeStrategy: string
-  weight: number
-  matchConditionJson?: string
-  extConfigJson?: string
 }
 
 export interface ModelRedirectConfigUpdateReq {
@@ -26,11 +21,6 @@ export interface ModelRedirectConfigUpdateReq {
   providerCode: string
   targetModel: string
   enabled: boolean
-  priority: number
-  routeStrategy: string
-  weight: number
-  matchConditionJson?: string
-  extConfigJson?: string
 }
 
 export interface ModelRedirectConfigRsp {
@@ -39,11 +29,6 @@ export interface ModelRedirectConfigRsp {
   providerCode: string
   targetModel: string
   enabled: boolean
-  priority: number
-  routeStrategy: string
-  weight: number
-  matchConditionJson?: string
-  extConfigJson?: string
   versionNo: number
   createTime?: string
   updateTime?: string

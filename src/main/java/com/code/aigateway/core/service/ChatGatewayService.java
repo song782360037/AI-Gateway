@@ -146,7 +146,6 @@ public class ChatGatewayService {
         UnifiedRequest.ProviderExecutionContext ctx = new UnifiedRequest.ProviderExecutionContext();
         ctx.setProviderName(routeResult.getProviderName());
         ctx.setProviderBaseUrl(routeResult.getProviderBaseUrl());
-        ctx.setProviderVersion(routeResult.getProviderVersion());
         ctx.setProviderTimeoutSeconds(routeResult.getProviderTimeoutSeconds());
         ctx.setProviderApiKey(routeResult.getProviderApiKey());
         ctx.setCorrelationId(correlationId);

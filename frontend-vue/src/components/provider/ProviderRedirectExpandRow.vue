@@ -33,7 +33,6 @@
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="priority" label="优先级" min-width="80" />
           <el-table-column label="操作" fixed="right" width="200">
             <template #default="{ row }">
               <el-button link type="primary" size="small" @click="emit('editRedirect', row)">编辑</el-button>

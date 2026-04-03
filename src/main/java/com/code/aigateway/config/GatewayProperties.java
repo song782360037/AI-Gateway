@@ -132,11 +132,6 @@ public class GatewayProperties {
         private String apiKey;
 
         /**
-         * API 版本号（部分提供商需要）
-         */
-        private String version;
-
-        /**
          * 请求超时时间（秒），默认 60 秒
          */
         private Integer timeoutSeconds = 60;

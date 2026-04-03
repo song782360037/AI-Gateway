@@ -1,85 +1,75 @@
 <template>
   <el-dialog
     :model-value="visible"
-    :title="isEdit ? '编辑接入通道' : '新增接入通道'"
-    width="840px"
+    :title="isEdit ? '编辑提供商' : '新增提供商'"
+    width="780px"
     destroy-on-close
     class="admin-dialog"
     modal-class="admin-dialog-overlay"
     @close="emit('close')"
   >
     <div class="dialog-intro">
-      <p class="eyebrow">接入通道编辑</p>
-      <p>维护接入通道的基础信息、密钥参数和运行时扩展配置。</p>
+      <p class="eyebrow">提供商配置</p>
+      <p>维护提供商的基础连接信息、密钥参数和运行时调度配置。</p>
     </div>
 
     <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
+      <!-- 基础信息 -->
       <section class="dialog-section">
         <div class="dialog-section__head">
           <h4>基础信息</h4>
-          <p>定义接入通道的编码、类型、名称和基础访问地址。</p>
+          <p>定义提供商的唯一标识、类型、显示名称和接口地址。</p>
         </div>
         <div class="form-grid">
-          <el-form-item label="providerCode" prop="providerCode">
-            <el-input v-model="form.providerCode" placeholder="openai-main" />
+          <el-form-item label="提供商唯一标识" prop="providerCode">
+            <el-input v-model="form.providerCode" placeholder="如 openai-main" />
           </el-form-item>
-          <el-form-item label="providerType" prop="providerType">
-            <el-select v-model="form.providerType" placeholder="请选择接入通道类型">
+          <el-form-item label="提供商类型" prop="providerType">
+            <el-select v-model="form.providerType" placeholder="请选择提供商类型" style="width: 100%">
               <el-option
                 v-for="item in providerTypeOptions"
                 :key="item.value"
                 :label="item.label"
                 :value="item.value"
-                :disabled="'disabled' in item"
               />
             </el-select>
           </el-form-item>
-          <el-form-item label="displayName" prop="displayName">
-            <el-input v-model="form.displayName" placeholder="OpenAI 主通道" />
+          <el-form-item label="显示名称" prop="displayName">
+            <el-input v-model="form.displayName" placeholder="如 OpenAI 主通道" />
           </el-form-item>
-          <el-form-item label="baseUrl" prop="baseUrl">
+          <el-form-item label="接口地址" prop="baseUrl">
             <el-input v-model="form.baseUrl" placeholder="https://api.openai.com" />
           </el-form-item>
         </div>
       </section>
 
+      <!-- 密钥与调度 -->
       <section class="dialog-section">
         <div class="dialog-section__head">
-          <h4>运行参数</h4>
-          <p>配置密钥、版本、超时时间和优先级，决定实际调用行为。</p>
+          <h4>密钥与调度</h4>
+          <p>配置 API 密钥、请求超时和优先级，决定实际调用行为。</p>
         </div>
         <div class="form-grid">
-          <el-form-item :label="isEdit ? 'apiKey（留空表示不修改）' : 'apiKey'" prop="apiKey">
-            <el-input v-model="form.apiKey" type="password" show-password placeholder="新增必填，编辑留空表示不修改" />
+          <el-form-item :label="isEdit ? 'API 密钥（留空表示不修改）' : 'API 密钥'" prop="apiKey">
+            <el-input v-model="form.apiKey" type="password" show-password placeholder="新增必填，编辑留空不修改" />
           </el-form-item>
-          <el-form-item label="apiVersion" prop="apiVersion">
-            <el-input v-model="form.apiVersion" placeholder="2024-10-01" />
-          </el-form-item>
-          <el-form-item label="timeoutSeconds" prop="timeoutSeconds">
-            <el-input-number v-model="form.timeoutSeconds" :min="1" :step="10" />
-          </el-form-item>
-          <el-form-item label="priority" prop="priority">
-            <el-input-number v-model="form.priority" :step="1" />
-          </el-form-item>
+          <div class="form-grid__inline">
+            <el-form-item label="超时（秒）" prop="timeoutSeconds">
+              <el-input-number v-model="form.timeoutSeconds" :min="1" :step="10" style="width: 100%" />
+            </el-form-item>
+            <el-form-item label="优先级" prop="priority">
+              <el-input-number v-model="form.priority" :step="1" style="width: 100%" />
+            </el-form-item>
+          </div>
         </div>
 
         <div class="dialog-switch-row">
           <div>
             <p class="dialog-switch-row__title">启用状态</p>
-            <p class="dialog-switch-row__desc">关闭后该 Provider 不会继续参与运行时路由。</p>
+            <p class="dialog-switch-row__desc">关闭后该提供商不会继续参与运行时路由。</p>
           </div>
           <el-switch v-model="form.enabled" inline-prompt active-text="开" inactive-text="关" />
         </div>
-      </section>
-
-      <section class="dialog-section">
-        <div class="dialog-section__head">
-          <h4>扩展配置</h4>
-          <p>用于存放区域、标签或其他 Provider 特有扩展参数。</p>
-        </div>
-        <el-form-item label="extConfigJson" prop="extConfigJson">
-          <el-input v-model="form.extConfigJson" type="textarea" :rows="5" placeholder='{"region":"us-east-1"}' />
-        </el-form-item>
       </section>
     </el-form>
 
@@ -97,7 +87,6 @@
 import { reactive, ref, watch } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import type { ProviderConfigRsp } from '../../types/provider'
-import { formatJsonText, isValidJsonText, normalizeJsonText } from '../../utils/json'
 
 interface ProviderFormModel {
   id?: number
@@ -108,10 +97,8 @@ interface ProviderFormModel {
   enabled: boolean
   baseUrl: string
   apiKey: string
-  apiVersion: string
   timeoutSeconds: number
   priority: number
-  extConfigJson: string
 }
 
 const providerTypeOptions = [
@@ -137,11 +124,10 @@ const initialSnapshot = ref<ProviderFormModel>(createEmptyForm())
 const isEdit = ref(false)
 
 const rules: FormRules<ProviderFormModel> = {
-  providerCode: [{ required: true, message: '请输入 providerCode', trigger: 'blur' }],
-  providerType: [{ required: true, message: '请选择 providerType', trigger: 'change' }],
-  baseUrl: [{ required: true, message: '请输入 baseUrl', trigger: 'blur' }],
+  providerCode: [{ required: true, message: '请输入提供商唯一标识', trigger: 'blur' }],
+  providerType: [{ required: true, message: '请选择提供商类型', trigger: 'change' }],
+  baseUrl: [{ required: true, message: '请输入接口地址', trigger: 'blur' }],
   apiKey: [{ validator: validateApiKey, trigger: 'blur' }],
-  extConfigJson: [{ validator: validateJsonText, trigger: 'blur' }],
 }
 
 watch(
@@ -150,7 +136,7 @@ watch(
     isEdit.value = !!value
     const nextForm = buildFormState(value)
 
-    // 保留一份初始快照，编辑态点击“重置”时可以回到原始值，而不是回到新增默认值。
+    // 保留一份初始快照，编辑态点击"重置"时可以回到原始值
     initialSnapshot.value = nextForm
     Object.assign(form, nextForm)
   },
@@ -158,9 +144,7 @@ watch(
 )
 
 function buildFormState(value?: ProviderConfigRsp | null): ProviderFormModel {
-  if (!value) {
-    return createEmptyForm()
-  }
+  if (!value) return createEmptyForm()
 
   return {
     id: value.id,
@@ -171,10 +155,8 @@ function buildFormState(value?: ProviderConfigRsp | null): ProviderFormModel {
     enabled: value.enabled,
     baseUrl: value.baseUrl,
     apiKey: '',
-    apiVersion: value.apiVersion || '',
     timeoutSeconds: value.timeoutSeconds,
     priority: value.priority,
-    extConfigJson: formatJsonText(value.extConfigJson),
   }
 }
 
@@ -186,29 +168,18 @@ function createEmptyForm(): ProviderFormModel {
     enabled: true,
     baseUrl: '',
     apiKey: '',
-    apiVersion: '',
     timeoutSeconds: 60,
     priority: 0,
-    extConfigJson: '',
   }
 }
 
 function validateApiKey(_rule: unknown, value: string, callback: (error?: Error) => void) {
-  // 新增时必须填写 apiKey；编辑时允许留空表示不修改。
+  // 新增时必须填写 apiKey；编辑时允许留空表示不修改
   if (!isEdit.value && !value) {
-    callback(new Error('新增时必须填写 apiKey'))
+    callback(new Error('新增时必须填写 API 密钥'))
     return
   }
   callback()
-}
-
-function validateJsonText(_rule: unknown, value: string, callback: (error?: string | Error) => void) {
-  if (isValidJsonText(value)) {
-    callback()
-    return
-  }
-
-  callback(new Error('请输入合法的 JSON'))
 }
 
 function resetForm() {
@@ -218,9 +189,7 @@ function resetForm() {
 
 async function submit() {
   const valid = await formRef.value?.validate().catch(() => false)
-  if (!valid) {
-    return
-  }
+  if (!valid) return
 
   const basePayload = {
     providerCode: form.providerCode,
@@ -229,12 +198,19 @@ async function submit() {
     enabled: form.enabled,
     baseUrl: form.baseUrl,
     apiKey: form.apiKey,
-    apiVersion: form.apiVersion,
     timeoutSeconds: form.timeoutSeconds,
     priority: form.priority,
-    extConfigJson: normalizeJsonText(form.extConfigJson),
   }
 
   emit('submit', isEdit.value ? { ...basePayload, id: form.id, versionNo: form.versionNo } : basePayload)
 }
 </script>
+
+<style scoped>
+/* 超时和优先级在同一行并排显示 */
+.form-grid__inline {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+</style>

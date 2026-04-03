@@ -12,7 +12,7 @@ import java.util.List;
 public interface ModelRedirectConfigMapper {
 
     /**
-     * 统一结果映射，避免字段名和属性名不一致导致的装配问题。
+     * 统一结果映射，显式声明下划线字段到驼峰属性的关系。
      */
     @Results(id = "modelRedirectConfigResultMap", value = {
             @Result(property = "id", column = "id"),
@@ -20,11 +20,6 @@ public interface ModelRedirectConfigMapper {
             @Result(property = "providerCode", column = "provider_code"),
             @Result(property = "targetModel", column = "target_model"),
             @Result(property = "enabled", column = "enabled"),
-            @Result(property = "priority", column = "priority"),
-            @Result(property = "routeStrategy", column = "route_strategy"),
-            @Result(property = "weight", column = "weight"),
-            @Result(property = "matchConditionJson", column = "match_condition_json"),
-            @Result(property = "extConfigJson", column = "ext_config_json"),
             @Result(property = "versionNo", column = "version_no"),
             @Result(property = "creator", column = "creator"),
             @Result(property = "createTime", column = "create_time"),
@@ -33,8 +28,7 @@ public interface ModelRedirectConfigMapper {
             @Result(property = "deleted", column = "deleted")
     })
     @Select("""
-            SELECT id, alias_name, provider_code, target_model, enabled, priority, route_strategy,
-                   weight, match_condition_json, ext_config_json, version_no,
+            SELECT id, alias_name, provider_code, target_model, enabled, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM model_redirect_config
             WHERE id = #{id}
@@ -47,12 +41,10 @@ public interface ModelRedirectConfigMapper {
      */
     @Insert("""
             INSERT INTO model_redirect_config (
-                alias_name, provider_code, target_model, enabled, priority, route_strategy,
-                weight, match_condition_json, ext_config_json, version_no,
+                alias_name, provider_code, target_model, enabled, version_no,
                 creator, create_time, updater, update_time, deleted
             ) VALUES (
-                #{aliasName}, #{providerCode}, #{targetModel}, #{enabled}, #{priority}, #{routeStrategy},
-                #{weight}, #{matchConditionJson}, #{extConfigJson}, #{versionNo},
+                #{aliasName}, #{providerCode}, #{targetModel}, #{enabled}, #{versionNo},
                 #{creator}, #{createTime}, #{updater}, #{updateTime}, #{deleted}
             )
             """)
@@ -68,11 +60,6 @@ public interface ModelRedirectConfigMapper {
                 provider_code = #{providerCode},
                 target_model = #{targetModel},
                 enabled = #{enabled},
-                priority = #{priority},
-                route_strategy = #{routeStrategy},
-                weight = #{weight},
-                match_condition_json = #{matchConditionJson},
-                ext_config_json = #{extConfigJson},
                 version_no = #{versionNo} + 1,
                 updater = #{updater},
                 update_time = #{updateTime}
@@ -98,8 +85,7 @@ public interface ModelRedirectConfigMapper {
      */
     @Select("""
             <script>
-            SELECT id, alias_name, provider_code, target_model, enabled, priority, route_strategy,
-                   weight, match_condition_json, ext_config_json, version_no,
+            SELECT id, alias_name, provider_code, target_model, enabled, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM model_redirect_config
             WHERE deleted = 0
@@ -115,7 +101,7 @@ public interface ModelRedirectConfigMapper {
             <if test='enabled != null'>
                 AND enabled = #{enabled}
             </if>
-            ORDER BY priority DESC, update_time DESC
+            ORDER BY update_time DESC
             LIMIT #{limit} OFFSET #{offset}
             </script>
             """)
@@ -173,29 +159,27 @@ public interface ModelRedirectConfigMapper {
      * 查询全部启用中的重定向配置，供路由缓存或预热使用。
      */
     @Select("""
-            SELECT id, alias_name, provider_code, target_model, enabled, priority, route_strategy,
-                   weight, match_condition_json, ext_config_json, version_no,
+            SELECT id, alias_name, provider_code, target_model, enabled, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM model_redirect_config
             WHERE enabled = 1
               AND deleted = 0
-            ORDER BY priority DESC, update_time DESC
+            ORDER BY update_time DESC
             """)
     @ResultMap("modelRedirectConfigResultMap")
     List<ModelRedirectConfigDO> selectAllEnabled();
 
     /**
-     * 按模型别名查询有效规则，并按优先级和更新时间排序供路由决策使用。
+     * 按模型别名查询有效规则。
      */
     @Select("""
-            SELECT id, alias_name, provider_code, target_model, enabled, priority, route_strategy,
-                   weight, match_condition_json, ext_config_json, version_no,
+            SELECT id, alias_name, provider_code, target_model, enabled, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM model_redirect_config
             WHERE alias_name = #{aliasName}
               AND enabled = 1
               AND deleted = 0
-            ORDER BY priority DESC, update_time DESC
+            ORDER BY update_time DESC
             """)
     @ResultMap("modelRedirectConfigResultMap")
     List<ModelRedirectConfigDO> selectEnabledByAliasName(@Param("aliasName") String aliasName);
@@ -204,14 +188,13 @@ public interface ModelRedirectConfigMapper {
      * 按提供商查询有效规则，便于 provider 维度的数据分析和校验。
      */
     @Select("""
-            SELECT id, alias_name, provider_code, target_model, enabled, priority, route_strategy,
-                   weight, match_condition_json, ext_config_json, version_no,
+            SELECT id, alias_name, provider_code, target_model, enabled, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM model_redirect_config
             WHERE provider_code = #{providerCode}
               AND enabled = 1
               AND deleted = 0
-            ORDER BY priority DESC, update_time DESC
+            ORDER BY update_time DESC
             """)
     @ResultMap("modelRedirectConfigResultMap")
     List<ModelRedirectConfigDO> selectEnabledByProviderCode(@Param("providerCode") String providerCode);

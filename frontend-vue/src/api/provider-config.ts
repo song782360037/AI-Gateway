@@ -22,3 +22,7 @@ export function updateProvider(data: ProviderConfigUpdateReq) {
 export function deleteProvider(id: number) {
   return request.post<never, void>(`/admin/provider-config/delete/${id}`)
 }
+
+export function toggleProvider(id: number, versionNo: number) {
+  return request.post<never, void>('/admin/provider-config/toggle', { id, versionNo })
+}

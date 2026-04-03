@@ -262,7 +262,7 @@ a {
 }
 
 .page-card + .page-card {
-  margin-top: 16px;
+  margin-top: 0px;
 }
 
 .card-header {
@@ -401,15 +401,17 @@ a {
 .dialog-intro {
   margin-bottom: 20px;
   padding: 14px 18px;
-  background: #f8fafc;
+  background: linear-gradient(135deg, rgba(67, 97, 238, 0.04) 0%, rgba(6, 182, 212, 0.03) 100%);
   border-radius: var(--radius-md);
   border: 1px solid var(--border-light);
 }
 
 .dialog-intro .eyebrow {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--color-primary);
   margin-bottom: 4px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 .dialog-intro p:last-child {

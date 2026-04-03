@@ -34,17 +34,11 @@ public class ProviderConfigRsp {
     /** 掩码后的 API Key，避免敏感信息明文回显 */
     private String apiKeyMasked;
 
-    /** 提供商 API 版本号 */
-    private String apiVersion;
-
     /** 调用超时时间，单位秒 */
     private Integer timeoutSeconds;
 
     /** 提供商优先级，数值越大优先级越高 */
     private Integer priority;
-
-    /** 扩展配置 JSON，用于存储提供商个性化参数 */
-    private String extConfigJson;
 
     /** 乐观锁版本号 */
     private Long versionNo;

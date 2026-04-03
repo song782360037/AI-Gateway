@@ -23,10 +23,8 @@ public interface ProviderConfigMapper {
             @Result(property = "baseUrl", column = "base_url"),
             @Result(property = "apiKeyCiphertext", column = "api_key_ciphertext"),
             @Result(property = "apiKeyIv", column = "api_key_iv"),
-            @Result(property = "apiVersion", column = "api_version"),
             @Result(property = "timeoutSeconds", column = "timeout_seconds"),
             @Result(property = "priority", column = "priority"),
-            @Result(property = "extConfigJson", column = "ext_config_json"),
             @Result(property = "versionNo", column = "version_no"),
             @Result(property = "creator", column = "creator"),
             @Result(property = "createTime", column = "create_time"),
@@ -36,7 +34,7 @@ public interface ProviderConfigMapper {
     })
     @Select("""
             SELECT id, provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                   api_key_iv, api_version, timeout_seconds, priority, ext_config_json, version_no,
+                   api_key_iv, timeout_seconds, priority, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM provider_config
             WHERE id = #{id}
@@ -49,7 +47,7 @@ public interface ProviderConfigMapper {
      */
     @Select("""
             SELECT id, provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                   api_key_iv, api_version, timeout_seconds, priority, ext_config_json, version_no,
+                   api_key_iv, timeout_seconds, priority, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM provider_config
             WHERE provider_code = #{providerCode}
@@ -65,11 +63,11 @@ public interface ProviderConfigMapper {
     @Insert("""
             INSERT INTO provider_config (
                 provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                api_key_iv, api_version, timeout_seconds, priority, ext_config_json, version_no,
+                api_key_iv, timeout_seconds, priority, version_no,
                 creator, create_time, updater, update_time, deleted
             ) VALUES (
                 #{providerCode}, #{providerType}, #{displayName}, #{enabled}, #{baseUrl}, #{apiKeyCiphertext},
-                #{apiKeyIv}, #{apiVersion}, #{timeoutSeconds}, #{priority}, #{extConfigJson}, #{versionNo},
+                #{apiKeyIv}, #{timeoutSeconds}, #{priority}, #{versionNo},
                 #{creator}, #{createTime}, #{updater}, #{updateTime}, #{deleted}
             )
             """)
@@ -88,10 +86,8 @@ public interface ProviderConfigMapper {
                 base_url = #{baseUrl},
                 api_key_ciphertext = #{apiKeyCiphertext},
                 api_key_iv = #{apiKeyIv},
-                api_version = #{apiVersion},
                 timeout_seconds = #{timeoutSeconds},
                 priority = #{priority},
-                ext_config_json = #{extConfigJson},
                 version_no = #{versionNo} + 1,
                 updater = #{updater},
                 update_time = #{updateTime}
@@ -113,12 +109,27 @@ public interface ProviderConfigMapper {
     int softDeleteById(@Param("id") Long id);
 
     /**
+     * 仅更新启用状态（乐观锁），用于快速切换提供商开关。
+     */
+    @Update("""
+            UPDATE provider_config
+            SET enabled = #{enabled},
+                version_no = version_no + 1,
+                updater = #{updater},
+                update_time = #{updateTime}
+            WHERE id = #{id}
+              AND version_no = #{versionNo}
+              AND deleted = 0
+            """)
+    int updateEnabled(ProviderConfigDO record);
+
+    /**
      * 分页查询提供商配置，动态拼接筛选条件。
      */
     @Select("""
             <script>
             SELECT id, provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                   api_key_iv, api_version, timeout_seconds, priority, ext_config_json, version_no,
+                   api_key_iv, timeout_seconds, priority, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM provider_config
             WHERE deleted = 0
@@ -193,7 +204,7 @@ public interface ProviderConfigMapper {
      */
     @Select("""
             SELECT id, provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                   api_key_iv, api_version, timeout_seconds, priority, ext_config_json, version_no,
+                   api_key_iv, timeout_seconds, priority, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM provider_config
             WHERE enabled = 1

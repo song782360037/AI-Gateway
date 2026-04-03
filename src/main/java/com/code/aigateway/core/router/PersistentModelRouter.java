@@ -57,7 +57,6 @@ public class PersistentModelRouter implements ModelRouter {
                 .providerName(selected.getProviderCode())
                 .targetModel(selected.getTargetModel())
                 .providerBaseUrl(selected.getProviderBaseUrl())
-                .providerVersion(selected.getProviderVersion())
                 .providerTimeoutSeconds(selected.getProviderTimeoutSeconds())
                 .providerApiKey(selected.getProviderApiKey())
                 .build();
@@ -103,7 +102,6 @@ public class PersistentModelRouter implements ModelRouter {
                         .providerName(c.getProviderCode())
                         .targetModel(c.getTargetModel())
                         .providerBaseUrl(c.getProviderBaseUrl())
-                        .providerVersion(c.getProviderVersion())
                         .providerTimeoutSeconds(c.getProviderTimeoutSeconds())
                         .providerApiKey(c.getProviderApiKey())
                         .build())

@@ -28,15 +28,9 @@ public class RouteCandidate {
     /** 提供商 API Key，运行时使用的是解密后的明文 */
     String providerApiKey;
 
-    /** 提供商版本号 */
-    String providerVersion;
-
     /** 提供商超时时间，单位秒 */
     Integer providerTimeoutSeconds;
 
-    /** 当前候选规则优先级 */
-    Integer priority;
-
-    /** 提供商配置优先级 */
+    /** 提供商配置优先级（路由排序唯一依据） */
     Integer providerPriority;
 }

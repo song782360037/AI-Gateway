@@ -52,9 +52,6 @@ class ModelRedirectConfigControllerTest {
         req.setProviderCode("openai-main");
         req.setTargetModel("gpt-4o-2024-08-06");
         req.setEnabled(true);
-        req.setPriority(10);
-        req.setRouteStrategy("PRIORITY");
-        req.setWeight(100);
 
         Mockito.when(modelRedirectConfigService.add(Mockito.any(ModelRedirectConfigAddReq.class)))
                 .thenReturn(1L);
@@ -136,9 +133,6 @@ class ModelRedirectConfigControllerTest {
         rsp.setProviderCode("openai-main");
         rsp.setTargetModel("gpt-4o-2024-08-06");
         rsp.setEnabled(true);
-        rsp.setPriority(10);
-        rsp.setRouteStrategy("PRIORITY");
-        rsp.setWeight(100);
         rsp.setVersionNo(1L);
         rsp.setCreateTime(LocalDateTime.of(2026, 1, 1, 0, 0));
 
@@ -176,6 +170,9 @@ class ModelRedirectConfigControllerTest {
                 .thenReturn(pageResult);
 
         ModelRedirectConfigQueryReq queryReq = new ModelRedirectConfigQueryReq();
+
+        queryReq.setPage(1);
+        queryReq.setPageSize(20);
 
         webTestClient.post()
                 .uri("/admin/model-redirect-config/list")

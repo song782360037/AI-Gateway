@@ -101,14 +101,11 @@ public class RuntimeConfigRefreshService {
                                     Collectors.toList())
                     ));
 
-            // 6. 对每个 alias 的候选列表按规则优先级和 provider 优先级倒序排序。
+            // 6. 对每个 alias 的候选列表按 provider 优先级降序排序。
             aliasRouteMap.replaceAll((aliasName, candidates) -> candidates.stream()
                     .sorted(Comparator
-                            // 优先级数值越大越优先，空值按 0 处理，避免 null 参与比较导致排序不稳定。
-                            .comparing((RouteCandidate candidate) -> candidate.getPriority() == null ? 0 : candidate.getPriority(),
-                                    Comparator.reverseOrder())
-                            // 当路由优先级相同时，再按 provider 优先级降序选择。
-                            .thenComparing((RouteCandidate candidate) ->
+                            // 仅按 provider 优先级排序，数值越大越优先，空值按 0 处理
+                            .comparing((RouteCandidate candidate) ->
                                             candidate.getProviderPriority() == null ? 0 : candidate.getProviderPriority(),
                                     Comparator.reverseOrder()))
                     .toList());
@@ -153,7 +150,6 @@ public class RuntimeConfigRefreshService {
                 Boolean.TRUE.equals(providerConfig.getEnabled()),
                 providerConfig.getBaseUrl(),
                 apiKey,
-                providerConfig.getApiVersion(),
                 providerConfig.getTimeoutSeconds() == null ? 60 : providerConfig.getTimeoutSeconds(),
                 providerConfig.getPriority() == null ? 0 : providerConfig.getPriority()
         );
@@ -170,9 +166,7 @@ public class RuntimeConfigRefreshService {
                 .targetModel(redirectConfig.getTargetModel())
                 .providerBaseUrl(providerEntry.baseUrl())
                 .providerApiKey(providerEntry.apiKey())
-                .providerVersion(providerEntry.apiVersion())
                 .providerTimeoutSeconds(providerEntry.timeoutSeconds())
-                .priority(redirectConfig.getPriority() == null ? 0 : redirectConfig.getPriority())
                 .providerPriority(providerEntry.priority())
                 .build();
     }

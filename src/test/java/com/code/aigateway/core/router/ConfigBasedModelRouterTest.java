@@ -24,7 +24,6 @@ class ConfigBasedModelRouterTest {
         assertEquals("openai", routeResult.getProviderName());
         assertEquals("gpt-5.4", routeResult.getTargetModel());
         assertEquals("https://api.openai.com", routeResult.getProviderBaseUrl());
-        assertEquals("v1", routeResult.getProviderVersion());
         assertEquals(30, routeResult.getProviderTimeoutSeconds());
     }
 
@@ -57,7 +56,6 @@ class ConfigBasedModelRouterTest {
         GatewayProperties.ProviderProperties providerProperties = new GatewayProperties.ProviderProperties();
         providerProperties.setEnabled(true);
         providerProperties.setBaseUrl("https://api.openai.com");
-        providerProperties.setVersion("v1");
         providerProperties.setTimeoutSeconds(30);
         gatewayProperties.setProviders(Map.of(
                 "openai", providerProperties,

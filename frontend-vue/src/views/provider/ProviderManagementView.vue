@@ -97,9 +97,12 @@
         </el-table-column>
         <el-table-column prop="priority" label="优先级" min-width="80" />
         <el-table-column prop="apiKeyMasked" label="密钥摘要" min-width="120" />
-        <el-table-column label="操作" fixed="right" width="140">
+        <el-table-column label="操作" fixed="right" width="180">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openEditProvider(row)">编辑</el-button>
+            <el-button link :type="row.enabled ? 'warning' : 'success'" size="small" @click="handleToggleProvider(row)">
+              {{ row.enabled ? '禁用' : '启用' }}
+            </el-button>
             <el-button link type="danger" size="small" @click="removeProvider(row.id)">删除</el-button>
           </template>
         </el-table-column>
@@ -168,7 +171,7 @@ import ConsoleLayout from '../../layout/ConsoleLayout.vue'
 import ProviderFormDialog from '../../components/provider/ProviderFormDialog.vue'
 import ProviderRedirectExpandRow from '../../components/provider/ProviderRedirectExpandRow.vue'
 import ModelRedirectFormDialog from '../../components/model/ModelRedirectFormDialog.vue'
-import { addProvider, deleteProvider, fetchProviderPage, updateProvider } from '../../api/provider-config'
+import { addProvider, deleteProvider, fetchProviderPage, toggleProvider, updateProvider } from '../../api/provider-config'
 import {
   addModelRedirect,
   deleteModelRedirect,
@@ -318,6 +321,22 @@ async function removeProvider(id: number) {
     await ElMessageBox.confirm('删除后将不可恢复，是否继续？', '删除提供商', { type: 'warning' })
     await deleteProvider(id)
     ElMessage.success('提供商删除成功')
+    await loadProviders()
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+  }
+}
+
+async function handleToggleProvider(item: ProviderConfigRsp) {
+  const action = item.enabled ? '禁用' : '启用'
+  try {
+    await ElMessageBox.confirm(
+      `确定要${action}提供商「${item.displayName || item.providerCode}」吗？`,
+      `${action}提供商`,
+      { type: 'warning' },
+    )
+    await toggleProvider(item.id, item.versionNo)
+    ElMessage.success(`提供商已${action}`)
     await loadProviders()
   } catch (error) {
     if (error === 'cancel' || error === 'close') return

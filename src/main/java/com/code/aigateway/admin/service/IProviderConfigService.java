@@ -27,6 +27,11 @@ public interface IProviderConfigService {
     void delete(Long id);
 
     /**
+     * 切换提供商配置启用/禁用状态
+     */
+    void toggle(Long id, Long versionNo);
+
+    /**
      * 查询提供商配置详情
      */
     ProviderConfigRsp getById(Long id);

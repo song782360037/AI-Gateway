@@ -114,7 +114,6 @@ public final class RoutingConfigSnapshot {
             boolean enabled,
             String baseUrl,
             String apiKey,
-            String apiVersion,
             int timeoutSeconds,
             int priority
     ) {

@@ -27,21 +27,6 @@ public class ModelRedirectConfigRsp {
     /** 是否启用 */
     private Boolean enabled;
 
-    /** 路由优先级，数值越大优先级越高 */
-    private Integer priority;
-
-    /** 路由策略，例如 PRIORITY、WEIGHT */
-    private String routeStrategy;
-
-    /** 路由权重 */
-    private Integer weight;
-
-    /** 匹配条件 JSON */
-    private String matchConditionJson;
-
-    /** 扩展配置 JSON */
-    private String extConfigJson;
-
     /** 乐观锁版本号 */
     private Long versionNo;
 

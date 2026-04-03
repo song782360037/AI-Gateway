@@ -14,14 +14,13 @@ import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 
 /**
  * ProviderConfigServiceImpl 单元测试
  *
- * <p>核心场景：extConfigJson 空白字符串不应写入 MySQL JSON 列。</p>
+ * <p>核心场景：新增 Provider 时各字段正确写入数据库。</p>
  */
 class ProviderConfigServiceImplTest {
 
@@ -48,7 +47,7 @@ class ProviderConfigServiceImplTest {
     }
 
     @Test
-    void add_extConfigJsonBlank_shouldStoreNull() {
+    void add_success_shouldStoreAllFields() {
         ProviderConfigAddReq req = new ProviderConfigAddReq();
         req.setProviderCode("openai-test1");
         req.setProviderType("OPENAI");
@@ -57,46 +56,25 @@ class ProviderConfigServiceImplTest {
         req.setBaseUrl("http://localhost:11434");
         req.setApiKey("sk-test-key");
         req.setTimeoutSeconds(30);
-        req.setPriority(0);
-        req.setExtConfigJson("");
+        req.setPriority(10);
 
         Mockito.when(providerConfigMapper.existsByProviderCode("openai-test1")).thenReturn(0);
         Mockito.when(providerConfigMapper.insert(any())).thenReturn(1);
         Mockito.when(apiKeyEncryptor.encrypt("sk-test-key"))
-                .thenReturn(new ApiKeyEncryptor.EncryptResult("cipher", "iv"));
+                .thenReturn(new ApiKeyEncryptor.EncryptResult("mock-iv", "mock-cipher"));
         Mockito.when(runtimeConfigRefreshService.reloadFromDb(any())).thenReturn(true);
 
         service.add(req);
 
-        // 捕获写入数据库的 DO 对象，验证 extConfigJson 被归一化为 null
+        // 捕获写入数据库的 DO 对象，验证关键字段正确写入
         ArgumentCaptor<ProviderConfigDO> captor = ArgumentCaptor.forClass(ProviderConfigDO.class);
         verify(providerConfigMapper).insert(captor.capture());
-        assertNull(captor.getValue().getExtConfigJson());
-    }
-
-    @Test
-    void add_extConfigJsonValid_shouldStoreAsIs() {
-        ProviderConfigAddReq req = new ProviderConfigAddReq();
-        req.setProviderCode("openai-test2");
-        req.setProviderType("OPENAI");
-        req.setDisplayName("测试通道");
-        req.setEnabled(true);
-        req.setBaseUrl("http://localhost:11434");
-        req.setApiKey("sk-test-key");
-        req.setTimeoutSeconds(30);
-        req.setPriority(0);
-        req.setExtConfigJson("{\"region\":\"us-east-1\"}");
-
-        Mockito.when(providerConfigMapper.existsByProviderCode("openai-test2")).thenReturn(0);
-        Mockito.when(providerConfigMapper.insert(any())).thenReturn(1);
-        Mockito.when(apiKeyEncryptor.encrypt("sk-test-key"))
-                .thenReturn(new ApiKeyEncryptor.EncryptResult("cipher", "iv"));
-        Mockito.when(runtimeConfigRefreshService.reloadFromDb(any())).thenReturn(true);
-
-        service.add(req);
-
-        ArgumentCaptor<ProviderConfigDO> captor = ArgumentCaptor.forClass(ProviderConfigDO.class);
-        verify(providerConfigMapper).insert(captor.capture());
-        assertEquals("{\"region\":\"us-east-1\"}", captor.getValue().getExtConfigJson());
+        ProviderConfigDO inserted = captor.getValue();
+        assertEquals("openai-test1", inserted.getProviderCode());
+        assertEquals("OPENAI", inserted.getProviderType());
+        assertEquals("http://localhost:11434", inserted.getBaseUrl());
+        assertEquals(10, inserted.getPriority());
+        assertEquals("mock-iv", inserted.getApiKeyIv());
+        assertEquals("mock-cipher", inserted.getApiKeyCiphertext());
     }
 }

@@ -97,7 +97,6 @@ public class ConfigBasedModelRouter implements ModelRouter {
                 .targetModel(alias.getModel())
                 .providerBaseUrl(providerProperties.getBaseUrl())
                 .providerApiKey(providerProperties.getApiKey())
-                .providerVersion(providerProperties.getVersion())
                 .providerTimeoutSeconds(providerProperties.getTimeoutSeconds())
                 .build();
     }

@@ -200,11 +200,6 @@ public class ModelRedirectConfigServiceImpl implements IModelRedirectConfigServi
         record.setProviderCode(req.getProviderCode());
         record.setTargetModel(req.getTargetModel());
         record.setEnabled(req.getEnabled());
-        record.setPriority(req.getPriority());
-        record.setRouteStrategy(req.getRouteStrategy());
-        record.setWeight(req.getWeight());
-        record.setMatchConditionJson(normalizeToJson(req.getMatchConditionJson()));
-        record.setExtConfigJson(normalizeToJson(req.getExtConfigJson()));
         record.setDeleted(false);
         record.setCreateTime(LocalDateTime.now());
         record.setUpdateTime(LocalDateTime.now());
@@ -219,25 +214,8 @@ public class ModelRedirectConfigServiceImpl implements IModelRedirectConfigServi
         record.setProviderCode(req.getProviderCode());
         record.setTargetModel(req.getTargetModel());
         record.setEnabled(req.getEnabled());
-        record.setPriority(req.getPriority());
-        record.setRouteStrategy(req.getRouteStrategy());
-        record.setWeight(req.getWeight());
-        record.setMatchConditionJson(normalizeToJson(req.getMatchConditionJson()));
-        record.setExtConfigJson(normalizeToJson(req.getExtConfigJson()));
         record.setUpdateTime(LocalDateTime.now());
         return record;
-    }
-
-    /**
-     * 将 JSON 列字段归一化：空白字符串 → null。
-     *
-     * <p>MySQL JSON 列不接受空字符串，只接受合法 JSON 或 NULL。</p>
-     */
-    private String normalizeToJson(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return value;
     }
 
     private ModelRedirectConfigRsp toRsp(ModelRedirectConfigDO record) {
@@ -247,11 +225,6 @@ public class ModelRedirectConfigServiceImpl implements IModelRedirectConfigServi
         rsp.setProviderCode(record.getProviderCode());
         rsp.setTargetModel(record.getTargetModel());
         rsp.setEnabled(record.getEnabled());
-        rsp.setPriority(record.getPriority());
-        rsp.setRouteStrategy(record.getRouteStrategy());
-        rsp.setWeight(record.getWeight());
-        rsp.setMatchConditionJson(record.getMatchConditionJson());
-        rsp.setExtConfigJson(record.getExtConfigJson());
         rsp.setVersionNo(record.getVersionNo());
         rsp.setCreateTime(record.getCreateTime());
         rsp.setUpdateTime(record.getUpdateTime());
