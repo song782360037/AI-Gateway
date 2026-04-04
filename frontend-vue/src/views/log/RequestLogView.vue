@@ -58,15 +58,6 @@
             style="width: 150px"
           />
         </el-form-item>
-        <el-form-item label="请求ID">
-          <el-input
-            v-model="query.requestId"
-            placeholder="精确匹配"
-            clearable
-            size="default"
-            style="width: 200px"
-          />
-        </el-form-item>
         <el-form-item>
           <el-button type="primary" size="default" @click="search">查询</el-button>
           <el-button size="default" @click="resetQuery">重置</el-button>
@@ -75,11 +66,13 @@
 
       <!-- 数据表格 -->
       <el-table v-loading="loading" :data="page.list" stripe element-loading-text="正在加载...">
-        <el-table-column prop="requestId" label="请求ID" min-width="120" show-overflow-tooltip />
+        <el-table-column label="请求时间" min-width="170">
+          <template #default="{ row }">{{ formatTime(row.createTime) }}</template>
+        </el-table-column>
         <el-table-column prop="aliasModel" label="模型别名" min-width="140" show-overflow-tooltip />
         <el-table-column prop="targetModel" label="目标模型" min-width="140" show-overflow-tooltip />
         <el-table-column prop="providerCode" label="通道" min-width="100" show-overflow-tooltip />
-        <el-table-column label="协议" min-width="130">
+        <el-table-column label="协议" min-width="80">
           <template #default="{ row }">
             <el-tag size="small" :type="providerTagType(row.providerType)">
               {{ providerLabel(row.providerType) }}
@@ -92,7 +85,7 @@
             <el-tag v-else type="info" size="small">否</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="Token 用量" min-width="180">
+        <el-table-column label="Token 用量" min-width="160">
           <template #default="{ row }">
             <span v-if="row.totalTokens != null" class="token-usage">
               <span class="token-total">{{ row.totalTokens.toLocaleString() }}</span>
@@ -109,33 +102,30 @@
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
-        <el-table-column label="状态" min-width="80" align="center">
+        <el-table-column label="状态" min-width="70" align="center">
           <template #default="{ row }">
             <el-tag :type="row.status === 'SUCCESS' ? 'success' : 'danger'" size="small">
               {{ row.status === 'SUCCESS' ? '成功' : '失败' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="errorCode" label="错误码" min-width="110" show-overflow-tooltip>
+        <el-table-column prop="errorCode" label="错误码" min-width="100" show-overflow-tooltip>
           <template #default="{ row }">
             <span v-if="row.errorCode">{{ row.errorCode }}</span>
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="errorMessage" label="错误详情" min-width="200" show-overflow-tooltip>
+        <el-table-column prop="errorMessage" label="错误详情" min-width="150" show-overflow-tooltip>
           <template #default="{ row }">
             <span v-if="row.errorMessage" class="error-detail">{{ row.errorMessage }}</span>
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="sourceIp" label="来源 IP" min-width="120" show-overflow-tooltip>
+        <el-table-column prop="sourceIp" label="来源 IP" min-width="100" show-overflow-tooltip>
           <template #default="{ row }">
             <span v-if="row.sourceIp">{{ row.sourceIp }}</span>
             <span v-else class="text-muted">-</span>
           </template>
-        </el-table-column>
-        <el-table-column label="请求时间" min-width="170">
-          <template #default="{ row }">{{ formatTime(row.createTime) }}</template>
         </el-table-column>
 
         <template #empty>
