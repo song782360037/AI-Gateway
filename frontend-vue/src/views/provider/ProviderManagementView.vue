@@ -59,6 +59,7 @@
 
       <!-- Provider 主表 + 展开行 -->
       <el-table
+        ref="providerTableRef"
         v-loading="providerLoading"
         :data="providerPage.list"
         stripe
@@ -66,6 +67,13 @@
         element-loading-text="正在加载..."
         @expand-change="handleExpandChange"
       >
+        <!-- 拖拽排序手柄列 -->
+        <el-table-column width="40" align="center" class-name="drag-handle-col">
+          <template #default>
+            <el-icon class="drag-handle"><Rank /></el-icon>
+          </template>
+        </el-table-column>
+
         <!-- 展开列：路由规则 -->
         <el-table-column type="expand">
           <template #default="{ row }">
@@ -164,14 +172,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, RefreshRight } from '@element-plus/icons-vue'
+import { Plus, RefreshRight, Rank } from '@element-plus/icons-vue'
+import Sortable from 'sortablejs'
 import ConsoleLayout from '../../layout/ConsoleLayout.vue'
 import ProviderFormDialog from '../../components/provider/ProviderFormDialog.vue'
 import ProviderRedirectExpandRow from '../../components/provider/ProviderRedirectExpandRow.vue'
 import ModelRedirectFormDialog from '../../components/model/ModelRedirectFormDialog.vue'
-import { addProvider, deleteProvider, fetchProviderPage, toggleProvider, updateProvider } from '../../api/provider-config'
+import { addProvider, batchUpdatePriority, deleteProvider, fetchProviderPage, toggleProvider, updateProvider } from '../../api/provider-config'
 import {
   addModelRedirect,
   deleteModelRedirect,
@@ -228,6 +237,8 @@ async function loadProviders() {
     Object.assign(providerPage, { list: [], total: 0, page: providerQuery.page, pageSize: providerQuery.pageSize })
   } finally {
     providerLoading.value = false
+    // 数据加载后重新绑定拖拽（tbody DOM 可能在 loading 状态下被替换）
+    nextTick(() => initSortable())
   }
 }
 
@@ -426,4 +437,78 @@ async function removeRedirect(item: ModelRedirectConfigRsp) {
 /* ==================== 初始化 ==================== */
 
 onMounted(loadProviders)
+
+/* ==================== 拖拽排序 ==================== */
+
+const providerTableRef = ref<InstanceType<typeof import('element-plus')['ElTable']>>()
+let sortableInstance: Sortable | null = null
+
+/** 排序持久化中标记，防止重复提交 */
+const sortSaving = ref(false)
+
+/** 初始化 SortableJS 拖拽排序 */
+function initSortable() {
+  const table = providerTableRef.value
+  if (!table) return
+
+  // 获取 el-table 的 tbody DOM 节点
+  const el = table.$el as HTMLElement
+  const tbody = el.querySelector('.el-table__body-wrapper tbody') as HTMLElement
+  if (!tbody) return
+
+  // 销毁旧实例，防止重复绑定
+  sortableInstance?.destroy()
+
+  sortableInstance = Sortable.create(tbody, {
+    handle: '.drag-handle',
+    // 只允许数据行参与拖拽，排除展开内容行
+    draggable: '.el-table__row',
+    animation: 200,
+    ghostClass: 'sortable-ghost',
+    chosenClass: 'sortable-chosen',
+    dragClass: 'sortable-drag',
+    onEnd: async (evt) => {
+      const { oldIndex, newIndex } = evt
+      // 未发生位置变化或正在保存中时跳过
+      if (oldIndex === undefined || newIndex === undefined || oldIndex === newIndex) return
+      if (sortSaving.value) return
+
+      const list = [...providerPage.list]
+      const [moved] = list.splice(oldIndex, 1)
+      list.splice(newIndex, 0, moved)
+
+      // 基于当前页首个元素的 priority 做偏移，避免跨页优先级冲突
+      // 后端按 priority DESC 排序，当前页首条 priority 最高
+      const maxPriority = providerPage.list[0]?.priority ?? list.length
+      const priorityItems = list.map((item, idx) => ({
+        id: item.id,
+        versionNo: item.versionNo,
+        priority: maxPriority - idx,
+      }))
+
+      // 先乐观更新本地列表顺序
+      providerPage.list.splice(0, providerPage.list.length, ...list)
+
+      // 异步持久化到后端
+      sortSaving.value = true
+      try {
+        await batchUpdatePriority(priorityItems)
+        // 成功后刷新列表以获取最新 versionNo
+        await loadProviders()
+        ElMessage.success('优先级排序已更新')
+      } catch {
+        // 持久化失败时回滚到服务器状态
+        await loadProviders()
+      } finally {
+        sortSaving.value = false
+      }
+    },
+  })
+}
+
+// 组件卸载时清理 Sortable 实例
+onUnmounted(() => {
+  sortableInstance?.destroy()
+  sortableInstance = null
+})
 </script>

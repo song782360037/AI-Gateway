@@ -26,3 +26,14 @@ export function deleteProvider(id: number) {
 export function toggleProvider(id: number, versionNo: number) {
   return request.post<never, void>('/admin/provider-config/toggle', { id, versionNo })
 }
+
+/** 批量更新优先级的单项参数 */
+export interface PriorityUpdateItem {
+  id: number
+  versionNo: number
+  priority: number
+}
+
+export function batchUpdatePriority(items: PriorityUpdateItem[]) {
+  return request.post<never, void>('/admin/provider-config/batch-update-priority', { items })
+}

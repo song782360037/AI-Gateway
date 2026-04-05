@@ -172,6 +172,34 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         return PageResult.of(rspList, total, req.getPage(), req.getPageSize());
     }
 
+    @Override
+    public void batchUpdatePriority(List<ProviderPriorityItem> items) {
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        transactionTemplate.executeWithoutResult(status -> {
+            for (ProviderPriorityItem item : items) {
+                ProviderConfigDO record = new ProviderConfigDO();
+                record.setId(item.id());
+                record.setVersionNo(item.versionNo());
+                record.setPriority(item.priority());
+                record.setUpdater("");
+                record.setUpdateTime(now);
+
+                int rows = providerConfigMapper.updatePriority(record);
+                if (rows <= 0) {
+                    throw new BizException("CONFIG_CONCURRENT_MODIFIED",
+                            "数据已被其他请求修改，请刷新后重试，id: " + item.id());
+                }
+            }
+            log.info("[提供商配置] 批量更新优先级成功，共 {} 条", items.size());
+        });
+
+        ensureRuntimeConfigReloaded("admin-batch-update-priority");
+    }
+
     // ==================== 内部方法 ====================
 
     /**

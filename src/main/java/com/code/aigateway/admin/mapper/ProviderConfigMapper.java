@@ -200,6 +200,21 @@ public interface ProviderConfigMapper {
     int existsEnabledRedirectByProviderCode(@Param("providerCode") String providerCode);
 
     /**
+     * 仅更新优先级（乐观锁），用于拖拽排序后批量持久化新顺序。
+     */
+    @Update("""
+            UPDATE provider_config
+            SET priority = #{priority},
+                version_no = version_no + 1,
+                updater = #{updater},
+                update_time = #{updateTime}
+            WHERE id = #{id}
+              AND version_no = #{versionNo}
+              AND deleted = 0
+            """)
+    int updatePriority(ProviderConfigDO record);
+
+    /**
      * 查询全部启用中的提供商配置，供系统启动时预热缓存或客户端使用。
      */
     @Select("""

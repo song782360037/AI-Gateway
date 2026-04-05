@@ -601,7 +601,7 @@ class OpenAiProviderClientTest {
                         .minimumNumberOfCalls(9999)
                         .build());
         CircuitBreakerManager cbManager = Mockito.mock(CircuitBreakerManager.class);
-        Mockito.when(cbManager.getOrCreate(Mockito.anyString())).thenReturn(noopCb);
+        Mockito.when(cbManager.getOrCreate(Mockito.anyString(), Mockito.anyString())).thenReturn(noopCb);
         return cbManager;
     }
 

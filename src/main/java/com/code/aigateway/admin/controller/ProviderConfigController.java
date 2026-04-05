@@ -5,9 +5,13 @@ import com.code.aigateway.admin.model.req.ProviderConfigQueryReq;
 import com.code.aigateway.admin.model.req.ProviderConfigUpdateReq;
 import com.code.aigateway.admin.model.rsp.ProviderConfigRsp;
 import com.code.aigateway.admin.service.IProviderConfigService;
+import com.code.aigateway.admin.service.IProviderConfigService.ProviderPriorityItem;
 import com.code.aigateway.common.result.PageResult;
 import com.code.aigateway.common.result.R;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +24,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+
+import java.util.List;
 
 /**
  * 提供商配置管理接口
@@ -114,6 +120,21 @@ public class ProviderConfigController {
     }
 
     /**
+     * 批量更新提供商优先级（拖拽排序）
+     *
+     * @param req 包含 items 列表的请求，每项含 id、versionNo、priority
+     */
+    @PostMapping("/batch-update-priority")
+    public Mono<R<Void>> batchUpdatePriority(@Valid @RequestBody BatchPriorityReq req) {
+        List<ProviderPriorityItem> items = req.getItems().stream()
+                .map(item -> new ProviderPriorityItem(item.getId(), item.getVersionNo(), item.getPriority()))
+                .toList();
+        return Mono.fromRunnable(() -> providerConfigService.batchUpdatePriority(items))
+                .subscribeOn(Schedulers.boundedElastic())
+                .thenReturn(R.ok());
+    }
+
+    /**
      * 提供商配置状态切换请求参数
      */
     @Data
@@ -123,5 +144,29 @@ public class ProviderConfigController {
 
         @NotNull(message = "版本号不能为空")
         private Long versionNo;
+    }
+
+    /**
+     * 批量更新优先级请求参数
+     */
+    @Data
+    static class BatchPriorityReq {
+        @NotEmpty(message = "优先级列表不能为空")
+        @Valid
+        private List<PriorityItem> items;
+    }
+
+    @Data
+    static class PriorityItem {
+        @NotNull(message = "ID 不能为空")
+        private Long id;
+
+        @NotNull(message = "版本号不能为空")
+        private Long versionNo;
+
+        @NotNull(message = "优先级不能为空")
+        @Min(value = 0, message = "优先级不能为负数")
+        @Max(value = 9999, message = "优先级超出允许范围")
+        private Integer priority;
     }
 }

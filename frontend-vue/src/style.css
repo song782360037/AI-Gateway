@@ -845,6 +845,59 @@ a {
   background-color: #fafcff !important;
 }
 
+/* ==================== 拖拽排序 ==================== */
+
+/* 拖拽手柄列 — 窄列无右间距 */
+.drag-handle-col .cell {
+  padding: 0 !important;
+  text-align: center;
+}
+
+/* 拖拽手柄图标 */
+.drag-handle {
+  cursor: grab;
+  color: var(--text-placeholder);
+  font-size: 16px;
+  transition: color var(--transition-fast);
+}
+
+.drag-handle:hover {
+  color: var(--color-primary);
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+/* SortableJS 拖拽状态样式 */
+.sortable-ghost {
+  opacity: 0.4;
+  background: var(--el-color-primary-light-9) !important;
+}
+
+.sortable-ghost td {
+  background: var(--el-color-primary-light-9) !important;
+}
+
+.sortable-chosen {
+  background: #f8faff !important;
+}
+
+.sortable-chosen td {
+  background: #f8faff !important;
+}
+
+.sortable-drag {
+  opacity: 0.9;
+  box-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.15);
+  border-radius: var(--radius-md);
+  background: var(--bg-card) !important;
+}
+
+.sortable-drag td {
+  background: var(--bg-card) !important;
+}
+
 /* ==================== 响应式 ==================== */
 @media (max-width: 768px) {
   .admin-layout {
