@@ -71,6 +71,22 @@
           <el-switch v-model="form.enabled" inline-prompt active-text="开" inactive-text="关" />
         </div>
       </section>
+
+      <!-- 支持协议 -->
+      <section class="dialog-section">
+        <div class="dialog-section__head">
+          <h4>支持协议</h4>
+          <p>选择该提供商支持的下游请求协议。不勾选表示支持所有协议。</p>
+        </div>
+        <el-checkbox-group v-model="form.supportedProtocols">
+          <el-checkbox
+            v-for="item in protocolOptions"
+            :key="item.value"
+            :value="item.value"
+            :label="item.label"
+          />
+        </el-checkbox-group>
+      </section>
     </el-form>
 
     <template #footer>
@@ -99,6 +115,7 @@ interface ProviderFormModel {
   apiKey: string
   timeoutSeconds: number
   priority: number
+  supportedProtocols: string[]
 }
 
 const providerTypeOptions = [
@@ -106,6 +123,14 @@ const providerTypeOptions = [
   { value: 'OPENAI_RESPONSES', label: 'OpenAI Responses API' },
   { value: 'ANTHROPIC', label: 'Anthropic (Claude)' },
   { value: 'GEMINI', label: 'Google Gemini' },
+] as const
+
+/** 下游协议选项 */
+const protocolOptions = [
+  { value: 'OPENAI_CHAT', label: 'OpenAI Chat' },
+  { value: 'OPENAI_RESPONSES', label: 'OpenAI Responses' },
+  { value: 'ANTHROPIC', label: 'Anthropic' },
+  { value: 'GEMINI', label: 'Gemini' },
 ] as const
 
 const props = defineProps<{
@@ -157,6 +182,7 @@ function buildFormState(value?: ProviderConfigRsp | null): ProviderFormModel {
     apiKey: '',
     timeoutSeconds: value.timeoutSeconds,
     priority: value.priority,
+    supportedProtocols: value.supportedProtocols ?? [],
   }
 }
 
@@ -170,6 +196,7 @@ function createEmptyForm(): ProviderFormModel {
     apiKey: '',
     timeoutSeconds: 60,
     priority: 0,
+    supportedProtocols: [],
   }
 }
 
@@ -200,6 +227,7 @@ async function submit() {
     apiKey: form.apiKey,
     timeoutSeconds: form.timeoutSeconds,
     priority: form.priority,
+    supportedProtocols: form.supportedProtocols,
   }
 
   emit('submit', isEdit.value ? { ...basePayload, id: form.id, versionNo: form.versionNo } : basePayload)

@@ -130,7 +130,8 @@ public final class RoutingConfigSnapshot {
             String baseUrl,
             String apiKey,
             int timeoutSeconds,
-            int priority
+            int priority,
+            List<String> supportedProtocols
     ) {
     }
 }

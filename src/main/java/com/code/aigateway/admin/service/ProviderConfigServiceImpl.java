@@ -8,6 +8,7 @@ import com.code.aigateway.admin.model.req.ProviderConfigUpdateReq;
 import com.code.aigateway.admin.model.rsp.ProviderConfigRsp;
 import com.code.aigateway.common.exception.BizException;
 import com.code.aigateway.common.result.PageResult;
+import com.code.aigateway.core.model.ResponseProtocol;
 import com.code.aigateway.infra.crypto.ApiKeyEncryptor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,7 +16,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * 提供商配置管理服务实现
@@ -226,6 +229,7 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         record.setApiKeyIv(encryptResult.iv());
         record.setTimeoutSeconds(req.getTimeoutSeconds());
         record.setPriority(req.getPriority());
+        record.setSupportedProtocols(toCommaSeparated(req.getSupportedProtocols()));
         record.setDeleted(false);
         record.setCreateTime(LocalDateTime.now());
         record.setUpdateTime(LocalDateTime.now());
@@ -243,6 +247,7 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         record.setBaseUrl(req.getBaseUrl());
         record.setTimeoutSeconds(req.getTimeoutSeconds());
         record.setPriority(req.getPriority());
+        record.setSupportedProtocols(toCommaSeparated(req.getSupportedProtocols()));
         record.setUpdateTime(LocalDateTime.now());
         return record;
     }
@@ -262,6 +267,7 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         rsp.setBaseUrl(record.getBaseUrl());
         rsp.setTimeoutSeconds(record.getTimeoutSeconds());
         rsp.setPriority(record.getPriority());
+        rsp.setSupportedProtocols(toProtocolList(record.getSupportedProtocols()));
         rsp.setVersionNo(record.getVersionNo());
         rsp.setCreateTime(record.getCreateTime());
         rsp.setUpdateTime(record.getUpdateTime());
@@ -275,5 +281,37 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
             rsp.setApiKeyMasked("****");
         }
         return rsp;
+    }
+
+    /**
+     * 将协议列表转换为逗号分隔字符串，同时校验每个协议值是否合法。
+     * <p>空列表或 null → null（表示支持所有协议）</p>
+     *
+     * @throws BizException 如果包含非法的协议名称
+     */
+    private String toCommaSeparated(List<String> protocols) {
+        if (protocols == null || protocols.isEmpty()) {
+            return null;
+        }
+        // 校验协议值是否为 ResponseProtocol 枚举成员
+        List<String> invalid = protocols.stream()
+                .filter(p -> !ResponseProtocol.isValid(p))
+                .toList();
+        if (!invalid.isEmpty()) {
+            String validNames = Arrays.stream(ResponseProtocol.values())
+                    .map(Enum::name)
+                    .collect(Collectors.joining(", "));
+            throw new BizException("INVALID_PROTOCOL",
+                    "不支持的协议类型: " + invalid + "，合法值: " + validNames);
+        }
+        return String.join(",", protocols);
+    }
+
+    /**
+     * 将逗号分隔的协议字符串转换为列表。
+     * <p>null 或空串 → 空列表（表示支持所有协议）</p>
+     */
+    private List<String> toProtocolList(String commaSeparated) {
+        return ResponseProtocol.parseCommaSeparated(commaSeparated);
     }
 }

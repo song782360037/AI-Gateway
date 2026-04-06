@@ -61,6 +61,11 @@ public class ProviderConfigDO {
     private Integer priority;
 
     /**
+     * 支持的下游协议（逗号分隔，如 OPENAI_CHAT,ANTHROPIC；NULL=全部支持）
+     */
+    private String supportedProtocols;
+
+    /**
      * 乐观锁版本号
      */
     private Long versionNo;

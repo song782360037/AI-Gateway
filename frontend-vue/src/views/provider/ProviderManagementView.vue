@@ -104,6 +104,22 @@
           </template>
         </el-table-column>
         <el-table-column prop="priority" label="优先级" min-width="80" />
+        <el-table-column label="支持协议" min-width="160">
+          <template #default="{ row }">
+            <template v-if="row.supportedProtocols && row.supportedProtocols.length > 0">
+              <el-tag
+                v-for="protocol in row.supportedProtocols"
+                :key="protocol"
+                size="small"
+                type="info"
+                style="margin: 2px"
+              >
+                {{ protocol }}
+              </el-tag>
+            </template>
+            <el-tag v-else size="small" type="success">全部</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="apiKeyMasked" label="密钥摘要" min-width="120" />
         <el-table-column label="操作" fixed="right" width="180">
           <template #default="{ row }">

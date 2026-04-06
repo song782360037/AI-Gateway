@@ -25,6 +25,7 @@ public interface ProviderConfigMapper {
             @Result(property = "apiKeyIv", column = "api_key_iv"),
             @Result(property = "timeoutSeconds", column = "timeout_seconds"),
             @Result(property = "priority", column = "priority"),
+            @Result(property = "supportedProtocols", column = "supported_protocols"),
             @Result(property = "versionNo", column = "version_no"),
             @Result(property = "creator", column = "creator"),
             @Result(property = "createTime", column = "create_time"),
@@ -34,7 +35,7 @@ public interface ProviderConfigMapper {
     })
     @Select("""
             SELECT id, provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                   api_key_iv, timeout_seconds, priority, version_no,
+                   api_key_iv, timeout_seconds, priority, supported_protocols, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM provider_config
             WHERE id = #{id}
@@ -47,7 +48,7 @@ public interface ProviderConfigMapper {
      */
     @Select("""
             SELECT id, provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                   api_key_iv, timeout_seconds, priority, version_no,
+                   api_key_iv, timeout_seconds, priority, supported_protocols, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM provider_config
             WHERE provider_code = #{providerCode}
@@ -63,11 +64,11 @@ public interface ProviderConfigMapper {
     @Insert("""
             INSERT INTO provider_config (
                 provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                api_key_iv, timeout_seconds, priority, version_no,
+                api_key_iv, timeout_seconds, priority, supported_protocols, version_no,
                 creator, create_time, updater, update_time, deleted
             ) VALUES (
                 #{providerCode}, #{providerType}, #{displayName}, #{enabled}, #{baseUrl}, #{apiKeyCiphertext},
-                #{apiKeyIv}, #{timeoutSeconds}, #{priority}, #{versionNo},
+                #{apiKeyIv}, #{timeoutSeconds}, #{priority}, #{supportedProtocols}, #{versionNo},
                 #{creator}, #{createTime}, #{updater}, #{updateTime}, #{deleted}
             )
             """)
@@ -88,6 +89,7 @@ public interface ProviderConfigMapper {
                 api_key_iv = #{apiKeyIv},
                 timeout_seconds = #{timeoutSeconds},
                 priority = #{priority},
+                supported_protocols = #{supportedProtocols},
                 version_no = #{versionNo} + 1,
                 updater = #{updater},
                 update_time = #{updateTime}
@@ -129,7 +131,7 @@ public interface ProviderConfigMapper {
     @Select("""
             <script>
             SELECT id, provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                   api_key_iv, timeout_seconds, priority, version_no,
+                   api_key_iv, timeout_seconds, priority, supported_protocols, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM provider_config
             WHERE deleted = 0
@@ -219,7 +221,7 @@ public interface ProviderConfigMapper {
      */
     @Select("""
             SELECT id, provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                   api_key_iv, timeout_seconds, priority, version_no,
+                   api_key_iv, timeout_seconds, priority, supported_protocols, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM provider_config
             WHERE enabled = 1

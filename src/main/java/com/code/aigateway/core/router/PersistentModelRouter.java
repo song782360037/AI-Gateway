@@ -52,13 +52,29 @@ public class PersistentModelRouter implements ModelRouter {
             } catch (GatewayException ex) {
                 // 仅当 YAML 也找不到模型别名时，才走透传分支
                 if (ex.getErrorCode() == ErrorCode.MODEL_NOT_FOUND) {
-                    return buildPassthroughCandidates(snapshot, request.getModel()).get(0);
+                    List<RouteResult> passthrough = buildPassthroughCandidates(snapshot, request.getModel(), request.getRequestProtocol());
+                    if (passthrough.isEmpty()) {
+                        throw new GatewayException(ErrorCode.PROVIDER_NOT_FOUND,
+                                "no providers support protocol " + request.getRequestProtocol() + " for model " + request.getModel());
+                    }
+                    return passthrough.get(0);
                 }
                 throw ex;
             }
         }
 
-        RouteCandidate selected = candidates.get(0);
+        // 按请求协议过滤候选，取第一个匹配的
+        String requestProtocol = request.getRequestProtocol();
+        RouteCandidate selected = candidates.stream()
+                .filter(c -> isProtocolSupported(c, requestProtocol))
+                .findFirst()
+                .orElse(null);
+
+        if (selected == null) {
+            throw new GatewayException(ErrorCode.PROVIDER_NOT_FOUND,
+                    "no providers support protocol " + requestProtocol + " for model " + request.getModel());
+        }
+
         ProviderType providerType = resolveProviderType(selected.getProviderType(), request.getModel());
 
         return RouteResult.builder()
@@ -108,13 +124,16 @@ public class PersistentModelRouter implements ModelRouter {
             } catch (GatewayException ex) {
                 // 仅当 YAML 也找不到模型别名时，才走透传分支
                 if (ex.getErrorCode() == ErrorCode.MODEL_NOT_FOUND) {
-                    return buildPassthroughCandidates(snapshot, request.getModel());
+                    return buildPassthroughCandidates(snapshot, request.getModel(), request.getRequestProtocol());
                 }
                 throw ex;
             }
         }
 
-        return candidates.stream()
+        // 按请求协议过滤候选
+        String requestProtocol = request.getRequestProtocol();
+        List<RouteResult> filtered = candidates.stream()
+                .filter(c -> isProtocolSupported(c, requestProtocol))
                 .map(c -> RouteResult.builder()
                         .providerType(resolveProviderType(c.getProviderType(), request.getModel()))
                         .providerName(c.getProviderCode())
@@ -124,21 +143,23 @@ public class PersistentModelRouter implements ModelRouter {
                         .providerApiKey(c.getProviderApiKey())
                         .build())
                 .toList();
+
+        if (filtered.isEmpty()) {
+            throw new GatewayException(ErrorCode.PROVIDER_NOT_FOUND,
+                    "no providers support protocol " + requestProtocol + " for model " + request.getModel());
+        }
+        return filtered;
     }
 
     /**
-     * 构建透传候选列表：使用快照中全部已启用的 Provider，targetModel 保持原始模型名。
-     * <p>
-     * 当请求模型在快照和 YAML 中均未命中路由规则时调用。
-     * 候选按 Provider 优先级降序排列，复用现有故障转移与熔断机制。
-     * </p>
-     *
-     * @param snapshot    当前路由配置快照
-     * @param originalModel 原始请求模型名
-     * @return 透传候选列表，按 Provider 优先级排序
+     * 构建透传候选列表：使用快照中全部已启用且支持当前请求协议的 Provider，
+     * targetModel 保持原始模型名。
      */
-    private List<RouteResult> buildPassthroughCandidates(RoutingConfigSnapshot snapshot, String originalModel) {
+    private List<RouteResult> buildPassthroughCandidates(RoutingConfigSnapshot snapshot,
+                                                          String originalModel,
+                                                          String requestProtocol) {
         List<RouteResult> passthroughCandidates = snapshot.getAllProvidersByPriority().stream()
+                .filter(entry -> isProviderProtocolSupported(entry, requestProtocol))
                 .map(entry -> RouteResult.builder()
                         .providerType(resolveProviderType(entry.providerType(), originalModel))
                         .providerName(entry.providerCode())
@@ -152,5 +173,28 @@ public class PersistentModelRouter implements ModelRouter {
         log.info("[持久化路由] 无路由规则，走透传分支，model: {}，候选数: {}",
                 originalModel, passthroughCandidates.size());
         return passthroughCandidates;
+    }
+
+    /**
+     * 判断候选路由是否支持当前请求协议。
+     * <p>supportedProtocols 为空时表示支持所有协议。</p>
+     */
+    private boolean isProtocolSupported(RouteCandidate candidate, String requestProtocol) {
+        if (requestProtocol == null) {
+            return true;
+        }
+        List<String> supported = candidate.getSupportedProtocols();
+        return supported == null || supported.isEmpty() || supported.contains(requestProtocol);
+    }
+
+    /**
+     * 判断 ProviderEntry 是否支持当前请求协议。
+     */
+    private boolean isProviderProtocolSupported(RoutingConfigSnapshot.ProviderEntry entry, String requestProtocol) {
+        if (requestProtocol == null) {
+            return true;
+        }
+        List<String> supported = entry.supportedProtocols();
+        return supported == null || supported.isEmpty() || supported.contains(requestProtocol);
     }
 }

@@ -3,6 +3,7 @@ package com.code.aigateway.admin.model.rsp;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 提供商配置响应对象
@@ -39,6 +40,9 @@ public class ProviderConfigRsp {
 
     /** 提供商优先级，数值越大优先级越高 */
     private Integer priority;
+
+    /** 支持的下游协议列表，空表示支持所有 */
+    private List<String> supportedProtocols;
 
     /** 乐观锁版本号 */
     private Long versionNo;

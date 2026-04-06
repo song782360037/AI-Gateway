@@ -4,6 +4,7 @@ import com.code.aigateway.admin.mapper.ModelRedirectConfigMapper;
 import com.code.aigateway.admin.mapper.ProviderConfigMapper;
 import com.code.aigateway.admin.model.dataobject.ModelRedirectConfigDO;
 import com.code.aigateway.admin.model.dataobject.ProviderConfigDO;
+import com.code.aigateway.core.model.ResponseProtocol;
 import com.code.aigateway.core.router.RouteCandidate;
 import com.code.aigateway.core.router.RoutingConfigSnapshot;
 import com.code.aigateway.core.runtime.RedisRoutingCacheService;
@@ -151,7 +152,8 @@ public class RuntimeConfigRefreshService {
                 providerConfig.getBaseUrl(),
                 apiKey,
                 providerConfig.getTimeoutSeconds() == null ? 60 : providerConfig.getTimeoutSeconds(),
-                providerConfig.getPriority() == null ? 0 : providerConfig.getPriority()
+                providerConfig.getPriority() == null ? 0 : providerConfig.getPriority(),
+                parseProtocols(providerConfig.getSupportedProtocols())
         );
     }
 
@@ -168,6 +170,7 @@ public class RuntimeConfigRefreshService {
                 .providerApiKey(providerEntry.apiKey())
                 .providerTimeoutSeconds(providerEntry.timeoutSeconds())
                 .providerPriority(providerEntry.priority())
+                .supportedProtocols(providerEntry.supportedProtocols())
                 .build();
     }
 
@@ -181,5 +184,13 @@ public class RuntimeConfigRefreshService {
         long now = System.currentTimeMillis();
         long sequence = versionSequence.updateAndGet(previous -> previous >= now ? previous + 1 : now);
         return Math.max(now, sequence);
+    }
+
+    /**
+     * 解析逗号分隔的协议字符串为列表。
+     * <p>null 或空白 → 空列表（语义为支持所有协议）</p>
+     */
+    private List<String> parseProtocols(String commaSeparated) {
+        return ResponseProtocol.parseCommaSeparated(commaSeparated);
     }
 }

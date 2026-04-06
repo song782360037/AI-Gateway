@@ -4,6 +4,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
+import java.util.List;
+
 /**
  * 更新提供商配置请求对象
  *
@@ -51,4 +53,10 @@ public class ProviderConfigUpdateReq {
 
     /** 提供商优先级，数值越大优先级越高 */
     private Integer priority = 0;
+
+    /**
+     * 支持的下游协议列表。
+     * <p>为空或 null 时表示支持所有协议。</p>
+     */
+    private List<String> supportedProtocols;
 }

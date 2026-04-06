@@ -3,6 +3,8 @@ package com.code.aigateway.core.router;
 import lombok.Builder;
 import lombok.Value;
 
+import java.util.List;
+
 /**
  * 路由候选规则
  *
@@ -33,4 +35,7 @@ public class RouteCandidate {
 
     /** 提供商配置优先级（路由排序唯一依据） */
     Integer providerPriority;
+
+    /** 提供商支持的下游协议列表，空表示支持所有 */
+    List<String> supportedProtocols;
 }

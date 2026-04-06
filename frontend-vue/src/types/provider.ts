@@ -15,6 +15,7 @@ export interface ProviderConfigAddReq {
   apiKey: string
   timeoutSeconds: number
   priority: number
+  supportedProtocols?: string[]
 }
 
 export interface ProviderConfigUpdateReq {
@@ -28,6 +29,7 @@ export interface ProviderConfigUpdateReq {
   apiKey?: string
   timeoutSeconds: number
   priority: number
+  supportedProtocols?: string[]
 }
 
 export interface ProviderConfigRsp {
@@ -40,6 +42,7 @@ export interface ProviderConfigRsp {
   apiKeyMasked?: string
   timeoutSeconds: number
   priority: number
+  supportedProtocols?: string[]
   versionNo: number
   createTime?: string
   updateTime?: string
