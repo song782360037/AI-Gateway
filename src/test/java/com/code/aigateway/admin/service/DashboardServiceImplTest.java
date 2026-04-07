@@ -28,30 +28,47 @@ class DashboardServiceImplTest {
     }
 
     @Test
-    void getOverview_whenAvgDurationIsNull_returnsZero() {
-        Mockito.when(dashboardCacheService.getOverview()).thenReturn(null);
-        Mockito.when(requestStatHourlyMapper.sumRequestCount(Mockito.any())).thenReturn(0L);
-        Mockito.when(requestStatHourlyMapper.sumTotalRequestCount()).thenReturn(0L);
-        Mockito.when(requestStatHourlyMapper.sumTotalTokens(Mockito.any())).thenReturn(0L);
-        Mockito.when(requestStatHourlyMapper.sumAllTotalTokens()).thenReturn(0L);
-        Mockito.when(requestStatHourlyMapper.sumEstimatedCost(Mockito.any())).thenReturn(BigDecimal.ZERO);
-        Mockito.when(requestStatHourlyMapper.sumAllEstimatedCost()).thenReturn(BigDecimal.ZERO);
-        // 模拟聚合表没有任何数据时，Mapper 返回 null。
-        Mockito.when(requestStatHourlyMapper.avgDurationMs(Mockito.any())).thenReturn(null);
-        Mockito.when(requestLogMapper.countLastMinute(Mockito.any())).thenReturn(0L);
-        Mockito.when(requestLogMapper.sumTokensLastMinute(Mockito.any())).thenReturn(0L);
+    void getOverview_whenNoData_returnsZero() {
+        // 缓存未命中
+        Mockito.when(dashboardCacheService.getOverview("today")).thenReturn(null);
 
-        DashboardOverviewRsp response = dashboardService.getOverview();
+        // 所有聚合查询返回 0
+        Mockito.when(requestStatHourlyMapper.sumRequestCount(Mockito.any())).thenReturn(0L);
+        Mockito.when(requestStatHourlyMapper.sumTotalTokens(Mockito.any())).thenReturn(0L);
+        Mockito.when(requestStatHourlyMapper.sumEstimatedCost(Mockito.any())).thenReturn(BigDecimal.ZERO);
+        Mockito.when(requestStatHourlyMapper.sumDurationMs(Mockito.any())).thenReturn(0L);
+
+        DashboardOverviewRsp response = dashboardService.getOverview("today");
 
         assertNotNull(response);
-        assertEquals(0D, response.getAvgResponseMs());
-        assertEquals(0D, response.getRequests().getToday());
-        assertEquals(0D, response.getRequests().getTotal());
-        assertEquals(0D, response.getTokens().getToday());
-        assertEquals(0D, response.getTokens().getTotal());
-        assertEquals(0D, response.getCost().getToday());
-        assertEquals(0D, response.getCost().getTotal());
-        assertEquals(0L, response.getRpm());
-        assertEquals(0L, response.getTpm());
+        // 当前周期和上一周期均为 0
+        assertEquals(0D, response.getRequests().getCurrent());
+        assertEquals(0D, response.getRequests().getPrevious());
+        assertEquals(0D, response.getTokens().getCurrent());
+        assertEquals(0D, response.getCost().getCurrent());
+        assertEquals(0D, response.getAvgResponseMs().getCurrent());
+        // tpm/rpm 已移除
+    }
+
+    @Test
+    void getOverview_withData_calculatesChangePercent() {
+        Mockito.when(dashboardCacheService.getOverview("today")).thenReturn(null);
+
+        // 当前周期：100 请求，上一周期（差值法）：80 请求
+        Mockito.when(requestStatHourlyMapper.sumRequestCount(Mockito.argThat(ld -> ld != null && ld.toLocalDate().equals(java.time.LocalDate.now()))))
+                .thenReturn(100L);
+        Mockito.when(requestStatHourlyMapper.sumRequestCount(Mockito.argThat(ld -> ld != null && !ld.toLocalDate().equals(java.time.LocalDate.now()))))
+                .thenReturn(180L); // previousStart → sum = 180, previous = 180 - 100 = 80
+
+        Mockito.when(requestStatHourlyMapper.sumTotalTokens(Mockito.any())).thenReturn(0L);
+        Mockito.when(requestStatHourlyMapper.sumEstimatedCost(Mockito.any())).thenReturn(BigDecimal.ZERO);
+        Mockito.when(requestStatHourlyMapper.sumDurationMs(Mockito.any())).thenReturn(0L);
+
+        DashboardOverviewRsp response = dashboardService.getOverview("today");
+
+        assertNotNull(response);
+        assertEquals(100D, response.getRequests().getCurrent());
+        // 环比：(100 - 80) / 80 * 100 = 25.0%
+        assertEquals(25.0, response.getRequests().getChangePercent(), 0.1);
     }
 }

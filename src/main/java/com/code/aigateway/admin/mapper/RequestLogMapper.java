@@ -71,17 +71,25 @@ public interface RequestLogMapper {
 
     /**
      * 查询最近 N 条请求日志，按创建时间倒序
+     * 支持可选的时间范围过滤
      */
     @Select("""
+            <script>
             SELECT id, request_id, alias_model, target_model, provider_code, provider_type,
                    is_stream, prompt_tokens, completion_tokens, total_tokens, duration_ms,
                    status, error_code, error_message, source_ip, create_time
             FROM request_log
+            WHERE 1=1
+            <if test='startTime != null'>
+                AND create_time &gt;= #{startTime}
+            </if>
             ORDER BY create_time DESC
             LIMIT #{limit}
+            </script>
             """)
     @ResultMap("requestLogResultMap")
-    List<RequestLogDO> selectRecent(@Param("limit") int limit);
+    List<RequestLogDO> selectRecent(@Param("startTime") LocalDateTime startTime,
+                                    @Param("limit") int limit);
 
     /**
      * 统计指定时间范围内的请求总数
@@ -144,7 +152,7 @@ public interface RequestLogMapper {
                 AND create_time >= #{startTime}
             </if>
             GROUP BY alias_model
-            ORDER BY tokenCount DESC
+            ORDER BY callCount DESC
             LIMIT #{limit}
             </script>
             """)

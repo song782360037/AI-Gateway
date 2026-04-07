@@ -114,4 +114,13 @@ public interface RequestStatHourlyMapper {
             WHERE stat_time >= #{startTime}
             """)
     Double avgDurationMs(@Param("startTime") LocalDateTime startTime);
+
+    /**
+     * 汇总指定时间范围内的总响应耗时（ms），用于计算加权平均
+     */
+    @Select("""
+            SELECT COALESCE(SUM(total_duration_ms), 0) FROM request_stat_hourly
+            WHERE stat_time >= #{startTime}
+            """)
+    long sumDurationMs(@Param("startTime") LocalDateTime startTime);
 }

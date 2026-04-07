@@ -2,6 +2,9 @@
 
 基于 Spring Boot WebFlux 的多协议 AI API 网关，支持 OpenAI / Anthropic / Gemini 等多提供商接入，统一路由、鉴权、统计与管理。
 
+## 项目架构
+<img src="img/架构图.png">
+
 ## 功能特性
 
 ### 多协议适配

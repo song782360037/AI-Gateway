@@ -480,96 +480,362 @@ a {
   gap: 8px;
 }
 
-/* ==================== 仪表盘 ==================== */
-.stat-card-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-  margin-bottom: 20px;
+/* ==================== 仪表盘（新版） ==================== */
+
+/* 页面容器 */
+.dashboard-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-height: 100%;
 }
 
-.stat-card-item {
+/* ---- 顶部：标题 + 状态/操作区 ---- */
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.dashboard-header__left {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+/* 系统状态胶囊 */
+.status-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-capsule__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-capsule--up {
+  background: rgba(16, 185, 129, 0.08);
+  color: #10b981;
+}
+
+.status-capsule--up .status-capsule__dot {
+  background: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+}
+
+.status-capsule--down {
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
+}
+
+.status-capsule--down .status-capsule__dot {
+  background: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+}
+
+.dashboard-header__right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.dashboard-header__notify {
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.dashboard-header__notify:hover {
+  color: var(--color-primary);
+}
+
+/* 时间维度切换 */
+.period-switcher {
+  display: flex;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 3px;
+  box-shadow: var(--shadow-sm);
+}
+
+.period-switcher__btn {
+  border: none;
+  background: transparent;
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.period-switcher__btn:hover {
+  color: var(--text-primary);
+  background: #f8fafc;
+}
+
+.period-switcher__btn--active {
+  background: var(--color-primary);
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(67, 97, 238, 0.3);
+}
+
+.period-switcher__btn--active:hover {
+  background: var(--color-primary-dark);
+  color: #ffffff;
+}
+
+/* ---- 中部：概览卡片区 ---- */
+.overview-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.section-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+/* 单张概览卡片 */
+.overview-card {
+  position: relative;
   padding: 22px 20px;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
   transition: transform var(--transition-normal), box-shadow var(--transition-normal);
 }
 
-.stat-card-item:hover {
+.overview-card:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-card-hover);
 }
 
-.stat-card-item__icon {
+/* 装饰背景 — 右下角淡色圆形 */
+.overview-card__deco {
+  position: absolute;
+  right: -20px;
+  bottom: -20px;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: var(--card-accent-bg, rgba(67, 97, 238, 0.06));
+  pointer-events: none;
+}
+
+.overview-card__deco::after {
+  content: '';
+  position: absolute;
+  right: 30px;
+  bottom: 30px;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: var(--card-accent-bg, rgba(67, 97, 238, 0.04));
+}
+
+.overview-card__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.overview-card__icon-wrap {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-md);
-  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--card-accent-bg, rgba(67, 97, 238, 0.06));
 }
 
-.stat-card-item__label {
-  font-size: 13px;
+/* 趋势标签 */
+.overview-card__trend {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+  line-height: 1.6;
+}
+
+.trend--up {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.trend--down {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.trend--flat {
   color: var(--text-secondary);
-  margin-bottom: 4px;
+  background: rgba(148, 163, 184, 0.08);
 }
 
-.stat-card-item__value {
-  font-size: 24px;
+.overview-card__value {
+  font-size: 26px;
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1.2;
+  margin-bottom: 6px;
+  position: relative;
 }
 
-.stat-card-item__sub {
+.overview-card__sub {
   font-size: 12px;
   color: var(--text-placeholder);
-  margin-top: 4px;
+  position: relative;
 }
 
-.dashboard-tables {
+/* ---- 底部：双列表格区 ---- */
+.tables-section {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  /* grid 默认 align-items: stretch，确保面板等高 */
+  grid-template-columns: 55fr 45fr;
+  gap: 20px;
 }
 
-.dashboard-table-panel {
+/* 表格模块 */
+.table-module {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   min-width: 0;
+}
+
+.table-module__header {
   display: flex;
-  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border-light);
 }
 
-.dashboard-table-panel > .card-header {
-  flex-shrink: 0;
-}
-
-/* 让 el-table 外壳撑满面板剩余空间 */
-.dashboard-table-panel .el-table {
-  flex: 1;
+.table-module__title {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
-.dashboard-table-panel .el-table .el-table__inner-wrapper {
-  flex: 1;
+.table-module__link {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: opacity var(--transition-fast);
 }
 
-.dashboard-table-panel .el-table .el-table__body-wrapper {
+.table-module__link:hover {
+  opacity: 0.8;
+}
+
+.table-module__body {
   flex: 1;
+  padding: 0;
+}
+
+.table-module__body .el-table {
+  border-radius: 0 !important;
+  --el-table-border-color: var(--border-light);
+}
+
+.table-module__body .el-table th.el-table__cell {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: #fafbfd !important;
+  padding: 10px 0;
+}
+
+.table-module__body .el-table td.el-table__cell {
+  font-size: 13px;
+  padding: 10px 0;
 }
 
 .dashboard-table {
   width: 100%;
+}
+
+/* 排名徽标 */
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  background: #f1f5f9;
+  color: var(--text-secondary);
+}
+
+.rank-badge--gold {
+  background: linear-gradient(135deg, #fde68a, #fbbf24);
+  color: #92400e;
+  box-shadow: 0 1px 4px rgba(251, 191, 36, 0.3);
+}
+
+.rank-badge--silver {
+  background: linear-gradient(135deg, #e2e8f0, #cbd5e1);
+  color: #475569;
+  box-shadow: 0 1px 4px rgba(203, 213, 225, 0.4);
+}
+
+.rank-badge--bronze {
+  background: linear-gradient(135deg, #fed7aa, #fdba74);
+  color: #9a3412;
+  box-shadow: 0 1px 4px rgba(253, 186, 116, 0.3);
+}
+
+/* 请求状态标签 */
+.status-tag {
+  border-radius: 6px !important;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+/* 耗时高亮 */
+.duration-warn {
+  color: #ef4444;
+  font-weight: 600;
 }
 
 /* ==================== Element Plus 表格微调 ==================== */
@@ -924,11 +1190,11 @@ a {
   }
 
   .status-grid,
-  .stat-card-grid {
-    grid-template-columns: 1fr;
+  .overview-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 
-  .dashboard-tables {
+  .tables-section {
     grid-template-columns: 1fr;
   }
 

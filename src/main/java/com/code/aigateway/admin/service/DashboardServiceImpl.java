@@ -16,61 +16,83 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 仪表盘统计查询服务实现
+ * <p>
+ * 支持按时间范围（today/7d/30d）查询，并自动计算环比变化。
+ * 环比计算：当前周期 vs 上一周期，通过 RequestStatHourlyMapper 的累积查询差值法实现。
+ * </p>
  */
 @Service
 @RequiredArgsConstructor
 public class DashboardServiceImpl implements IDashboardService {
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private static final Set<String> VALID_PERIODS = Set.of("today", "7d", "30d");
 
     private final RequestLogMapper requestLogMapper;
     private final RequestStatHourlyMapper requestStatHourlyMapper;
     private final DashboardCacheService dashboardCacheService;
 
     @Override
-    public DashboardOverviewRsp getOverview() {
-        DashboardOverviewRsp cached = dashboardCacheService.getOverview();
+    public DashboardOverviewRsp getOverview(String period) {
+        String p = normalizePeriod(period);
+
+        DashboardOverviewRsp cached = dashboardCacheService.getOverview(p);
         if (cached != null) {
             return cached;
         }
 
         LocalDateTime now = LocalDateTime.now();
-        LocalDateTime todayStart = now.toLocalDate().atStartOfDay();
-        LocalDateTime lastMinute = now.minusMinutes(1);
-        LocalDateTime lastHour = now.minusHours(1);
+        LocalDateTime currentStart = resolveStart(now, p);
+        LocalDateTime previousStart = resolvePreviousStart(now, p);
 
         DashboardOverviewRsp rsp = new DashboardOverviewRsp();
-        rsp.setRequests(buildDualMetric(
-                requestStatHourlyMapper.sumRequestCount(todayStart),
-                requestStatHourlyMapper.sumTotalRequestCount()
-        ));
-        rsp.setTokens(buildDualMetric(
-                requestStatHourlyMapper.sumTotalTokens(todayStart),
-                requestStatHourlyMapper.sumAllTotalTokens()
-        ));
-        rsp.setCost(buildCostMetric(
-                safeBigDecimal(requestStatHourlyMapper.sumEstimatedCost(todayStart)),
-                safeBigDecimal(requestStatHourlyMapper.sumAllEstimatedCost())
-        ));
-        rsp.setRpm(requestLogMapper.countLastMinute(lastMinute));
-        rsp.setTpm(requestLogMapper.sumTokensLastMinute(lastMinute));
-        rsp.setAvgResponseMs(safeDouble(requestStatHourlyMapper.avgDurationMs(lastHour)));
 
-        dashboardCacheService.setOverview(rsp);
+        // 请求数：当前周期 = sum(currentStart)，上一周期 = sum(previousStart) - sum(currentStart)
+        long currentRequests = requestStatHourlyMapper.sumRequestCount(currentStart);
+        long previousRequests = requestStatHourlyMapper.sumRequestCount(previousStart) - currentRequests;
+        rsp.setRequests(new DashboardOverviewRsp.DualMetric(currentRequests, previousRequests));
+
+        // Token 消耗
+        long currentTokens = requestStatHourlyMapper.sumTotalTokens(currentStart);
+        long previousTokens = requestStatHourlyMapper.sumTotalTokens(previousStart) - currentTokens;
+        rsp.setTokens(new DashboardOverviewRsp.DualMetric(currentTokens, previousTokens));
+
+        // 消费金额
+        BigDecimal currentCost = safeBigDecimal(requestStatHourlyMapper.sumEstimatedCost(currentStart));
+        BigDecimal prevCost = safeBigDecimal(requestStatHourlyMapper.sumEstimatedCost(previousStart)).subtract(currentCost);
+        rsp.setCost(new DashboardOverviewRsp.DualMetric(
+                currentCost.setScale(2, RoundingMode.HALF_UP).doubleValue(),
+                prevCost.max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP).doubleValue()
+        ));
+
+        // 平均响应耗时（加权平均：总耗时/总请求数，使用差值法避免两个加权平均相减）
+        long currentDuration = requestStatHourlyMapper.sumDurationMs(currentStart);
+        double currentAvg = currentRequests > 0 ? (double) currentDuration / currentRequests : 0;
+        long prevDuration = requestStatHourlyMapper.sumDurationMs(previousStart) - currentDuration;
+        double previousAvg = previousRequests > 0 ? (double) prevDuration / previousRequests : 0;
+        rsp.setAvgResponseMs(new DashboardOverviewRsp.DualMetric(currentAvg, previousAvg));
+
+        dashboardCacheService.setOverview(p, rsp);
         return rsp;
     }
 
     @Override
-    public List<ModelUsageRankRsp> getModelUsageRank() {
-        List<ModelUsageRankRsp> cached = dashboardCacheService.getModelRank();
+    public List<ModelUsageRankRsp> getModelUsageRank(String period) {
+        String p = normalizePeriod(period);
+
+        List<ModelUsageRankRsp> cached = dashboardCacheService.getModelRank(p);
         if (cached != null) {
             return cached;
         }
 
-        List<RequestLogMapper.ModelAggregation> records = requestLogMapper.aggregateByModel(null, 10);
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime startTime = resolveStart(now, p);
+
+        List<RequestLogMapper.ModelAggregation> records = requestLogMapper.aggregateByModel(startTime, 10);
         List<ModelUsageRankRsp> result = new ArrayList<>();
         for (int i = 0; i < records.size(); i++) {
             RequestLogMapper.ModelAggregation item = records.get(i);
@@ -88,18 +110,23 @@ public class DashboardServiceImpl implements IDashboardService {
             result.add(rsp);
         }
 
-        dashboardCacheService.setModelRank(result);
+        dashboardCacheService.setModelRank(p, result);
         return result;
     }
 
     @Override
-    public List<RecentRequestRsp> getRecentRequests() {
-        List<RecentRequestRsp> cached = dashboardCacheService.getRecentRequests();
+    public List<RecentRequestRsp> getRecentRequests(String period) {
+        String p = normalizePeriod(period);
+
+        List<RecentRequestRsp> cached = dashboardCacheService.getRecentRequests(p);
         if (cached != null) {
             return cached;
         }
 
-        List<RequestLogDO> records = requestLogMapper.selectRecent(10);
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime startTime = resolveStart(now, p);
+
+        List<RequestLogDO> records = requestLogMapper.selectRecent(startTime, 10);
         List<RecentRequestRsp> result = new ArrayList<>();
         for (RequestLogDO item : records) {
             RecentRequestRsp rsp = new RecentRequestRsp();
@@ -112,23 +139,45 @@ public class DashboardServiceImpl implements IDashboardService {
             result.add(rsp);
         }
 
-        dashboardCacheService.setRecentRequests(result);
+        dashboardCacheService.setRecentRequests(p, result);
         return result;
     }
 
-    private DashboardOverviewRsp.DualMetric buildDualMetric(long today, long total) {
-        DashboardOverviewRsp.DualMetric metric = new DashboardOverviewRsp.DualMetric();
-        metric.setToday(today);
-        metric.setTotal(total);
-        return metric;
+    // ==================== 时间范围计算 ====================
+
+    /**
+     * 根据时间范围类型计算当前周期的起始时间
+     */
+    private LocalDateTime resolveStart(LocalDateTime now, String period) {
+        return switch (period) {
+            case "7d" -> now.minusDays(7);
+            case "30d" -> now.minusDays(30);
+            default -> now.toLocalDate().atStartOfDay();
+        };
     }
 
-    private DashboardOverviewRsp.DualMetric buildCostMetric(BigDecimal today, BigDecimal total) {
-        DashboardOverviewRsp.DualMetric metric = new DashboardOverviewRsp.DualMetric();
-        metric.setToday(today.setScale(2, RoundingMode.HALF_UP).doubleValue());
-        metric.setTotal(total.setScale(2, RoundingMode.HALF_UP).doubleValue());
-        return metric;
+    /**
+     * 根据时间范围类型计算上一周期的起始时间
+     * <p>
+     * 差值法：上一周期值 = sum(previousStart) - sum(currentStart)
+     * </p>
+     */
+    private LocalDateTime resolvePreviousStart(LocalDateTime now, String period) {
+        return switch (period) {
+            case "7d" -> now.minusDays(14);
+            case "30d" -> now.minusDays(60);
+            default -> now.minusDays(1).toLocalDate().atStartOfDay();
+        };
     }
+
+    /**
+     * 规范化 period 参数，不合法时回退为 today
+     */
+    private String normalizePeriod(String period) {
+        return (period != null && VALID_PERIODS.contains(period)) ? period : "today";
+    }
+
+    // ==================== 工具方法 ====================
 
     private BigDecimal safeBigDecimal(BigDecimal value) {
         return value != null ? value : BigDecimal.ZERO;

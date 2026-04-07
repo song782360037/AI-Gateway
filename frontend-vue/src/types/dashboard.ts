@@ -1,6 +1,17 @@
-/**
- * 仪表盘统计概览
- */
+/** 时间范围类型 */
+export type DashboardPeriod = 'today' | '7d' | '30d'
+
+/** 双维度指标：当前周期 / 上一周期 + 环比变化 */
+export interface DualMetric {
+  /** 当前周期值 */
+  current: number
+  /** 上一周期值 */
+  previous: number
+  /** 环比变化百分比，如 +12.5 表示增长 12.5% */
+  changePercent: number
+}
+
+/** 仪表盘统计概览 */
 export interface DashboardStats {
   /** 请求数 */
   requests: DualMetric
@@ -8,18 +19,8 @@ export interface DashboardStats {
   cost: DualMetric
   /** Token 消耗 */
   tokens: DualMetric
-  /** 每分钟 Token 数 */
-  tpm: number
-  /** 每分钟请求数 */
-  rpm: number
   /** 平均响应时间（ms） */
-  avgResponseMs: number
-}
-
-/** 今日 / 累计双维度指标 */
-export interface DualMetric {
-  today: number
-  total: number
+  avgResponseMs: DualMetric
 }
 
 /** 模型调用排行 */
@@ -39,4 +40,9 @@ export interface RecentRequest {
   tokens: number
   duration: number
   status: 'success' | 'error'
+}
+
+/** 系统健康状态 */
+export interface SystemHealth {
+  status: 'UP' | 'DOWN'
 }

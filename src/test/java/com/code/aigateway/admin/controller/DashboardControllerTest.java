@@ -15,7 +15,7 @@ import java.util.List;
 /**
  * 仪表盘统计管理接口 WebFlux 切片测试
  *
- * <p>验证概览统计、模型排行、最近请求三个只读端点的响应格式和数据结构。</p>
+ * <p>验证概览统计、模型排行、最近请求、健康检测四个端点的响应格式和数据结构。</p>
  */
 class DashboardControllerTest {
 
@@ -26,7 +26,6 @@ class DashboardControllerTest {
     void setUp() {
         dashboardService = Mockito.mock(IDashboardService.class);
         DashboardController controller = new DashboardController(dashboardService);
-        // Dashboard 接口无 @Valid 参数，不需要注册 Validator
         webTestClient = WebTestClient.bindToController(controller)
                 .controllerAdvice(new AdminExceptionHandler())
                 .build();
@@ -36,53 +35,50 @@ class DashboardControllerTest {
 
     @Test
     void overview_success() {
-        // 构造概览统计数据，包含双指标（今日/累计）和实时指标
         DashboardOverviewRsp overviewRsp = new DashboardOverviewRsp();
+        overviewRsp.setRequests(new DashboardOverviewRsp.DualMetric(128, 100));
+        overviewRsp.setCost(new DashboardOverviewRsp.DualMetric(3.45, 2.80));
+        overviewRsp.setTokens(new DashboardOverviewRsp.DualMetric(50000, 40000));
+        overviewRsp.setAvgResponseMs(new DashboardOverviewRsp.DualMetric(850.5, 780.2));
 
-        DashboardOverviewRsp.DualMetric requests = new DashboardOverviewRsp.DualMetric();
-        requests.setToday(128);
-        requests.setTotal(25600);
-        overviewRsp.setRequests(requests);
+        Mockito.when(dashboardService.getOverview("today")).thenReturn(overviewRsp);
 
-        DashboardOverviewRsp.DualMetric cost = new DashboardOverviewRsp.DualMetric();
-        cost.setToday(3.45);
-        cost.setTotal(678.90);
-        overviewRsp.setCost(cost);
+        webTestClient.get()
+                .uri("/admin/dashboard/overview?period=today")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.success").isEqualTo(true)
+                // 验证双指标结构：当前周期 / 上一周期
+                .jsonPath("$.data.requests.current").isEqualTo(128)
+                .jsonPath("$.data.requests.previous").isEqualTo(100)
+                .jsonPath("$.data.cost.current").isEqualTo(3.45)
+                .jsonPath("$.data.cost.previous").isEqualTo(2.80)
+                .jsonPath("$.data.tokens.current").isEqualTo(50000)
+                .jsonPath("$.data.avgResponseMs.current").isEqualTo(850.5)
+                .jsonPath("$.data.avgResponseMs.previous").isEqualTo(780.2);
+    }
 
-        DashboardOverviewRsp.DualMetric tokens = new DashboardOverviewRsp.DualMetric();
-        tokens.setToday(50000);
-        tokens.setTotal(1000000);
-        overviewRsp.setTokens(tokens);
+    @Test
+    void overview_defaultPeriod() {
+        DashboardOverviewRsp overviewRsp = new DashboardOverviewRsp();
+        overviewRsp.setRequests(new DashboardOverviewRsp.DualMetric(0, 0));
 
-        overviewRsp.setTpm(1200);
-        overviewRsp.setRpm(30);
-        overviewRsp.setAvgResponseMs(850.5);
+        Mockito.when(dashboardService.getOverview("today")).thenReturn(overviewRsp);
 
-        Mockito.when(dashboardService.getOverview()).thenReturn(overviewRsp);
-
+        // 不传 period 参数，默认 today
         webTestClient.get()
                 .uri("/admin/dashboard/overview")
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.success").isEqualTo(true)
-                // 验证双指标结构：今日 / 累计请求数
-                .jsonPath("$.data.requests.today").isEqualTo(128)
-                .jsonPath("$.data.requests.total").isEqualTo(25600)
-                // 验证费用指标
-                .jsonPath("$.data.cost.today").isEqualTo(3.45)
-                .jsonPath("$.data.cost.total").isEqualTo(678.90)
-                // 验证实时指标
-                .jsonPath("$.data.tpm").isEqualTo(1200)
-                .jsonPath("$.data.rpm").isEqualTo(30)
-                .jsonPath("$.data.avgResponseMs").isEqualTo(850.5);
+                .jsonPath("$.success").isEqualTo(true);
     }
 
     // ==================== modelRank ====================
 
     @Test
     void modelRank_success() {
-        // 构造模型调用排行数据
         ModelUsageRankRsp rank1 = new ModelUsageRankRsp();
         rank1.setRank(1);
         rank1.setModelName("gpt-4o");
@@ -97,16 +93,15 @@ class DashboardControllerTest {
         rank2.setTokenCount(1500000);
         rank2.setCost(95.00);
 
-        Mockito.when(dashboardService.getModelUsageRank())
+        Mockito.when(dashboardService.getModelUsageRank("7d"))
                 .thenReturn(List.of(rank1, rank2));
 
         webTestClient.get()
-                .uri("/admin/dashboard/model-rank")
+                .uri("/admin/dashboard/model-rank?period=7d")
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.success").isEqualTo(true)
-                // 验证排行列表长度和排序
                 .jsonPath("$.data.length()").isEqualTo(2)
                 .jsonPath("$.data[0].rank").isEqualTo(1)
                 .jsonPath("$.data[0].modelName").isEqualTo("gpt-4o")
@@ -118,7 +113,6 @@ class DashboardControllerTest {
 
     @Test
     void recentRequests_success() {
-        // 构造最近请求记录
         RecentRequestRsp req1 = new RecentRequestRsp();
         req1.setTime("14:30:25");
         req1.setModel("gpt-4o");
@@ -135,7 +129,7 @@ class DashboardControllerTest {
         req2.setDuration(500);
         req2.setStatus("error");
 
-        Mockito.when(dashboardService.getRecentRequests())
+        Mockito.when(dashboardService.getRecentRequests("today"))
                 .thenReturn(List.of(req1, req2));
 
         webTestClient.get()
@@ -145,11 +139,22 @@ class DashboardControllerTest {
                 .expectBody()
                 .jsonPath("$.success").isEqualTo(true)
                 .jsonPath("$.data.length()").isEqualTo(2)
-                // 验证第一条记录的字段
                 .jsonPath("$.data[0].time").isEqualTo("14:30:25")
                 .jsonPath("$.data[0].model").isEqualTo("gpt-4o")
                 .jsonPath("$.data[0].status").isEqualTo("success")
-                // 验证第二条记录状态
                 .jsonPath("$.data[1].status").isEqualTo("error");
+    }
+
+    // ==================== health ====================
+
+    @Test
+    void health_returnsUp() {
+        webTestClient.get()
+                .uri("/admin/dashboard/health")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.success").isEqualTo(true)
+                .jsonPath("$.data.status").isEqualTo("UP");
     }
 }
