@@ -7,8 +7,12 @@ export interface ModelRedirectConfigQueryReq {
   pageSize: number
 }
 
+/** 模型路由匹配类型 */
+export type MatchType = 'EXACT' | 'GLOB' | 'REGEX'
+
 export interface ModelRedirectConfigAddReq {
   aliasName: string
+  matchType: MatchType
   providerCode: string
   targetModel: string
   enabled: boolean
@@ -18,6 +22,7 @@ export interface ModelRedirectConfigUpdateReq {
   id: number
   versionNo: number
   aliasName: string
+  matchType: MatchType
   providerCode: string
   targetModel: string
   enabled: boolean
@@ -26,6 +31,7 @@ export interface ModelRedirectConfigUpdateReq {
 export interface ModelRedirectConfigRsp {
   id: number
   aliasName: string
+  matchType: MatchType
   providerCode: string
   targetModel: string
   enabled: boolean

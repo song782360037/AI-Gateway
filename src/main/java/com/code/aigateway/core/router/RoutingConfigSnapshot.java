@@ -1,10 +1,13 @@
 package com.code.aigateway.core.router;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -15,8 +18,11 @@ import java.util.stream.Collectors;
  */
 public final class RoutingConfigSnapshot {
 
-    /** aliasName -> 按优先级排序后的候选规则列表 */
+    /** aliasName -> 按优先级排序后的候选规则列表（仅 EXACT 精确匹配） */
     private final Map<String, List<RouteCandidate>> aliasRouteMap;
+
+    /** GLOB / REGEX 模式匹配规则列表（预编译），按匹配类型分组 */
+    private final List<PatternRoute> patternRoutes;
 
     /** providerCode -> 提供商运行时配置 */
     private final Map<String, ProviderEntry> providerMap;
@@ -31,6 +37,7 @@ public final class RoutingConfigSnapshot {
     private final String source;
 
     public RoutingConfigSnapshot(Map<String, List<RouteCandidate>> aliasRouteMap,
+                                 List<PatternRoute> patternRoutes,
                                  Map<String, ProviderEntry> providerMap,
                                  long version,
                                  String source) {
@@ -42,6 +49,8 @@ public final class RoutingConfigSnapshot {
                                 entry -> List.copyOf(entry.getValue())
                         ))
         );
+        // 对模式匹配规则做不可变包装
+        this.patternRoutes = List.copyOf(patternRoutes);
         // 对提供商配置表做不可变包装，确保快照整体只读。
         this.providerMap = Collections.unmodifiableMap(Map.copyOf(providerMap));
         this.version = version;
@@ -50,13 +59,22 @@ public final class RoutingConfigSnapshot {
     }
 
     /**
-     * 获取指定别名对应的候选规则列表。
+     * 获取指定别名对应的候选规则列表（精确匹配）。
      *
      * @param aliasName 模型别名
      * @return 候选规则列表；若不存在则返回空列表，避免空指针
      */
     public List<RouteCandidate> getCandidates(String aliasName) {
         return aliasRouteMap.getOrDefault(aliasName, Collections.emptyList());
+    }
+
+    /**
+     * 获取模式匹配规则列表（GLOB / REGEX）。
+     *
+     * <p>返回预编译的模式匹配规则，用于在精确匹配未命中时遍历匹配。</p>
+     */
+    public List<PatternRoute> getPatternRoutes() {
+        return patternRoutes;
     }
 
     /**
@@ -115,6 +133,43 @@ public final class RoutingConfigSnapshot {
                 .filter(ProviderEntry::enabled)
                 .sorted(Comparator.comparingInt(ProviderEntry::priority).reversed())
                 .toList();
+    }
+
+    /**
+     * 模式匹配路由规则（GLOB / REGEX）。
+     *
+     * <p>使用普通不可变类而非 record，以便通过 {@link JsonIgnore} 排除 {@link #compiledPattern}
+     * 不参与 JSON 序列化（Pattern 对象不可序列化，Redis 缓存只需 regex 字符串）。</p>
+     */
+    public static final class PatternRoute {
+        private final MatchType matchType;
+        private final String regex;
+        private final String originalPattern;
+        private final List<RouteCandidate> candidates;
+
+        /** 惰性编译并缓存的 Pattern */
+        private volatile Pattern compiledPattern;
+
+        public PatternRoute(MatchType matchType, String regex, String originalPattern, List<RouteCandidate> candidates) {
+            this.matchType = matchType;
+            this.regex = regex;
+            this.originalPattern = originalPattern;
+            this.candidates = List.copyOf(candidates);
+        }
+
+        public MatchType matchType() { return matchType; }
+        public String regex() { return regex; }
+        public String originalPattern() { return originalPattern; }
+        public List<RouteCandidate> candidates() { return candidates; }
+
+        /** 获取预编译的 Pattern，首次调用时惰性编译并缓存 */
+        @JsonIgnore
+        public Pattern compiledPattern() {
+            if (compiledPattern == null) {
+                compiledPattern = Pattern.compile(regex);
+            }
+            return compiledPattern;
+        }
     }
 
     /**

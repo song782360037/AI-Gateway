@@ -15,6 +15,9 @@ public class ModelRedirectConfigAddReq {
     @NotBlank(message = "模型别名不能为空")
     private String aliasName;
 
+    /** 匹配类型：EXACT-精确匹配, GLOB-通配符匹配, REGEX-正则匹配 */
+    private String matchType = "EXACT";
+
     /** 目标提供商编码，用于关联 provider_config */
     @NotBlank(message = "提供商编码不能为空")
     private String providerCode;

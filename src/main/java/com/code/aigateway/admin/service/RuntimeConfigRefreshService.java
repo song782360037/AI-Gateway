@@ -5,6 +5,8 @@ import com.code.aigateway.admin.mapper.ProviderConfigMapper;
 import com.code.aigateway.admin.model.dataobject.ModelRedirectConfigDO;
 import com.code.aigateway.admin.model.dataobject.ProviderConfigDO;
 import com.code.aigateway.core.model.ResponseProtocol;
+import com.code.aigateway.core.router.GlobPatternUtil;
+import com.code.aigateway.core.router.MatchType;
 import com.code.aigateway.core.router.RouteCandidate;
 import com.code.aigateway.core.router.RoutingConfigSnapshot;
 import com.code.aigateway.core.runtime.RedisRoutingCacheService;
@@ -15,12 +17,14 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -84,7 +88,7 @@ public class RuntimeConfigRefreshService {
             List<ModelRedirectConfigDO> redirectConfigs = modelRedirectConfigMapper.selectAllEnabled();
 
             // 4. 先过滤掉引用了不存在或不可用 provider 的规则，避免生成脏候选项。
-            Map<String, List<RouteCandidate>> aliasRouteMap = redirectConfigs.stream()
+            List<ModelRedirectConfigDO> validConfigs = redirectConfigs.stream()
                     .filter(Objects::nonNull)
                     .filter(config -> {
                         boolean exists = providerMap.containsKey(config.getProviderCode());
@@ -94,26 +98,58 @@ public class RuntimeConfigRefreshService {
                         }
                         return exists;
                     })
-                    // 5. 构建路由候选项，并按 aliasName 分组。
+                    .toList();
+
+            // 5. 按匹配类型分组：EXACT 走 HashMap，GLOB/REGEX 走预编译模式列表
+            Map<String, List<RouteCandidate>> aliasRouteMap = new LinkedHashMap<>();
+            List<RoutingConfigSnapshot.PatternRoute> patternRoutes = new ArrayList<>();
+
+            // 按匹配类型 + aliasName 分组
+            Map<String, List<ModelRedirectConfigDO>> groupedByMatchAndAlias = validConfigs.stream()
                     .collect(Collectors.groupingBy(
-                            ModelRedirectConfigDO::getAliasName,
+                            config -> resolveGroupKey(config),
                             LinkedHashMap::new,
-                            Collectors.mapping(config -> buildRouteCandidate(config, providerMap.get(config.getProviderCode())),
-                                    Collectors.toList())
+                            Collectors.toList()
                     ));
 
-            // 6. 对每个 alias 的候选列表按 provider 优先级降序排序。
-            aliasRouteMap.replaceAll((aliasName, candidates) -> candidates.stream()
-                    .sorted(Comparator
-                            // 仅按 provider 优先级排序，数值越大越优先，空值按 0 处理
-                            .comparing((RouteCandidate candidate) ->
-                                            candidate.getProviderPriority() == null ? 0 : candidate.getProviderPriority(),
-                                    Comparator.reverseOrder()))
-                    .toList());
+            for (Map.Entry<String, List<ModelRedirectConfigDO>> entry : groupedByMatchAndAlias.entrySet()) {
+                List<ModelRedirectConfigDO> configs = entry.getValue();
+                ModelRedirectConfigDO first = configs.get(0);
+                String matchTypeStr = resolveMatchType(first);
+                MatchType matchType = MatchType.valueOf(matchTypeStr);
+
+                // 构建候选路由列表
+                List<RouteCandidate> candidates = configs.stream()
+                        .map(config -> buildRouteCandidate(config, providerMap.get(config.getProviderCode())))
+                        .sorted(Comparator.comparing(
+                                (RouteCandidate c) -> c.getProviderPriority() == null ? 0 : c.getProviderPriority(),
+                                Comparator.reverseOrder()))
+                        .toList();
+
+                if (matchType == MatchType.EXACT) {
+                    // EXACT 精确匹配：按 aliasName 存入 HashMap
+                    aliasRouteMap.put(first.getAliasName(), candidates);
+                } else {
+                    // GLOB / REGEX：编译为正则字符串存入模式列表，Pattern 在运行时惰性编译
+                    String regex = compileRegex(matchType, first.getAliasName());
+                    if (regex != null) {
+                        patternRoutes.add(new RoutingConfigSnapshot.PatternRoute(
+                                matchType, regex, first.getAliasName(),
+                                List.copyOf(candidates)));
+                    }
+                }
+            }
+
+            // 6. 对 patternRoutes 按特异性排序：同类型内按 originalPattern 长度降序，
+            //    更具体的规则（如 gpt-4o*）优先于更宽泛的规则（如 gpt-*）。
+            //    GLOB 整体排在 REGEX 前面，保证 matchPatternRoutes 遍历时 GLOB 优先短路。
+            patternRoutes.sort(Comparator
+                    .comparing((RoutingConfigSnapshot.PatternRoute pr) -> pr.matchType() == MatchType.GLOB ? 0 : 1)
+                    .thenComparing(pr -> pr.originalPattern().length(), Comparator.reverseOrder()));
 
             // 7. 生成新的快照版本号，并构建不可变快照对象。
             long version = nextVersion();
-            RoutingConfigSnapshot snapshot = new RoutingConfigSnapshot(aliasRouteMap, providerMap, version, source);
+            RoutingConfigSnapshot snapshot = new RoutingConfigSnapshot(aliasRouteMap, patternRoutes, providerMap, version, source);
 
             // 8. 原子替换本地快照，保证热路径读取始终一致。
             routingSnapshotHolder.update(snapshot);
@@ -123,8 +159,8 @@ public class RuntimeConfigRefreshService {
             redisRoutingCacheService.warmupSnapshot(snapshotJson, version);
             redisRoutingCacheService.clearDirty();
 
-            log.info("[运行时配置刷新] 刷新成功，来源: {}，版本: {}，provider数: {}，alias数: {}",
-                    source, version, providerMap.size(), aliasRouteMap.size());
+            log.info("[运行时配置刷新] 刷新成功，来源: {}，版本: {}，provider数: {}，精确alias数: {}，模式规则数: {}",
+                    source, version, providerMap.size(), aliasRouteMap.size(), patternRoutes.size());
             return true;
         } catch (Exception ex) {
             // 10. 任意环节异常都不能影响主流程，需要打脏标记并记录错误日志。
@@ -192,5 +228,41 @@ public class RuntimeConfigRefreshService {
      */
     private List<String> parseProtocols(String commaSeparated) {
         return ResponseProtocol.parseCommaSeparated(commaSeparated);
+    }
+
+    /**
+     * 解析匹配类型，兼容 matchType 为 null 或空白的存量数据（默认 EXACT）。
+     */
+    private String resolveMatchType(ModelRedirectConfigDO config) {
+        String mt = config.getMatchType();
+        return (mt != null && !mt.isBlank()) ? mt : "EXACT";
+    }
+
+    /**
+     * 按匹配类型 + aliasName 组合分组键，确保不同匹配类型同名规则独立分组。
+     */
+    private String resolveGroupKey(ModelRedirectConfigDO config) {
+        return resolveMatchType(config) + ":" + config.getAliasName();
+    }
+
+    /**
+     * 根据匹配类型生成正则表达式字符串，并校验语法合法性。
+     *
+     * <p>GLOB 模式通过 {@link GlobPatternUtil#globToRegex} 转换，REGEX 直接返回原始表达式。</p>
+     * <p>编译失败时打印警告日志并返回 null（该规则将被跳过）。</p>
+     */
+    private String compileRegex(MatchType matchType, String aliasName) {
+        try {
+            String regex = (matchType == MatchType.GLOB)
+                    ? GlobPatternUtil.globToRegex(aliasName)
+                    : aliasName;
+            // 预编译一次验证语法合法性
+            Pattern.compile(regex);
+            return regex;
+        } catch (Exception ex) {
+            log.warn("[运行时配置刷新] 编译模式失败，matchType: {}，aliasName: {}",
+                    matchType, aliasName, ex);
+            return null;
+        }
     }
 }

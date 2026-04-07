@@ -17,6 +17,7 @@ public interface ModelRedirectConfigMapper {
     @Results(id = "modelRedirectConfigResultMap", value = {
             @Result(property = "id", column = "id"),
             @Result(property = "aliasName", column = "alias_name"),
+            @Result(property = "matchType", column = "match_type"),
             @Result(property = "providerCode", column = "provider_code"),
             @Result(property = "targetModel", column = "target_model"),
             @Result(property = "enabled", column = "enabled"),
@@ -28,7 +29,7 @@ public interface ModelRedirectConfigMapper {
             @Result(property = "deleted", column = "deleted")
     })
     @Select("""
-            SELECT id, alias_name, provider_code, target_model, enabled, version_no,
+            SELECT id, alias_name, match_type, provider_code, target_model, enabled, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM model_redirect_config
             WHERE id = #{id}
@@ -41,10 +42,10 @@ public interface ModelRedirectConfigMapper {
      */
     @Insert("""
             INSERT INTO model_redirect_config (
-                alias_name, provider_code, target_model, enabled, version_no,
+                alias_name, match_type, provider_code, target_model, enabled, version_no,
                 creator, create_time, updater, update_time, deleted
             ) VALUES (
-                #{aliasName}, #{providerCode}, #{targetModel}, #{enabled}, #{versionNo},
+                #{aliasName}, #{matchType}, #{providerCode}, #{targetModel}, #{enabled}, #{versionNo},
                 #{creator}, #{createTime}, #{updater}, #{updateTime}, #{deleted}
             )
             """)
@@ -57,6 +58,7 @@ public interface ModelRedirectConfigMapper {
     @Update("""
             UPDATE model_redirect_config
             SET alias_name = #{aliasName},
+                match_type = #{matchType},
                 provider_code = #{providerCode},
                 target_model = #{targetModel},
                 enabled = #{enabled},
@@ -85,7 +87,7 @@ public interface ModelRedirectConfigMapper {
      */
     @Select("""
             <script>
-            SELECT id, alias_name, provider_code, target_model, enabled, version_no,
+            SELECT id, alias_name, match_type, provider_code, target_model, enabled, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM model_redirect_config
             WHERE deleted = 0
@@ -147,11 +149,13 @@ public interface ModelRedirectConfigMapper {
             SELECT COUNT(1)
             FROM model_redirect_config
             WHERE alias_name = #{aliasName}
+              AND match_type = #{matchType}
               AND provider_code = #{providerCode}
               AND target_model = #{targetModel}
               AND deleted = 0
             """)
     int existsRedirect(@Param("aliasName") String aliasName,
+                       @Param("matchType") String matchType,
                        @Param("providerCode") String providerCode,
                        @Param("targetModel") String targetModel);
 
@@ -159,7 +163,7 @@ public interface ModelRedirectConfigMapper {
      * 查询全部启用中的重定向配置，供路由缓存或预热使用。
      */
     @Select("""
-            SELECT id, alias_name, provider_code, target_model, enabled, version_no,
+            SELECT id, alias_name, match_type, provider_code, target_model, enabled, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM model_redirect_config
             WHERE enabled = 1
@@ -173,7 +177,7 @@ public interface ModelRedirectConfigMapper {
      * 按模型别名查询有效规则。
      */
     @Select("""
-            SELECT id, alias_name, provider_code, target_model, enabled, version_no,
+            SELECT id, alias_name, match_type, provider_code, target_model, enabled, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM model_redirect_config
             WHERE alias_name = #{aliasName}
@@ -188,7 +192,7 @@ public interface ModelRedirectConfigMapper {
      * 按提供商查询有效规则，便于 provider 维度的数据分析和校验。
      */
     @Select("""
-            SELECT id, alias_name, provider_code, target_model, enabled, version_no,
+            SELECT id, alias_name, match_type, provider_code, target_model, enabled, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM model_redirect_config
             WHERE provider_code = #{providerCode}

@@ -9,6 +9,8 @@ import com.code.aigateway.admin.model.req.ModelRedirectConfigUpdateReq;
 import com.code.aigateway.admin.model.rsp.ModelRedirectConfigRsp;
 import com.code.aigateway.common.exception.BizException;
 import com.code.aigateway.common.result.PageResult;
+import com.code.aigateway.core.router.GlobPatternUtil;
+import com.code.aigateway.core.router.MatchType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -35,18 +37,23 @@ public class ModelRedirectConfigServiceImpl implements IModelRedirectConfigServi
 
     @Override
     public Long add(ModelRedirectConfigAddReq req) {
+        // 校验匹配类型合法性，并验证 GLOB/REGEX 语法
+        String matchType = validateAndNormalizeMatchType(req.getMatchType(), req.getAliasName());
+
         // 校验目标提供商是否存在
         validateProviderExists(req.getProviderCode());
 
-        // 校验同一组合是否已存在
-        if (modelRedirectConfigMapper.existsRedirect(req.getAliasName(), req.getProviderCode(), req.getTargetModel()) > 0) {
+        // 校验同一组合是否已存在（match_type 纳入唯一性判断）
+        if (modelRedirectConfigMapper.existsRedirect(req.getAliasName(), matchType, req.getProviderCode(), req.getTargetModel()) > 0) {
             throw new BizException("CONFIG_CONFLICT",
                     "该重定向规则已存在: alias=" + req.getAliasName()
+                            + ", matchType=" + matchType
                             + ", provider=" + req.getProviderCode()
                             + ", model=" + req.getTargetModel());
         }
 
         ModelRedirectConfigDO record = buildInsertRecord(req);
+        record.setMatchType(matchType);
         record.setVersionNo(0L);
 
         transactionTemplate.executeWithoutResult(status -> {
@@ -54,8 +61,8 @@ public class ModelRedirectConfigServiceImpl implements IModelRedirectConfigServi
             if (rows <= 0) {
                 throw new BizException("DB_ERROR", "新增重定向配置失败");
             }
-            log.info("[重定向配置] 新增成功，id: {}，alias: {}，provider: {}，targetModel: {}",
-                    record.getId(), req.getAliasName(), req.getProviderCode(), req.getTargetModel());
+            log.info("[重定向配置] 新增成功，id: {}，alias: {}，matchType: {}，provider: {}，targetModel: {}",
+                    record.getId(), req.getAliasName(), matchType, req.getProviderCode(), req.getTargetModel());
         });
 
         // 数据库写入成功后必须刷新运行时配置；刷新失败时直接抛错，避免接口返回成功但路由仍使用旧快照。
@@ -70,22 +77,29 @@ public class ModelRedirectConfigServiceImpl implements IModelRedirectConfigServi
             throw new BizException("CONFIG_NOT_FOUND", "重定向配置不存在，id: " + req.getId());
         }
 
+        // 校验匹配类型合法性，并验证 GLOB/REGEX 语法
+        String matchType = validateAndNormalizeMatchType(req.getMatchType(), req.getAliasName());
+
         // 校验目标提供商是否存在
         validateProviderExists(req.getProviderCode());
 
-        // 组合唯一性校验：排除自身记录
+        // 组合唯一性校验：排除自身记录（match_type 纳入唯一性判断）
+        String existingMatchType = existing.getMatchType() != null ? existing.getMatchType() : "EXACT";
         if (!existing.getAliasName().equals(req.getAliasName())
+                || !existingMatchType.equals(matchType)
                 || !existing.getProviderCode().equals(req.getProviderCode())
                 || !existing.getTargetModel().equals(req.getTargetModel())) {
-            if (modelRedirectConfigMapper.existsRedirect(req.getAliasName(), req.getProviderCode(), req.getTargetModel()) > 0) {
+            if (modelRedirectConfigMapper.existsRedirect(req.getAliasName(), matchType, req.getProviderCode(), req.getTargetModel()) > 0) {
                 throw new BizException("CONFIG_CONFLICT",
                         "该重定向规则已存在: alias=" + req.getAliasName()
+                                + ", matchType=" + matchType
                                 + ", provider=" + req.getProviderCode()
                                 + ", model=" + req.getTargetModel());
             }
         }
 
         ModelRedirectConfigDO record = buildUpdateRecord(req);
+        record.setMatchType(matchType);
 
         transactionTemplate.executeWithoutResult(status -> {
             int rows = modelRedirectConfigMapper.updateById(record);
@@ -93,8 +107,8 @@ public class ModelRedirectConfigServiceImpl implements IModelRedirectConfigServi
                 throw new BizException("CONFIG_CONCURRENT_MODIFIED",
                         "数据已被其他请求修改，请刷新后重试，id: " + req.getId());
             }
-            log.info("[重定向配置] 更新成功，id: {}，alias: {}，provider: {}",
-                    req.getId(), req.getAliasName(), req.getProviderCode());
+            log.info("[重定向配置] 更新成功，id: {}，alias: {}，matchType: {}，provider: {}",
+                    req.getId(), req.getAliasName(), matchType, req.getProviderCode());
         });
 
         // 更新成功后必须同步刷新运行时快照，避免新配置无法立即生效。
@@ -201,6 +215,8 @@ public class ModelRedirectConfigServiceImpl implements IModelRedirectConfigServi
         record.setTargetModel(req.getTargetModel());
         record.setEnabled(req.getEnabled());
         record.setDeleted(false);
+        record.setCreator("");
+        record.setUpdater("");
         record.setCreateTime(LocalDateTime.now());
         record.setUpdateTime(LocalDateTime.now());
         return record;
@@ -214,6 +230,7 @@ public class ModelRedirectConfigServiceImpl implements IModelRedirectConfigServi
         record.setProviderCode(req.getProviderCode());
         record.setTargetModel(req.getTargetModel());
         record.setEnabled(req.getEnabled());
+        record.setUpdater("");
         record.setUpdateTime(LocalDateTime.now());
         return record;
     }
@@ -222,6 +239,7 @@ public class ModelRedirectConfigServiceImpl implements IModelRedirectConfigServi
         ModelRedirectConfigRsp rsp = new ModelRedirectConfigRsp();
         rsp.setId(record.getId());
         rsp.setAliasName(record.getAliasName());
+        rsp.setMatchType(record.getMatchType() != null ? record.getMatchType() : "EXACT");
         rsp.setProviderCode(record.getProviderCode());
         rsp.setTargetModel(record.getTargetModel());
         rsp.setEnabled(record.getEnabled());
@@ -229,5 +247,43 @@ public class ModelRedirectConfigServiceImpl implements IModelRedirectConfigServi
         rsp.setCreateTime(record.getCreateTime());
         rsp.setUpdateTime(record.getUpdateTime());
         return rsp;
+    }
+
+    /**
+     * 校验并规范化匹配类型。
+     *
+     * <p>校验 matchType 是否为合法枚举值；
+     * 对于 GLOB 和 REGEX 类型，额外验证 aliasName 的语法是否合法。</p>
+     *
+     * <p>注意：BizException 在内部 try 中抛出后不会被外层 IllegalArgumentException 捕获，
+     * 因为 BizException 不是 IllegalArgumentException 的子类。</p>
+     */
+    private String validateAndNormalizeMatchType(String matchType, String aliasName) {
+        String normalized = (matchType != null && !matchType.isBlank()) ? matchType.toUpperCase() : "EXACT";
+
+        MatchType mt;
+        try {
+            mt = MatchType.valueOf(normalized);
+        } catch (IllegalArgumentException ex) {
+            throw new BizException("INVALID_MATCH_TYPE", "不支持的匹配类型: " + matchType);
+        }
+
+        // 对 GLOB 和 REGEX 类型进行语法预校验
+        if (mt == MatchType.GLOB) {
+            String regex = GlobPatternUtil.globToRegex(aliasName);
+            try {
+                java.util.regex.Pattern.compile(regex);
+            } catch (java.util.regex.PatternSyntaxException ex) {
+                throw new BizException("INVALID_PATTERN", "通配符语法错误: " + ex.getMessage());
+            }
+        } else if (mt == MatchType.REGEX) {
+            try {
+                java.util.regex.Pattern.compile(aliasName);
+            } catch (java.util.regex.PatternSyntaxException ex) {
+                throw new BizException("INVALID_PATTERN", "正则表达式语法错误: " + ex.getMessage());
+            }
+        }
+
+        return normalized;
     }
 }

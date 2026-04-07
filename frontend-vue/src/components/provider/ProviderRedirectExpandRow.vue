@@ -21,6 +21,17 @@
           element-loading-text="加载中..."
         >
           <el-table-column prop="aliasName" label="对外模型" min-width="140" />
+          <el-table-column label="匹配类型" min-width="100">
+            <template #default="{ row }">
+              <el-tag
+                :type="matchTypeTagType(row.matchType)"
+                size="small"
+                effect="plain"
+              >
+                {{ matchTypeLabel(row.matchType) }}
+              </el-tag>
+            </template>
+          </el-table-column>
           <el-table-column prop="targetModel" label="实际模型" min-width="200" />
           <el-table-column label="状态" min-width="80">
             <template #default="{ row }">
@@ -64,7 +75,7 @@
 import { ref, watch } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { fetchModelRedirectsByProvider } from '../../api/model-redirect-config'
-import type { ModelRedirectConfigRsp } from '../../types/model'
+import type { MatchType, ModelRedirectConfigRsp } from '../../types/model'
 
 const props = defineProps<{
   providerCode: string
@@ -79,6 +90,24 @@ const emit = defineEmits<{
 
 const routes = ref<ModelRedirectConfigRsp[]>([])
 const loading = ref(false)
+
+/** 匹配类型显示文本 */
+function matchTypeLabel(matchType?: MatchType): string {
+  switch (matchType) {
+    case 'GLOB': return '通配符'
+    case 'REGEX': return '正则'
+    default: return '精确'
+  }
+}
+
+/** 匹配类型标签颜色 */
+function matchTypeTagType(matchType?: MatchType): '' | 'warning' | 'danger' {
+  switch (matchType) {
+    case 'GLOB': return 'warning'
+    case 'REGEX': return 'danger'
+    default: return ''
+  }
+}
 
 /** 加载当前 Provider 的路由规则 */
 async function loadRoutes(): Promise<void> {

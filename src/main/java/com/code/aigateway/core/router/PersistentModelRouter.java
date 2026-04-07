@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -43,27 +44,70 @@ public class PersistentModelRouter implements ModelRouter {
             return fallbackRouter.route(request);
         }
 
+        // 1. 精确匹配（O(1) HashMap 查找）
         List<RouteCandidate> candidates = snapshot.getCandidates(request.getModel());
-        if (candidates.isEmpty()) {
-            log.info("[持久化路由] 快照未命中，回退到 YAML 路由，model: {}，快照版本: {}",
-                    request.getModel(), snapshot.getVersion());
-            try {
-                return fallbackRouter.route(request);
-            } catch (GatewayException ex) {
-                // 仅当 YAML 也找不到模型别名时，才走透传分支
-                if (ex.getErrorCode() == ErrorCode.MODEL_NOT_FOUND) {
-                    List<RouteResult> passthrough = buildPassthroughCandidates(snapshot, request.getModel(), request.getRequestProtocol());
-                    if (passthrough.isEmpty()) {
-                        throw new GatewayException(ErrorCode.PROVIDER_NOT_FOUND,
-                                "no providers support protocol " + request.getRequestProtocol() + " for model " + request.getModel());
-                    }
-                    return passthrough.get(0);
+        if (!candidates.isEmpty()) {
+            return selectCandidate(candidates, request);
+        }
+
+        // 2. 模式匹配（GLOB 优先于 REGEX，遍历预编译列表）
+        candidates = matchPatternRoutes(snapshot.getPatternRoutes(), request.getModel());
+        if (!candidates.isEmpty()) {
+            return selectCandidate(candidates, request);
+        }
+
+        // 3. 快照未命中，回退到 YAML 路由
+        log.info("[持久化路由] 快照未命中，回退到 YAML 路由，model: {}，快照版本: {}",
+                request.getModel(), snapshot.getVersion());
+        try {
+            return fallbackRouter.route(request);
+        } catch (GatewayException ex) {
+            // 仅当 YAML 也找不到模型别名时，才走透传分支
+            if (ex.getErrorCode() == ErrorCode.MODEL_NOT_FOUND) {
+                List<RouteResult> passthrough = buildPassthroughCandidates(snapshot, request.getModel(), request.getRequestProtocol());
+                if (passthrough.isEmpty()) {
+                    throw new GatewayException(ErrorCode.PROVIDER_NOT_FOUND,
+                            "no providers support protocol " + request.getRequestProtocol() + " for model " + request.getModel());
                 }
-                throw ex;
+                return passthrough.get(0);
+            }
+            throw ex;
+        }
+    }
+
+    /**
+     * 从模式匹配规则列表中查找命中的候选路由。
+     *
+     * <p>按 GLOB 优先于 REGEX 的顺序遍历，找到第一个匹配的规则即返回其候选列表。
+     * 同一 aliasName 的所有候选已在快照构建时按 provider 优先级排序。</p>
+     */
+    private List<RouteCandidate> matchPatternRoutes(List<RoutingConfigSnapshot.PatternRoute> patternRoutes,
+                                                     String modelName) {
+        List<RouteCandidate> regexMatches = null;
+
+        for (RoutingConfigSnapshot.PatternRoute pr : patternRoutes) {
+            if (pr.compiledPattern().matcher(modelName).matches()) {
+                // GLOB 优先，找到 GLOB 匹配立即返回
+                if (pr.matchType() == MatchType.GLOB) {
+                    log.debug("[持久化路由] GLOB 匹配命中，pattern: {}，model: {}", pr.originalPattern(), modelName);
+                    return pr.candidates();
+                }
+                // REGEX 匹配先暂存，确认没有 GLOB 匹配后再使用
+                if (regexMatches == null) {
+                    regexMatches = pr.candidates();
+                    log.debug("[持久化路由] REGEX 匹配命中，pattern: {}，model: {}", pr.originalPattern(), modelName);
+                }
             }
         }
 
-        // 按请求协议过滤候选，取第一个匹配的
+        // 没有 GLOB 匹配才用 REGEX
+        return regexMatches != null ? regexMatches : Collections.emptyList();
+    }
+
+    /**
+     * 从候选列表中按协议过滤并选出首选候选，构建 RouteResult。
+     */
+    private RouteResult selectCandidate(List<RouteCandidate> candidates, UnifiedRequest request) {
         String requestProtocol = request.getRequestProtocol();
         RouteCandidate selected = candidates.stream()
                 .filter(c -> isProtocolSupported(c, requestProtocol))
@@ -85,6 +129,30 @@ public class PersistentModelRouter implements ModelRouter {
                 .providerTimeoutSeconds(selected.getProviderTimeoutSeconds())
                 .providerApiKey(selected.getProviderApiKey())
                 .build();
+    }
+
+    /**
+     * 从候选列表中按协议过滤，构建完整的 RouteResult 列表（用于故障转移）。
+     */
+    private List<RouteResult> buildRouteResults(List<RouteCandidate> candidates, UnifiedRequest request) {
+        String requestProtocol = request.getRequestProtocol();
+        List<RouteResult> filtered = candidates.stream()
+                .filter(c -> isProtocolSupported(c, requestProtocol))
+                .map(c -> RouteResult.builder()
+                        .providerType(resolveProviderType(c.getProviderType(), request.getModel()))
+                        .providerName(c.getProviderCode())
+                        .targetModel(c.getTargetModel())
+                        .providerBaseUrl(c.getProviderBaseUrl())
+                        .providerTimeoutSeconds(c.getProviderTimeoutSeconds())
+                        .providerApiKey(c.getProviderApiKey())
+                        .build())
+                .toList();
+
+        if (filtered.isEmpty()) {
+            throw new GatewayException(ErrorCode.PROVIDER_NOT_FOUND,
+                    "no providers support protocol " + requestProtocol + " for model " + request.getModel());
+        }
+        return filtered;
     }
 
     /**
@@ -117,38 +185,28 @@ public class PersistentModelRouter implements ModelRouter {
             return fallbackRouter.routeAll(request);
         }
 
+        // 1. 精确匹配
         List<RouteCandidate> candidates = snapshot.getCandidates(request.getModel());
-        if (candidates.isEmpty()) {
-            try {
-                return fallbackRouter.routeAll(request);
-            } catch (GatewayException ex) {
-                // 仅当 YAML 也找不到模型别名时，才走透传分支
-                if (ex.getErrorCode() == ErrorCode.MODEL_NOT_FOUND) {
-                    return buildPassthroughCandidates(snapshot, request.getModel(), request.getRequestProtocol());
-                }
-                throw ex;
+        if (!candidates.isEmpty()) {
+            return buildRouteResults(candidates, request);
+        }
+
+        // 2. 模式匹配
+        candidates = matchPatternRoutes(snapshot.getPatternRoutes(), request.getModel());
+        if (!candidates.isEmpty()) {
+            return buildRouteResults(candidates, request);
+        }
+
+        // 3. 回退到 YAML 路由
+        try {
+            return fallbackRouter.routeAll(request);
+        } catch (GatewayException ex) {
+            // 仅当 YAML 也找不到模型别名时，才走透传分支
+            if (ex.getErrorCode() == ErrorCode.MODEL_NOT_FOUND) {
+                return buildPassthroughCandidates(snapshot, request.getModel(), request.getRequestProtocol());
             }
+            throw ex;
         }
-
-        // 按请求协议过滤候选
-        String requestProtocol = request.getRequestProtocol();
-        List<RouteResult> filtered = candidates.stream()
-                .filter(c -> isProtocolSupported(c, requestProtocol))
-                .map(c -> RouteResult.builder()
-                        .providerType(resolveProviderType(c.getProviderType(), request.getModel()))
-                        .providerName(c.getProviderCode())
-                        .targetModel(c.getTargetModel())
-                        .providerBaseUrl(c.getProviderBaseUrl())
-                        .providerTimeoutSeconds(c.getProviderTimeoutSeconds())
-                        .providerApiKey(c.getProviderApiKey())
-                        .build())
-                .toList();
-
-        if (filtered.isEmpty()) {
-            throw new GatewayException(ErrorCode.PROVIDER_NOT_FOUND,
-                    "no providers support protocol " + requestProtocol + " for model " + request.getModel());
-        }
-        return filtered;
     }
 
     /**

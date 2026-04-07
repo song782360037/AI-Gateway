@@ -21,8 +21,17 @@
         </div>
         <div class="form-grid">
           <el-form-item label="对外模型名称" prop="aliasName">
-            <el-input v-model="form.aliasName" placeholder="如 gpt-4o" />
+            <el-input v-model="form.aliasName" :placeholder="aliasNamePlaceholder" />
           </el-form-item>
+          <el-form-item label="匹配类型" prop="matchType">
+            <el-select v-model="form.matchType" placeholder="选择匹配类型">
+              <el-option label="精确匹配" value="EXACT" />
+              <el-option label="通配符匹配" value="GLOB" />
+              <el-option label="正则匹配" value="REGEX" />
+            </el-select>
+          </el-form-item>
+        </div>
+        <div class="form-grid">
           <el-form-item label="目标提供商" prop="providerCode">
             <el-input
               v-model="form.providerCode"
@@ -30,10 +39,10 @@
               :disabled="providerCodeLocked"
             />
           </el-form-item>
+          <el-form-item label="目标模型标识" prop="targetModel">
+            <el-input v-model="form.targetModel" placeholder="如 gpt-4o-2024-11-20" />
+          </el-form-item>
         </div>
-        <el-form-item label="目标模型标识" prop="targetModel">
-          <el-input v-model="form.targetModel" placeholder="如 gpt-4o-2024-11-20" />
-        </el-form-item>
       </section>
 
       <section class="dialog-section">
@@ -58,14 +67,15 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { reactive, ref, watch, computed } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
-import type { ModelRedirectConfigRsp } from '../../types/model'
+import type { MatchType, ModelRedirectConfigRsp } from '../../types/model'
 
 interface RedirectFormModel {
   id?: number
   versionNo?: number
   aliasName: string
+  matchType: MatchType
   providerCode: string
   targetModel: string
   enabled: boolean
@@ -92,9 +102,22 @@ const isEdit = ref(false)
 
 const rules: FormRules<RedirectFormModel> = {
   aliasName: [{ required: true, message: '请输入对外模型名称', trigger: 'blur' }],
+  matchType: [{ required: true, message: '请选择匹配类型', trigger: 'change' }],
   providerCode: [{ required: true, message: '请输入目标提供商', trigger: 'blur' }],
   targetModel: [{ required: true, message: '请输入目标模型标识', trigger: 'blur' }],
 }
+
+/** 根据匹配类型动态显示 placeholder 提示 */
+const aliasNamePlaceholder = computed(() => {
+  switch (form.matchType) {
+    case 'GLOB':
+      return '如 gpt-4o*（* 匹配任意字符，? 匹配单字符）'
+    case 'REGEX':
+      return '如 gpt-4\\d+-preview（Java 正则表达式）'
+    default:
+      return '如 gpt-4o'
+  }
+})
 
 watch(
   [() => props.modelValue, () => props.lockedProviderCode, () => props.visible],
@@ -122,6 +145,7 @@ function buildFormState(value?: ModelRedirectConfigRsp | null): RedirectFormMode
     id: value.id,
     versionNo: value.versionNo,
     aliasName: value.aliasName,
+    matchType: value.matchType || 'EXACT',
     providerCode: value.providerCode,
     targetModel: value.targetModel,
     enabled: value.enabled,
@@ -131,6 +155,7 @@ function buildFormState(value?: ModelRedirectConfigRsp | null): RedirectFormMode
 function createEmptyForm(): RedirectFormModel {
   return {
     aliasName: '',
+    matchType: 'EXACT',
     providerCode: '',
     targetModel: '',
     enabled: true,
@@ -148,6 +173,7 @@ async function submit() {
 
   const basePayload = {
     aliasName: form.aliasName,
+    matchType: form.matchType,
     providerCode: form.providerCode,
     targetModel: form.targetModel,
     enabled: form.enabled,

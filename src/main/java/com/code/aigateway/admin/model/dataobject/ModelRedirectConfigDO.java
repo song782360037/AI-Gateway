@@ -21,6 +21,11 @@ public class ModelRedirectConfigDO {
     private String aliasName;
 
     /**
+     * 匹配类型：EXACT-精确匹配, GLOB-通配符匹配, REGEX-正则匹配
+     */
+    private String matchType;
+
+    /**
      * 提供商业务编码
      */
     private String providerCode;

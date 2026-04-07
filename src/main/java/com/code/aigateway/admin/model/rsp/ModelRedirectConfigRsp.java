@@ -18,6 +18,9 @@ public class ModelRedirectConfigRsp {
     /** 模型别名，例如 gpt-4o */
     private String aliasName;
 
+    /** 匹配类型：EXACT/GLOB/REGEX */
+    private String matchType;
+
     /** 目标提供商编码 */
     private String providerCode;
 
