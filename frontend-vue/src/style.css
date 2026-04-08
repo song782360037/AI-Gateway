@@ -8,12 +8,16 @@
   --color-accent: #06b6d4;
 
   /* ==================== 侧边栏 ==================== */
-  --sidebar-bg: #0f172a;
-  --sidebar-text: #7c8aa6;
-  --sidebar-active-text: #ffffff;
-  --sidebar-active-bg: rgba(67, 97, 238, 0.12);
-  --sidebar-hover-bg: rgba(255, 255, 255, 0.04);
-  --sidebar-width: 240px;
+  --sidebar-bg: #0b0f1a;
+  --sidebar-surface: #111827;
+  --sidebar-border: rgba(255, 255, 255, 0.04);
+  --sidebar-text: #6b7a94;
+  --sidebar-text-muted: #3e4a5e;
+  --sidebar-active-text: #e8ecf4;
+  --sidebar-active-bg: rgba(67, 97, 238, 0.10);
+  --sidebar-hover-bg: rgba(255, 255, 255, 0.03);
+  --sidebar-glow: rgba(67, 97, 238, 0.35);
+  --sidebar-width: 256px;
   --topbar-height: 60px;
 
   /* ==================== 内容区 ==================== */
@@ -114,9 +118,30 @@ a {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  position: relative;
+  z-index: 10;
+  /* 侧边栏右侧微妙分割线 */
+  border-right: 1px solid var(--sidebar-border);
   /* 自定义滚动条 */
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.06) transparent;
+}
+
+/* 侧边栏整体微妙渐变叠加层，增加深度感 */
+.sidebar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 20% 0%, rgba(67, 97, 238, 0.07) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 40% at 80% 100%, rgba(6, 182, 212, 0.04) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.sidebar > * {
+  position: relative;
+  z-index: 1;
 }
 
 .sidebar::-webkit-scrollbar {
@@ -132,75 +157,123 @@ a {
   background: transparent;
 }
 
-/* Logo 区域 — 顶部微妙渐变 */
+/* Logo 区域 — 品牌标识 */
 .sidebar-logo {
   height: var(--topbar-height);
   display: flex;
   align-items: center;
+  gap: 12px;
   padding: 0 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--sidebar-border);
   position: relative;
-  overflow: hidden;
 }
 
-/* Logo 区域顶部渐变光晕 */
-.sidebar-logo::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(67, 97, 238, 0.12) 0%, transparent 60%);
-  pointer-events: none;
+/* Logo 标记容器 — 渐变背景 + 发光边框 */
+.sidebar-logo__mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #4361ee 0%, #06b6d4 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow:
+    0 0 0 1px rgba(67, 97, 238, 0.25),
+    0 2px 8px -2px rgba(67, 97, 238, 0.4);
+}
+
+.sidebar-logo__text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
 }
 
 .sidebar-logo h1 {
-  position: relative;
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 700;
-  color: #ffffff;
-  letter-spacing: 0.02em;
+  color: #e8ecf4;
+  letter-spacing: 0.01em;
+}
+
+.sidebar-logo__sub {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--sidebar-text);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-top: 3px;
 }
 
 /* 菜单 */
 .sidebar-menu {
   border-right: none !important;
-  padding: 12px 0;
+  padding: 16px 12px;
+}
+
+/* 菜单分组标签 */
+.sidebar-nav-label {
+  padding: 8px 12px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--sidebar-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  user-select: none;
 }
 
 .sidebar-menu .el-menu-item {
-  height: 44px;
-  line-height: 44px;
-  margin: 2px 12px;
-  border-radius: var(--radius-sm);
-  font-size: 14px;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  height: 42px;
+  line-height: 42px;
+  margin: 1px 0;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 450;
+  letter-spacing: 0.01em;
+  color: var(--sidebar-text);
+  transition: all var(--transition-fast);
 }
 
 .sidebar-menu .el-menu-item:hover {
   background: var(--sidebar-hover-bg) !important;
+  color: #a0aec0;
 }
 
-/* 激活态 — 渐变背景 + 左侧指示条 */
+/* 激活态 — 精致的发光指示条 + 半透明背景 */
 .sidebar-menu .el-menu-item.is-active {
   background: var(--sidebar-active-bg) !important;
   color: var(--sidebar-active-text) !important;
+  font-weight: 550;
   position: relative;
 }
 
 .sidebar-menu .el-menu-item.is-active::before {
   content: '';
   position: absolute;
-  left: -12px;
+  left: 0;
   top: 50%;
   transform: translateY(-50%);
   width: 3px;
-  height: 20px;
+  height: 18px;
   background: var(--color-primary);
-  border-radius: 0 3px 3px 0;
+  border-radius: 0 4px 4px 0;
+  box-shadow: 0 0 8px 1px var(--sidebar-glow);
 }
 
 .sidebar-menu .el-menu-item .el-icon {
-  font-size: 18px;
+  font-size: 17px;
   margin-right: 10px;
+  opacity: 0.7;
+  transition: opacity var(--transition-fast);
+}
+
+.sidebar-menu .el-menu-item:hover .el-icon {
+  opacity: 0.9;
+}
+
+.sidebar-menu .el-menu-item.is-active .el-icon {
+  opacity: 1;
+  color: var(--color-primary-light);
 }
 
 /* ==================== 主内容区 ==================== */
