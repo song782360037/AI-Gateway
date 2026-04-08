@@ -429,8 +429,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
     private Flux<UnifiedStreamEvent> handleStart(JsonNode json, StreamState state) {
         JsonNode message = json.path("message");
         state.messageId = textOrNull(message.get("id"));
-        state.inputTokens = message.path("usage").path("input_tokens").isMissingNode()
-                ? null : message.path("usage").path("input_tokens").asInt();
+        mergeAnthropicUsage(state, message.get("usage"));
         return Flux.empty();
     }
 
@@ -509,13 +508,14 @@ public class AnthropicProviderClient extends AbstractProviderClient {
     private Flux<UnifiedStreamEvent> handleMessageDelta(JsonNode json, StreamState state) {
         JsonNode delta = json.path("delta");
         JsonNode usageNode = json.path("usage");
+        mergeAnthropicUsage(state, usageNode);
 
         UnifiedUsage usage = new UnifiedUsage();
         usage.setInputTokens(state.inputTokens);
-        usage.setOutputTokens(usageNode.path("output_tokens").isMissingNode()
-                ? null : usageNode.path("output_tokens").asInt());
-        // 计算 totalTokens（与 parseAnthropicUsage 保持一致）
-        if (usage.getInputTokens() != null && usage.getOutputTokens() != null) {
+        usage.setOutputTokens(state.outputTokens);
+        if (state.totalTokens != null) {
+            usage.setTotalTokens(state.totalTokens);
+        } else if (usage.getInputTokens() != null && usage.getOutputTokens() != null) {
             usage.setTotalTokens(usage.getInputTokens() + usage.getOutputTokens());
         }
 
@@ -592,12 +592,39 @@ public class AnthropicProviderClient extends AbstractProviderClient {
             return null;
         }
         UnifiedUsage usage = new UnifiedUsage();
-        usage.setInputTokens(usageNode.path("input_tokens").isMissingNode() ? null : usageNode.path("input_tokens").asInt());
-        usage.setOutputTokens(usageNode.path("output_tokens").isMissingNode() ? null : usageNode.path("output_tokens").asInt());
-        if (usage.getInputTokens() != null && usage.getOutputTokens() != null) {
+        usage.setInputTokens(readIntField(usageNode, "input_tokens"));
+        usage.setOutputTokens(readIntField(usageNode, "output_tokens"));
+        Integer totalTokens = readIntField(usageNode, "total_tokens");
+        if (totalTokens != null) {
+            usage.setTotalTokens(totalTokens);
+        } else if (usage.getInputTokens() != null && usage.getOutputTokens() != null) {
             usage.setTotalTokens(usage.getInputTokens() + usage.getOutputTokens());
         }
         return usage;
+    }
+
+    /**
+     * 合并流式 Anthropic usage，兼容输入 token 可能延迟出现在后续事件的情况。
+     */
+    private void mergeAnthropicUsage(StreamState state, JsonNode usageNode) {
+        if (usageNode == null || usageNode.isNull() || usageNode.isMissingNode()) {
+            return;
+        }
+        Integer inputTokens = readIntField(usageNode, "input_tokens");
+        Integer outputTokens = readIntField(usageNode, "output_tokens");
+        Integer totalTokens = readIntField(usageNode, "total_tokens");
+
+        if (inputTokens != null) {
+            state.inputTokens = inputTokens;
+        }
+        if (outputTokens != null) {
+            state.outputTokens = outputTokens;
+        }
+        if (totalTokens != null) {
+            state.totalTokens = totalTokens;
+        } else if (state.inputTokens != null && state.outputTokens != null) {
+            state.totalTokens = state.inputTokens + state.outputTokens;
+        }
     }
 
     /** 从消息中提取纯文本内容 */
@@ -644,6 +671,8 @@ public class AnthropicProviderClient extends AbstractProviderClient {
     private static class StreamState {
         String messageId;
         Integer inputTokens;
+        Integer outputTokens;
+        Integer totalTokens;
         String currentToolId;
         String currentToolName;
         StringBuilder currentToolArgs;

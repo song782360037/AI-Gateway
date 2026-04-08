@@ -206,7 +206,38 @@ class AnthropicProviderClientTest {
                 .verifyComplete();
     }
 
-    // ==================== 4. 流式工具调用解析 ====================
+    @Test
+    void streamChat_inputTokensAppearInMessageDelta_keepsUsageComplete() {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.TEXT_EVENT_STREAM_VALUE, """
+                    data: {"type":"message_start","message":{"id":"msg_s2","type":"message","role":"assistant","model":"claude-sonnet-4-20250514","usage":{}}}
+
+                    data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}
+
+                    data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":23,"output_tokens":7}}
+
+                    data: {"type":"message_stop"}
+
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        StepVerifier.create(providerClient.streamChat(buildBasicRequest(true)))
+                .assertNext(event -> {
+                    assertEquals("text_delta", event.getType());
+                    assertEquals("hello", event.getTextDelta());
+                })
+                .assertNext(event -> {
+                    assertEquals("done", event.getType());
+                    assertNotNull(event.getUsage());
+                    assertEquals(23, event.getUsage().getInputTokens());
+                    assertEquals(7, event.getUsage().getOutputTokens());
+                    assertEquals(30, event.getUsage().getTotalTokens());
+                })
+                .verifyComplete();
+    }
+
 
     @Test
     void streamChat_toolUse_parsesToolCallLifecycle() {

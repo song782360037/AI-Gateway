@@ -301,17 +301,48 @@ public abstract class AbstractProviderClient implements ProviderClient {
     // ==================== 工具方法 ====================
 
     /**
-     * 解析 usage（OpenAI 格式：prompt_tokens / completion_tokens / total_tokens）
+     * 解析 usage，兼容 OpenAI Chat / Responses 两种字段命名。
+     * <p>
+     * 兼容字段：
+     * - 输入：prompt_tokens / input_tokens
+     * - 输出：completion_tokens / output_tokens
+     * - 总量：total_tokens（缺失时自动按输入+输出补算）
+     * </p>
      */
     protected UnifiedUsage parseUsage(JsonNode usageNode) {
         if (usageNode == null || usageNode.isNull() || usageNode.isMissingNode()) {
             return null;
         }
         UnifiedUsage usage = new UnifiedUsage();
-        usage.setInputTokens(usageNode.path("prompt_tokens").isMissingNode() ? null : usageNode.path("prompt_tokens").asInt());
-        usage.setOutputTokens(usageNode.path("completion_tokens").isMissingNode() ? null : usageNode.path("completion_tokens").asInt());
-        usage.setTotalTokens(usageNode.path("total_tokens").isMissingNode() ? null : usageNode.path("total_tokens").asInt());
+
+        Integer inputTokens = readIntField(usageNode, "prompt_tokens", "input_tokens");
+        Integer outputTokens = readIntField(usageNode, "completion_tokens", "output_tokens");
+        Integer totalTokens = readIntField(usageNode, "total_tokens");
+
+        usage.setInputTokens(inputTokens);
+        usage.setOutputTokens(outputTokens);
+        if (totalTokens != null) {
+            usage.setTotalTokens(totalTokens);
+        } else if (inputTokens != null && outputTokens != null) {
+            usage.setTotalTokens(inputTokens + outputTokens);
+        }
         return usage;
+    }
+
+    /**
+     * 从多个候选字段中读取第一个存在的整数值。
+     */
+    protected Integer readIntField(JsonNode node, String... fieldNames) {
+        if (node == null || node.isNull() || node.isMissingNode() || fieldNames == null) {
+            return null;
+        }
+        for (String fieldName : fieldNames) {
+            JsonNode field = node.path(fieldName);
+            if (!field.isMissingNode() && !field.isNull()) {
+                return field.asInt();
+            }
+        }
+        return null;
     }
 
     /**

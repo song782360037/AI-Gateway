@@ -1,5 +1,6 @@
 package com.code.aigateway.core.stats;
 
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -27,6 +28,19 @@ public final class ModelPriceTable {
             Map.entry("gemini-2.0-flash", new double[]{0.10, 0.40})
     );
 
+    private static final Map<String, double[]> PRICE_PREFIXES = Map.ofEntries(
+            Map.entry("gpt-4o-mini", PRICES.get("gpt-4o-mini")),
+            Map.entry("gpt-4o", PRICES.get("gpt-4o")),
+            Map.entry("gpt-3.5-turbo", PRICES.get("gpt-3.5-turbo")),
+            Map.entry("gpt-4-turbo", PRICES.get("gpt-4-turbo")),
+            Map.entry("o1-mini", PRICES.get("o1-mini")),
+            Map.entry("claude-sonnet-4", PRICES.get("claude-sonnet-4-20250514")),
+            Map.entry("claude-haiku-4", PRICES.get("claude-haiku-4-20250506")),
+            Map.entry("claude-opus-4", PRICES.get("claude-opus-4-20250514")),
+            Map.entry("deepseek-chat", PRICES.get("deepseek-chat")),
+            Map.entry("gemini-2.0-flash", PRICES.get("gemini-2.0-flash"))
+    );
+
     private ModelPriceTable() {
     }
 
@@ -39,7 +53,26 @@ public final class ModelPriceTable {
      * @return 估算费用（USD）
      */
     public static double estimateCost(String targetModel, int promptTokens, int completionTokens) {
-        double[] price = PRICES.getOrDefault(targetModel, DEFAULT_PRICE);
+        double[] price = resolvePrice(targetModel);
         return (promptTokens * price[0] + completionTokens * price[1]) / 1_000_000.0;
+    }
+
+    private static double[] resolvePrice(String targetModel) {
+        if (targetModel == null || targetModel.isBlank()) {
+            return DEFAULT_PRICE;
+        }
+
+        String normalizedModel = targetModel.trim().toLowerCase(Locale.ROOT);
+        double[] exactPrice = PRICES.get(normalizedModel);
+        if (exactPrice != null) {
+            return exactPrice;
+        }
+
+        for (Map.Entry<String, double[]> entry : PRICE_PREFIXES.entrySet()) {
+            if (normalizedModel.startsWith(entry.getKey())) {
+                return entry.getValue();
+            }
+        }
+        return DEFAULT_PRICE;
     }
 }

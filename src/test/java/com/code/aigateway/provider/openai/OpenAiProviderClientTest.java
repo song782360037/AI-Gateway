@@ -119,6 +119,45 @@ class OpenAiProviderClientTest {
     }
 
     @Test
+    void chat_usageWithInputOutputFields_returnsUnifiedResponse() {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
+                    {
+                      "id": "chatcmpl-upstream-io-fields",
+                      "object": "chat.completion",
+                      "created": 1710000000,
+                      "model": "gpt-4o-2024-08-06",
+                      "choices": [
+                        {
+                          "index": 0,
+                          "message": {
+                            "role": "assistant",
+                            "content": "兼容 input/output 字段"
+                          },
+                          "finish_reason": "stop"
+                        }
+                      ],
+                      "usage": {
+                        "input_tokens": 13,
+                        "output_tokens": 9
+                      }
+                    }
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        StepVerifier.create(providerClient.chat(buildRequest(false)))
+                .assertNext(response -> {
+                    assertNotNull(response.getUsage());
+                    assertEquals(13, response.getUsage().getInputTokens());
+                    assertEquals(9, response.getUsage().getOutputTokens());
+                    assertEquals(22, response.getUsage().getTotalTokens());
+                })
+                .verifyComplete();
+    }
+
+    @Test
     void chat_requestBody_includesReasoningEffort() throws Exception {
         startServer(exchange -> {
             captureRequest(exchange);
