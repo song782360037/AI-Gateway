@@ -7,7 +7,7 @@
           <p class="provider-page-hero__eyebrow">Provider Console</p>
           <h3 class="provider-page-hero__title">提供商管理</h3>
           <p class="provider-page-hero__desc">
-            统一维护接入通道与模型路由，展开单行即可管理该 Provider 的模型映射规则。
+            统一维护接入通道与模型路由，展开单行即可管理该提供商的模型映射规则。
           </p>
         </div>
         <div class="provider-page-hero__meta">
@@ -29,12 +29,12 @@
       <!-- 筛选工具条 -->
       <div class="provider-toolbar">
         <el-form :inline="true" :model="providerQuery" class="filter-bar">
-          <el-form-item label="Provider 编码">
+          <el-form-item label="提供商名称">
             <el-input v-model="providerQuery.providerCode" placeholder="openai-main" clearable size="default" />
           </el-form-item>
-          <el-form-item label="Provider 类型">
+          <el-form-item label="提供商类型">
             <el-select v-model="providerQuery.providerType" placeholder="全部" clearable style="width: 160px" size="default">
-              <el-option label="OpenAI Chat" value="OPENAI" />
+              <el-option label="OpenAI Chat" value="OPENAI_CHAT" />
               <el-option label="Response" value="OPENAI_RESPONSES" />
               <el-option label="Anthropic" value="ANTHROPIC" />
               <el-option label="Gemini" value="GEMINI" />
@@ -57,8 +57,8 @@
       <!-- 表头 -->
       <div class="provider-card-header">
         <div class="provider-card-header__main">
-          <span class="provider-card-header__title">Provider 列表</span>
-          <p class="provider-card-header__desc">展开任意行查看并维护该 Provider 下的模型路由规则。</p>
+          <span class="provider-card-header__title">提供商列表</span>
+          <p class="provider-card-header__desc">展开任意行查看并维护该提供商下的模型路由规则。</p>
         </div>
       </div>
 
