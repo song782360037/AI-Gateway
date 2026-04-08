@@ -33,7 +33,12 @@
             <el-input v-model="providerQuery.providerCode" placeholder="openai-main" clearable size="default" />
           </el-form-item>
           <el-form-item label="Provider 类型">
-            <el-input v-model="providerQuery.providerType" placeholder="OPENAI" clearable size="default" />
+            <el-select v-model="providerQuery.providerType" placeholder="全部" clearable style="width: 160px" size="default">
+              <el-option label="OpenAI Chat" value="OPENAI" />
+              <el-option label="Response" value="OPENAI_RESPONSES" />
+              <el-option label="Anthropic" value="ANTHROPIC" />
+              <el-option label="Gemini" value="GEMINI" />
+            </el-select>
           </el-form-item>
           <el-form-item label="启用状态">
             <el-select v-model="enabledFilter" placeholder="全部" style="width: 120px" size="default">
@@ -89,10 +94,15 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="providerCode" label="Provider 编码" min-width="140" />
-        <el-table-column prop="providerType" label="类型" min-width="110" />
-        <el-table-column prop="displayName" label="显示名称" min-width="140" />
-        <el-table-column label="状态" min-width="80">
+        <el-table-column prop="providerCode" label="提供商" min-width="140" />
+        <el-table-column label="类型" min-width="80">
+          <template #default="{ row }">
+            <el-tag size="small" :type="providerTagType(row.providerType)">
+              {{ providerLabel(row.providerType) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" min-width="50">
           <template #default="{ row }">
             <el-tag
               :class="row.enabled ? 'status-chip status-chip--success' : 'status-chip status-chip--muted'"
@@ -111,16 +121,15 @@
                 v-for="protocol in row.supportedProtocols"
                 :key="protocol"
                 size="small"
-                type="info"
+                :type="providerTagType(protocol)"
                 style="margin: 2px"
               >
-                {{ protocol }}
+                {{ providerLabel(protocol) }}
               </el-tag>
             </template>
             <el-tag v-else size="small" type="success">全部</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="apiKeyMasked" label="密钥摘要" min-width="120" />
         <el-table-column label="操作" fixed="right" width="180">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openEditProvider(row)">编辑</el-button>
@@ -448,6 +457,30 @@ async function removeRedirect(item: ModelRedirectConfigRsp) {
   } catch (error) {
     if (error === 'cancel' || error === 'close') return
   }
+}
+
+/* ==================== 类型标签映射（与请求日志协议样式保持一致） ==================== */
+
+const providerLabelMap: Record<string, string> = {
+  OPENAI_CHAT: 'OpenAI Chat',
+  OPENAI_RESPONSES: 'Response',
+  ANTHROPIC: 'Anthropic',
+  GEMINI: 'Gemini',
+}
+
+const providerTagTypeMap: Record<string, string> = {
+  OPENAI_CHAT: 'primary',
+  OPENAI_RESPONSES: 'primary',
+  ANTHROPIC: 'warning',
+  GEMINI: 'success',
+}
+
+function providerLabel(type: string): string {
+  return providerLabelMap[type] ?? type
+}
+
+function providerTagType(type: string): string {
+  return providerTagTypeMap[type] ?? 'info'
 }
 
 /* ==================== 初始化 ==================== */

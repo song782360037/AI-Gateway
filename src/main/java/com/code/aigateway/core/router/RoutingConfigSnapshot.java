@@ -1,6 +1,7 @@
 package com.code.aigateway.core.router;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.Collections;
 import java.util.Comparator;
@@ -142,12 +143,13 @@ public final class RoutingConfigSnapshot {
      * 不参与 JSON 序列化（Pattern 对象不可序列化，Redis 缓存只需 regex 字符串）。</p>
      */
     public static final class PatternRoute {
-        private final MatchType matchType;
-        private final String regex;
-        private final String originalPattern;
-        private final List<RouteCandidate> candidates;
+        @JsonProperty private final MatchType matchType;
+        @JsonProperty private final String regex;
+        @JsonProperty private final String originalPattern;
+        @JsonProperty private final List<RouteCandidate> candidates;
 
         /** 惰性编译并缓存的 Pattern */
+        @JsonIgnore
         private volatile Pattern compiledPattern;
 
         public PatternRoute(MatchType matchType, String regex, String originalPattern, List<RouteCandidate> candidates) {
