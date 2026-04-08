@@ -2,6 +2,7 @@ package com.code.aigateway.core.router;
 
 import com.code.aigateway.core.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
+import com.code.aigateway.core.model.ResponseProtocol;
 import com.code.aigateway.core.model.UnifiedRequest;
 import com.code.aigateway.core.runtime.RoutingSnapshotHolder;
 import com.code.aigateway.provider.ProviderType;
@@ -242,7 +243,13 @@ public class PersistentModelRouter implements ModelRouter {
             return true;
         }
         List<String> supported = candidate.getSupportedProtocols();
-        return supported == null || supported.isEmpty() || supported.contains(requestProtocol);
+        if (supported == null || supported.isEmpty()) {
+            return true;
+        }
+        // 归一化后比较：兼容 "openai-chat" vs "OPENAI_CHAT" 等格式差异
+        String normalized = ResponseProtocol.normalize(requestProtocol);
+        return supported.stream()
+                .anyMatch(s -> ResponseProtocol.normalize(s).equals(normalized));
     }
 
     /**
@@ -253,6 +260,11 @@ public class PersistentModelRouter implements ModelRouter {
             return true;
         }
         List<String> supported = entry.supportedProtocols();
-        return supported == null || supported.isEmpty() || supported.contains(requestProtocol);
+        if (supported == null || supported.isEmpty()) {
+            return true;
+        }
+        String normalized = ResponseProtocol.normalize(requestProtocol);
+        return supported.stream()
+                .anyMatch(s -> ResponseProtocol.normalize(s).equals(normalized));
     }
 }

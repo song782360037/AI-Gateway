@@ -61,4 +61,19 @@ public enum ResponseProtocol {
     public static boolean isValid(String protocolName) {
         return protocolName != null && VALID_NAMES.contains(protocolName);
     }
+
+    /**
+     * 归一化协议名称，用于跨格式比较。
+     * <p>将 "openai-chat" → "openai_chat"，"OPENAI_CHAT" → "openai_chat"，确保
+     * 请求路径设置的小写-连字符格式与数据库存储的枚举大写_下划线格式可正确匹配。</p>
+     *
+     * @param protocol 协议字符串
+     * @return 归一化后的小写下划线格式；输入为 null 时返回 null
+     */
+    public static String normalize(String protocol) {
+        if (protocol == null) {
+            return null;
+        }
+        return protocol.trim().toLowerCase().replace('-', '_');
+    }
 }

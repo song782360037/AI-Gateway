@@ -250,8 +250,8 @@ async function onPageSizeChange() {
 
 /** 协议类型标签映射 */
 const providerLabelMap: Record<string, string> = {
-  OPENAI: 'OpenAI Chat',
-  OPENAI_RESPONSES: 'OpenAI Resp',
+  OPENAI_CHAT: 'OpenAI Chat',
+  OPENAI_RESPONSES: 'Response',
   ANTHROPIC: 'Anthropic',
   GEMINI: 'Gemini',
 }
