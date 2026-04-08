@@ -3,8 +3,10 @@ package com.code.aigateway.admin.controller;
 import com.code.aigateway.admin.model.req.ProviderConfigAddReq;
 import com.code.aigateway.admin.model.req.ProviderConfigQueryReq;
 import com.code.aigateway.admin.model.req.ProviderConfigUpdateReq;
+import com.code.aigateway.admin.model.rsp.ConnectionTestResult;
 import com.code.aigateway.admin.model.rsp.ProviderConfigRsp;
 import com.code.aigateway.admin.service.IProviderConfigService;
+import com.code.aigateway.admin.service.ProviderConnectionTestService;
 import com.code.aigateway.admin.service.IProviderConfigService.ProviderPriorityItem;
 import com.code.aigateway.common.result.PageResult;
 import com.code.aigateway.common.result.R;
@@ -37,6 +39,7 @@ import java.util.List;
 public class ProviderConfigController {
 
     private final IProviderConfigService providerConfigService;
+    private final ProviderConnectionTestService connectionTestService;
 
     /**
      * 新增提供商配置
@@ -132,6 +135,35 @@ public class ProviderConfigController {
         return Mono.fromRunnable(() -> providerConfigService.batchUpdatePriority(items))
                 .subscribeOn(Schedulers.boundedElastic())
                 .thenReturn(R.ok());
+    }
+
+    /**
+     * 测试提供商连接
+     * <p>
+     * 根据提供商类型构造轻量级验证请求（GET /models 或最小化 chat），
+     * 确认服务可达性和凭证有效性。阻塞的数据库读取切到弹性线程池，
+     * 后续 HTTP 调用天然响应式，直接在事件线程执行。
+     * </p>
+     *
+     * @param id 提供商配置主键
+     * @return 连接测试结果
+     */
+    @PostMapping("/test-connection/{id}")
+    public Mono<R<ConnectionTestResult>> testConnection(@PathVariable Long id) {
+        // 阻塞的 DB 读取 + API Key 解密切到弹性线程池，避免阻塞 Netty 事件线程
+        return Mono.fromCallable(() -> connectionTestService.loadTestContext(id))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(ctx -> {
+                    if (ctx == null) {
+                        return Mono.just(R.ok(ConnectionTestResult.builder()
+                                .success(false)
+                                .errorType("UNKNOWN")
+                                .errorMessage("提供商配置不存在，id=" + id)
+                                .build()));
+                    }
+                    // 响应式 HTTP 测试直接在事件线程执行
+                    return connectionTestService.executeTest(ctx).map(R::ok);
+                });
     }
 
     /**

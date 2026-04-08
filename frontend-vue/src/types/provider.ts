@@ -47,3 +47,11 @@ export interface ProviderConfigRsp {
   createTime?: string
   updateTime?: string
 }
+
+/** 提供商连接测试结果 */
+export interface ConnectionTestResult {
+  success: boolean
+  latencyMs: number
+  errorMessage?: string
+  errorType?: string
+}

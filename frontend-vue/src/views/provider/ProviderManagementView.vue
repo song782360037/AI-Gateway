@@ -130,9 +130,18 @@
             <el-tag v-else size="small" type="success">全部</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" fixed="right" width="180">
+        <el-table-column label="操作" fixed="right" width="260">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openEditProvider(row)">编辑</el-button>
+            <el-button
+              link
+              type="primary"
+              size="small"
+              :loading="testingIds.has(row.id)"
+              @click="handleTestConnection(row)"
+            >
+              {{ testingIds.has(row.id) ? '测试中' : '测试' }}
+            </el-button>
             <el-button link :type="row.enabled ? 'warning' : 'success'" size="small" @click="handleToggleProvider(row)">
               {{ row.enabled ? '禁用' : '启用' }}
             </el-button>
@@ -198,14 +207,14 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import { Plus, RefreshRight, Rank } from '@element-plus/icons-vue'
 import Sortable from 'sortablejs'
 import ConsoleLayout from '../../layout/ConsoleLayout.vue'
 import ProviderFormDialog from '../../components/provider/ProviderFormDialog.vue'
 import ProviderRedirectExpandRow from '../../components/provider/ProviderRedirectExpandRow.vue'
 import ModelRedirectFormDialog from '../../components/model/ModelRedirectFormDialog.vue'
-import { addProvider, batchUpdatePriority, deleteProvider, fetchProviderPage, toggleProvider, updateProvider } from '../../api/provider-config'
+import { addProvider, batchUpdatePriority, deleteProvider, fetchProviderPage, testConnection, toggleProvider, updateProvider } from '../../api/provider-config'
 import {
   addModelRedirect,
   deleteModelRedirect,
@@ -376,6 +385,52 @@ async function handleToggleProvider(item: ProviderConfigRsp) {
     await loadProviders()
   } catch (error) {
     if (error === 'cancel' || error === 'close') return
+  }
+}
+
+/* ==================== 测试连接 ==================== */
+
+// 正在测试中的提供商 id 集合，用于按钮 loading 状态
+const testingIds = reactive(new Set<number>())
+
+async function handleTestConnection(item: ProviderConfigRsp) {
+  // 防止重复点击
+  if (testingIds.has(item.id)) return
+  testingIds.add(item.id)
+
+  try {
+    const result = await testConnection(item.id)
+    const label = item.displayName || item.providerCode
+
+    if (result.success) {
+      ElNotification({
+        title: '连接测试成功',
+        message: `提供商「${label}」连接正常，响应延迟 ${result.latencyMs} ms`,
+        type: 'success',
+        duration: 4000,
+      })
+    } else {
+      // 错误类型标签映射
+      const typeLabel: Record<string, string> = {
+        AUTH_FAILED: '认证失败',
+        RATE_LIMIT: '频率超限',
+        TIMEOUT: '连接超时',
+        NETWORK_ERROR: '网络错误',
+        SERVER_ERROR: '服务端错误',
+        UNKNOWN: '未知错误',
+      }
+      const tag = typeLabel[result.errorType ?? 'UNKNOWN'] ?? '未知错误'
+      ElNotification({
+        title: '连接测试失败',
+        message: `提供商：${label}\n错误类型：${tag}\n详情：${result.errorMessage ?? '无'}\n耗时：${result.latencyMs} ms`,
+        type: 'error',
+        duration: 8000,
+      })
+    }
+  } catch {
+    // 请求层已统一处理错误提示
+  } finally {
+    testingIds.delete(item.id)
   }
 }
 

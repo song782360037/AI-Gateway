@@ -1,6 +1,7 @@
 import request from '../utils/request'
 import type { PageResult } from '../types/common'
 import type {
+  ConnectionTestResult,
   ProviderConfigAddReq,
   ProviderConfigQueryReq,
   ProviderConfigRsp,
@@ -36,4 +37,9 @@ export interface PriorityUpdateItem {
 
 export function batchUpdatePriority(items: PriorityUpdateItem[]) {
   return request.post<never, void>('/admin/provider-config/batch-update-priority', { items })
+}
+
+/** 测试提供商连接 */
+export function testConnection(id: number) {
+  return request.post<never, ConnectionTestResult>(`/admin/provider-config/test-connection/${id}`)
 }
