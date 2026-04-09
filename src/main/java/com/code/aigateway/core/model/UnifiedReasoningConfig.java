@@ -32,4 +32,13 @@ public class UnifiedReasoningConfig {
      * </p>
      */
     private String effort;
+
+    /**
+     * 推理内容可见性（"auto" / "concise" / "detailed"）
+     * <p>
+     * Anthropic thinking 天生可见，Parser 层自动注入 "auto"；
+     * OpenAI 需显式传此参数才能返回 reasoning summary。
+     * </p>
+     */
+    private String summary;
 }

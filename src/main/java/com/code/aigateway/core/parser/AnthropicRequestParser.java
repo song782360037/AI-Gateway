@@ -65,8 +65,12 @@ public class AnthropicRequestParser {
         config.setStopSequences(request.getStopSequences());
         if (request.getThinking() != null) {
             UnifiedReasoningConfig reasoning = new UnifiedReasoningConfig();
-            reasoning.setEnabled("enabled".equalsIgnoreCase(request.getThinking().getType()));
+            reasoning.setEnabled("adaptive".equalsIgnoreCase(request.getThinking().getType()));
             reasoning.setBudgetTokens(request.getThinking().getBudgetTokens());
+            // Anthropic thinking 天生可见，跨协议转发到 OpenAI 时等价于 summary="auto"
+            if (Boolean.TRUE.equals(reasoning.getEnabled())) {
+                reasoning.setSummary("auto");
+            }
             config.setReasoning(reasoning);
         }
         unifiedRequest.setGenerationConfig(config);

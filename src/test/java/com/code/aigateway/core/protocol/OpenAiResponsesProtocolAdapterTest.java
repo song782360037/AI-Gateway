@@ -5,6 +5,7 @@ import com.code.aigateway.api.response.OpenAiErrorResponse;
 import com.code.aigateway.api.response.OpenAiResponsesResponse;
 import com.code.aigateway.core.encoder.OpenAiResponsesResponseEncoder;
 import com.code.aigateway.core.error.ErrorCode;
+import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.model.ResponseProtocol;
 import com.code.aigateway.core.model.StreamContext;
 import com.code.aigateway.core.model.UnifiedRequest;
@@ -22,9 +23,13 @@ import org.springframework.http.codec.ServerSentEvent;
 import reactor.core.publisher.Flux;
 import reactor.test.StepVerifier;
 
+import java.util.List;
+import java.util.Map;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -75,31 +80,34 @@ class OpenAiResponsesProtocolAdapterTest {
     // ========== encodeStreamEvent ==========
 
     @Test
-    void encodeStreamEvent_textDelta_returnsNamedEvent() throws Exception {
-        // text_delta 应生成名为 "response.output_text.delta" 的 SSE 事件
+    void encodeStreamEvent_textDelta_includesOutputIndexAndItemId() throws Exception {
         StreamContext ctx = new StreamContext("resp-123", 1710000000L, "gpt-4o");
         UnifiedStreamEvent event = new UnifiedStreamEvent();
         event.setType("text_delta");
         event.setTextDelta("Hi there");
+        event.setOutputIndex(2);
+        event.setItemId("msg_001");
 
         ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx).blockFirst();
 
         assertNotNull(sse);
-        assertEquals("response.output_text.delta", sse.event());
-
-        // 解析 payload 验证结构
+        assertEquals("response.output_item.added", sse.event());
         JsonNode payload = objectMapper.readTree(sse.data());
-        assertEquals("response.output_text.delta", payload.get("type").asText());
-        assertEquals("Hi there", payload.get("delta").asText());
+        assertEquals("response.output_item.added", payload.get("type").asText());
+        assertEquals(2, payload.get("output_index").asInt());
+        assertEquals("msg_001", payload.get("item").get("id").asText());
+        assertEquals("message", payload.get("item").get("type").asText());
     }
 
     @Test
-    void encodeStreamEvent_toolCallDelta_returnsNamedEvent() throws Exception {
-        // tool_call_delta 应生成名为 "response.function_call_arguments.delta" 的 SSE 事件
+    void encodeStreamEvent_toolCallDelta_includesIdentifiers() throws Exception {
         StreamContext ctx = new StreamContext("resp-123", 1710000000L, "gpt-4o");
         UnifiedStreamEvent event = new UnifiedStreamEvent();
         event.setType("tool_call_delta");
         event.setArgumentsDelta("{\"city\":");
+        event.setOutputIndex(1);
+        event.setItemId("item_fc_1");
+        event.setToolCallId("call_fc_1");
 
         ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx).blockFirst();
 
@@ -108,8 +116,47 @@ class OpenAiResponsesProtocolAdapterTest {
 
         JsonNode payload = objectMapper.readTree(sse.data());
         assertEquals("response.function_call_arguments.delta", payload.get("type").asText());
+        assertEquals(1, payload.get("output_index").asInt());
+        assertEquals("item_fc_1", payload.get("item_id").asText());
+        assertEquals("call_fc_1", payload.get("call_id").asText());
         assertEquals("{\"city\":", payload.get("delta").asText());
     }
+
+    @Test
+    void encodeStreamEvent_textDelta_emitsAddedAndDoneLifecycle() throws Exception {
+        StreamContext ctx = new StreamContext("resp-123", 1710000000L, "gpt-4o");
+
+        UnifiedStreamEvent textEvent = new UnifiedStreamEvent();
+        textEvent.setType("text_delta");
+        textEvent.setTextDelta("hello");
+        textEvent.setOutputIndex(0);
+        textEvent.setItemId("msg_001");
+
+        var emitted = adapter.encodeStreamEvent(textEvent, ctx).collectList().block();
+        assertNotNull(emitted);
+        assertEquals(2, emitted.size());
+        assertEquals("response.output_item.added", emitted.get(0).event());
+        JsonNode added = objectMapper.readTree(emitted.get(0).data());
+        assertEquals(0, added.get("output_index").asInt());
+        assertEquals("message", added.get("item").get("type").asText());
+        assertEquals("msg_001", added.get("item").get("id").asText());
+
+        assertEquals("response.output_text.delta", emitted.get(1).event());
+        JsonNode delta = objectMapper.readTree(emitted.get(1).data());
+        assertEquals(0, delta.get("output_index").asInt());
+        assertEquals("msg_001", delta.get("item_id").asText());
+        assertEquals("hello", delta.get("delta").asText());
+
+        UnifiedStreamEvent doneEvent = new UnifiedStreamEvent();
+        doneEvent.setType("done");
+        doneEvent.setFinishReason("stop");
+        var doneChunks = adapter.encodeStreamEvent(doneEvent, ctx).collectList().block();
+        assertNotNull(doneChunks);
+        assertEquals(2, doneChunks.size());
+        assertEquals("response.output_item.done", doneChunks.get(0).event());
+        assertEquals("response.completed", doneChunks.get(1).event());
+    }
+
 
     @Test
     void encodeStreamEvent_doneEvent_returnsCompleted() throws Exception {
@@ -119,7 +166,7 @@ class OpenAiResponsesProtocolAdapterTest {
         event.setType("done");
         event.setFinishReason("stop");
 
-        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx).blockFirst();
+        ServerSentEvent<String> sse = adapter.encodeStreamEvent(event, ctx).blockLast();
 
         assertNotNull(sse);
         assertEquals("response.completed", sse.event());
@@ -141,7 +188,62 @@ class OpenAiResponsesProtocolAdapterTest {
         UnifiedStreamEvent event = new UnifiedStreamEvent();
         event.setType("unknown_event_type");
 
-        assertNull(adapter.encodeStreamEvent(event, ctx).blockFirst());
+        StepVerifier.create(adapter.encodeStreamEvent(event, ctx)).verifyComplete();
+    }
+
+    @Test
+    void parse_invalidReasoningEffort_throwsInvalidRequest() {
+        OpenAiResponsesRequest request = new OpenAiResponsesRequest();
+        request.setModel("gpt-4o");
+        request.setInput(List.of());
+        request.setReasoning(Map.of("effort", "extreme"));
+
+        OpenAiResponsesRequestParser realParser = new OpenAiResponsesRequestParser();
+
+        GatewayException exception = assertThrows(GatewayException.class, () -> realParser.parse(request));
+        assertEquals(ErrorCode.INVALID_REQUEST, exception.getErrorCode());
+        assertEquals("reasoning.effort", exception.getParam());
+    }
+
+    @Test
+    void parse_arrayContentWithTextItems_returnsUnifiedMessageParts() {
+        OpenAiResponsesRequest.InputItem item = new OpenAiResponsesRequest.InputItem();
+        item.setType("message");
+        item.setRole("user");
+        item.setContent(List.of(
+                Map.of("type", "input_text", "text", "你好"),
+                Map.of("type", "text", "text", "世界")
+        ));
+
+        OpenAiResponsesRequest request = new OpenAiResponsesRequest();
+        request.setModel("gpt-4o");
+        request.setInput(List.of(item));
+
+        OpenAiResponsesRequestParser realParser = new OpenAiResponsesRequestParser();
+        UnifiedRequest unifiedRequest = realParser.parse(request);
+
+        assertEquals(1, unifiedRequest.getMessages().size());
+        assertEquals(2, unifiedRequest.getMessages().getFirst().getParts().size());
+        assertEquals("你好", unifiedRequest.getMessages().getFirst().getParts().get(0).getText());
+        assertEquals("世界", unifiedRequest.getMessages().getFirst().getParts().get(1).getText());
+    }
+
+    @Test
+    void parse_arrayContentWithUnsupportedType_throwsInvalidRequest() {
+        OpenAiResponsesRequest.InputItem item = new OpenAiResponsesRequest.InputItem();
+        item.setType("message");
+        item.setRole("user");
+        item.setContent(List.of(Map.of("type", "input_image", "image_url", "https://example.com/test.png")));
+
+        OpenAiResponsesRequest request = new OpenAiResponsesRequest();
+        request.setModel("gpt-4o");
+        request.setInput(List.of(item));
+
+        OpenAiResponsesRequestParser realParser = new OpenAiResponsesRequestParser();
+
+        GatewayException exception = assertThrows(GatewayException.class, () -> realParser.parse(request));
+        assertEquals(ErrorCode.INVALID_REQUEST, exception.getErrorCode());
+        assertEquals("input[0][0].type", exception.getParam());
     }
 
     // ========== terminalStreamEvents ==========

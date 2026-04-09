@@ -23,6 +23,21 @@ public class OpenAiResponsesResponseEncoder {
     public OpenAiResponsesResponse encode(UnifiedResponse source) {
         List<OpenAiResponsesResponse.OutputItem> outputItems = new ArrayList<>();
 
+        // 提取思考输出（reasoning 应在 text 之前，符合 OpenAI Responses API 顺序）
+        List<UnifiedPart> thinkingParts = extractThinkingParts(source);
+        for (UnifiedPart thinkingPart : thinkingParts) {
+            OpenAiResponsesResponse.ContentPart summaryPart = OpenAiResponsesResponse.ContentPart.builder()
+                    .type("summary_text")
+                    .text(thinkingPart.getText())
+                    .build();
+            outputItems.add(OpenAiResponsesResponse.OutputItem.builder()
+                    .type("reasoning")
+                    .role("assistant")
+                    .summary(List.of(summaryPart))
+                    .status("completed")
+                    .build());
+        }
+
         // 提取文本输出
         String text = extractText(source);
         if (!text.isEmpty()) {
@@ -32,21 +47,6 @@ public class OpenAiResponsesResponseEncoder {
                     .build();
             outputItems.add(OpenAiResponsesResponse.OutputItem.builder()
                     .type("message")
-                    .role("assistant")
-                    .content(List.of(contentPart))
-                    .status("completed")
-                    .build());
-        }
-
-        // 提取思考输出
-        List<UnifiedPart> thinkingParts = extractThinkingParts(source);
-        for (UnifiedPart thinkingPart : thinkingParts) {
-            OpenAiResponsesResponse.ContentPart contentPart = OpenAiResponsesResponse.ContentPart.builder()
-                    .type("reasoning")
-                    .text(thinkingPart.getText())
-                    .build();
-            outputItems.add(OpenAiResponsesResponse.OutputItem.builder()
-                    .type("reasoning")
                     .role("assistant")
                     .content(List.of(contentPart))
                     .status("completed")

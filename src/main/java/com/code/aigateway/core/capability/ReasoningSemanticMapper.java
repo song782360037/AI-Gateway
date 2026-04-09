@@ -16,7 +16,8 @@ public class ReasoningSemanticMapper {
     private static final int LOW_BUDGET = 1024;
     private static final int MEDIUM_BUDGET = 4096;
     private static final int HIGH_BUDGET = 8192;
-    private static final String DEFAULT_EFFORT = "medium";
+    // 下游启用思考但未指定深度时，默认使用 high 保证最佳思考深度
+    private static final String DEFAULT_EFFORT = "high";
 
     /**
      * 将统一语义映射为 OpenAI reasoning_effort。

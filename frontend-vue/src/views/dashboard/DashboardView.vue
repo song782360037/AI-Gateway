@@ -75,14 +75,14 @@
                   <span class="rank-badge" :class="rankClass(row.rank)">{{ row.rank }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="modelName" label="模型" min-width="140" show-overflow-tooltip />
-              <el-table-column prop="callCount" label="调用次数" min-width="100" align="right">
+              <el-table-column prop="modelName" label="模型" min-width="140" show-overflow-tooltip align="center" />
+              <el-table-column prop="callCount" label="调用次数" min-width="100" align="center">
                 <template #default="{ row }">{{ formatNumber(row.callCount) }}</template>
               </el-table-column>
-              <el-table-column prop="tokenCount" label="Token" min-width="90" align="right">
+              <el-table-column prop="tokenCount" label="Token" min-width="90" align="center">
                 <template #default="{ row }">{{ formatTokenCount(row.tokenCount) }}</template>
               </el-table-column>
-              <el-table-column prop="cost" label="费用" min-width="80" align="right">
+              <el-table-column prop="cost" label="费用" min-width="80" align="center">
                 <template #default="{ row }">${{ row.cost.toFixed(2) }}</template>
               </el-table-column>
             </el-table>
@@ -103,10 +103,10 @@
           </div>
           <div class="table-module__body">
             <el-table :data="recentRequests" size="default" class="dashboard-table" :show-header="true">
-              <el-table-column prop="time" label="时间" width="80" />
-              <el-table-column prop="model" label="模型" min-width="130" show-overflow-tooltip />
-              <el-table-column prop="provider" label="通道" min-width="90" show-overflow-tooltip />
-              <el-table-column prop="duration" label="耗时" width="72" align="right">
+              <el-table-column prop="time" label="时间" width="80" align="center"/>
+              <el-table-column prop="model" label="模型" min-width="130" show-overflow-tooltip align="center"/>
+              <el-table-column prop="provider" label="通道" min-width="90" show-overflow-tooltip align="center"/>
+              <el-table-column prop="duration" label="耗时" width="72" align="center">
                 <template #default="{ row }">
                   <span :class="{ 'duration-warn': row.duration > 5000 }">
                     {{ formatMs(row.duration) }}
@@ -156,9 +156,10 @@ import type { DashboardPeriod, DashboardStats, ModelUsageRank, RecentRequest } f
 
 // ==================== 状态 ====================
 
-const activePeriod = ref<DashboardPeriod>('today')
+const activePeriod = ref<DashboardPeriod>('7d')
 const systemHealthy = ref(true)
 const loading = ref(false)
+let latestLoadRequestId = 0
 
 const stats = reactive<DashboardStats>({
   requests: { current: 0, previous: 0, changePercent: 0 },
@@ -274,20 +275,29 @@ const overviewCards = computed(() => [
 // ==================== 数据加载 ====================
 
 async function loadAll() {
+  const requestId = ++latestLoadRequestId
   loading.value = true
   try {
+    const period = activePeriod.value
     const [s, rank, recent] = await Promise.all([
-      fetchDashboardStats(activePeriod.value),
-      fetchModelUsageRank(activePeriod.value),
-      fetchRecentRequests(activePeriod.value),
+      fetchDashboardStats(period),
+      fetchModelUsageRank(period),
+      fetchRecentRequests(period),
     ])
+    if (requestId !== latestLoadRequestId) {
+      return
+    }
     Object.assign(stats, s)
     modelRank.value = rank
     recentRequests.value = recent
-  } catch (e) {
-    ElMessage.error('仪表盘数据加载失败，请稍后重试')
+  } catch {
+    if (requestId === latestLoadRequestId) {
+      ElMessage.error('仪表盘数据加载失败，请稍后重试')
+    }
   } finally {
-    loading.value = false
+    if (requestId === latestLoadRequestId) {
+      loading.value = false
+    }
   }
 }
 
@@ -301,6 +311,9 @@ async function loadHealth() {
 }
 
 function switchPeriod(p: DashboardPeriod) {
+  if (activePeriod.value === p || loading.value) {
+    return
+  }
   activePeriod.value = p
   loadAll()
 }

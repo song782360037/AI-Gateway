@@ -6,6 +6,7 @@ import com.code.aigateway.admin.model.req.ProviderConfigQueryReq;
 import com.code.aigateway.admin.model.req.ProviderConfigUpdateReq;
 import com.code.aigateway.admin.model.rsp.ProviderConfigRsp;
 import com.code.aigateway.admin.service.IProviderConfigService;
+import com.code.aigateway.admin.service.ProviderConnectionTestService;
 import com.code.aigateway.common.exception.BizException;
 import com.code.aigateway.common.result.PageResult;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +19,10 @@ import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+
 /**
  * 提供商配置管理接口 WebFlux 切片测试
  *
@@ -27,12 +32,14 @@ import java.util.List;
 class ProviderConfigControllerTest {
 
     private IProviderConfigService providerConfigService;
+    private ProviderConnectionTestService connectionTestService;
     private WebTestClient webTestClient;
 
     @BeforeEach
     void setUp() {
         providerConfigService = Mockito.mock(IProviderConfigService.class);
-        ProviderConfigController controller = new ProviderConfigController(providerConfigService);
+        connectionTestService = Mockito.mock(ProviderConnectionTestService.class);
+        ProviderConfigController controller = new ProviderConfigController(providerConfigService, connectionTestService);
 
         // 创建 JSR-303 校验器，使 @Valid / @NotBlank 等注解生效
         LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
@@ -90,6 +97,8 @@ class ProviderConfigControllerTest {
                 .expectBody()
                 .jsonPath("$.success").isEqualTo(false)
                 .jsonPath("$.code").isEqualTo("INVALID_PARAM");
+
+        verify(providerConfigService, never()).add(any());
     }
 
     // ==================== update ====================

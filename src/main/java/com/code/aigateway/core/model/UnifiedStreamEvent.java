@@ -34,6 +34,11 @@ public class UnifiedStreamEvent {
     private Integer outputIndex;
 
     /**
+     * 输出项 ID（主要用于 OpenAI Responses 的 item.id / item_id）
+     */
+    private String itemId;
+
+    /**
      * 文本增量内容
      */
     private String textDelta;

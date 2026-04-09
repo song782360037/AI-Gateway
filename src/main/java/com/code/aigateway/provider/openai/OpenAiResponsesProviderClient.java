@@ -31,6 +31,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -165,9 +166,16 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
                 body.put("stop", request.getGenerationConfig().getStopSequences());
             }
             if (request.getGenerationConfig().getReasoning() != null) {
-                String reasoningEffort = reasoningSemanticMapper.toOpenAiEffort(request.getGenerationConfig().getReasoning());
+                UnifiedReasoningConfig reasoningConfig = request.getGenerationConfig().getReasoning();
+                String reasoningEffort = reasoningSemanticMapper.toOpenAiEffort(reasoningConfig);
                 if (reasoningEffort != null && !reasoningEffort.isBlank()) {
-                    body.put("reasoning", Map.of("effort", reasoningEffort));
+                    Map<String, Object> reasoningMap = new LinkedHashMap<>();
+                    reasoningMap.put("effort", reasoningEffort);
+                    // 传递 summary 参数，使 OpenAI 返回可见推理摘要
+                    if (reasoningConfig.getSummary() != null && !reasoningConfig.getSummary().isBlank()) {
+                        reasoningMap.put("summary", reasoningConfig.getSummary());
+                    }
+                    body.put("reasoning", reasoningMap);
                 }
             }
         }
@@ -197,6 +205,7 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
             return List.of();
         }
 
+        Map<String, String> toolCallIdMappings = new HashMap<>();
         List<Object> input = new ArrayList<>();
         for (UnifiedMessage msg : request.getMessages()) {
             switch (msg.getRole()) {
@@ -216,10 +225,11 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
                     // tool_calls → function_call 条目
                     if (msg.getToolCalls() != null) {
                         for (UnifiedToolCall tc : msg.getToolCalls()) {
+                            String responsesCallId = mapToolCallIdForResponses(tc.getId(), toolCallIdMappings);
                             Map<String, Object> fc = new LinkedHashMap<>();
                             fc.put("type", "function_call");
-                            fc.put("id", tc.getId() != null ? tc.getId() : "");
-                            fc.put("call_id", tc.getId() != null ? tc.getId() : "");
+                            fc.put("id", responsesCallId);
+                            fc.put("call_id", responsesCallId);
                             fc.put("name", tc.getToolName());
                             fc.put("arguments", tc.getArgumentsJson() != null ? tc.getArgumentsJson() : "{}");
                             input.add(fc);
@@ -229,7 +239,7 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
                 case "tool" -> {
                     Map<String, Object> output = new LinkedHashMap<>();
                     output.put("type", "function_call_output");
-                    output.put("call_id", msg.getToolCallId() != null ? msg.getToolCallId() : "");
+                    output.put("call_id", mapToolCallIdForResponses(msg.getToolCallId(), toolCallIdMappings));
                     output.put("output", extractTextContent(msg));
                     input.add(output);
                 }
@@ -237,6 +247,29 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
             }
         }
         return input;
+    }
+
+    /**
+     * 将统一模型中的工具调用 ID 映射为 OpenAI Responses 可接受的 call_id。
+     * <p>
+     * Anthropic 工具调用历史通常使用 call_ 前缀，Responses API 要求 function call
+     * 相关 ID 使用 fc_ 前缀。这里在单次请求构建期间维护稳定映射，确保 assistant 的
+     * function_call 与后续 tool 的 function_call_output 使用同一个 call_id。
+     * </p>
+     */
+    private String mapToolCallIdForResponses(String originalId, Map<String, String> toolCallIdMappings) {
+        if (originalId == null || originalId.isBlank()) {
+            return "";
+        }
+        return toolCallIdMappings.computeIfAbsent(originalId, id -> {
+            if (id.startsWith("fc_")) {
+                return id;
+            }
+            if (id.startsWith("call_")) {
+                return "fc_" + id.substring("call_".length());
+            }
+            return id;
+        });
     }
 
     /**
@@ -310,13 +343,23 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
                         }
                     }
                 } else if ("reasoning".equals(type)) {
-                    JsonNode content = item.path("content");
-                    if (content.isArray()) {
-                        for (JsonNode c : content) {
+                    JsonNode summary = item.path("summary");
+                    if (summary.isArray() && !summary.isEmpty()) {
+                        for (JsonNode s : summary) {
                             UnifiedPart thinkingPart = new UnifiedPart();
                             thinkingPart.setType("thinking");
-                            thinkingPart.setText(c.path("text").asText());
+                            thinkingPart.setText(s.path("text").asText());
                             thinkingParts.add(thinkingPart);
+                        }
+                    } else {
+                        JsonNode content = item.path("content");
+                        if (content.isArray()) {
+                            for (JsonNode c : content) {
+                                UnifiedPart thinkingPart = new UnifiedPart();
+                                thinkingPart.setType("thinking");
+                                thinkingPart.setText(c.path("text").asText());
+                                thinkingParts.add(thinkingPart);
+                            }
                         }
                     }
                 } else if ("function_call".equals(type)) {
@@ -389,7 +432,7 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
             case "response.output_item.added" -> handleOutputItemAdded(json, state);
             case "response.content_part.added" -> handleContentPartAdded(json);
             case "response.output_text.delta" -> handleTextDelta(json);
-            case "response.reasoning.delta" -> handleReasoningDelta(json);
+            case "response.reasoning.delta", "response.reasoning_summary_text.delta" -> handleReasoningDelta(json);
             case "response.function_call_arguments.delta" -> handleFunctionCallDelta(json, state);
             case "response.output_item.done" -> handleOutputItemDone(json, state);
             case "response.completed" -> handleCompleted(json);
@@ -402,19 +445,26 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
 
     /** tool_call 条目添加 */
     private Flux<UnifiedStreamEvent> handleOutputItemAdded(JsonNode json, StreamState state) {
-        JsonNode item = json.path("item");
+        JsonNode item = json.hasNonNull("item") ? json.get("item") : json.get("output");
+        if (item == null || item.isMissingNode() || item.isNull()) {
+            return Flux.empty();
+        }
         String type = item.path("type").asText();
+        Integer outputIndex = intOrNull(json.get("output_index"));
+        String itemId = textOrNull(item.get("id"));
         if ("function_call".equals(type)) {
             String callId = textOrNull(item.get("call_id"));
-            if (callId == null) callId = textOrNull(item.get("id"));
-            state.currentCallId = callId;
-            state.currentToolName = item.path("name").asText();
-            state.currentArgs = new StringBuilder();
+            if (callId == null) {
+                callId = itemId;
+            }
+            state.rememberToolCall(itemId, callId, outputIndex, item.path("name").asText());
 
             UnifiedStreamEvent e = new UnifiedStreamEvent();
             e.setType("tool_call");
+            e.setOutputIndex(outputIndex);
+            e.setItemId(itemId);
             e.setToolCallId(callId);
-            e.setToolName(state.currentToolName);
+            e.setToolName(item.path("name").asText());
             return Flux.just(e);
         }
         return Flux.empty();
@@ -424,14 +474,18 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
     private Flux<UnifiedStreamEvent> handleTextDelta(JsonNode json) {
         UnifiedStreamEvent e = new UnifiedStreamEvent();
         e.setType("text_delta");
+        e.setOutputIndex(intOrNull(json.get("output_index")));
+        e.setItemId(textOrNull(json.get("item_id")));
         e.setTextDelta(json.path("delta").asText());
         return Flux.just(e);
     }
 
-    /** 思考内容增量 */
+    /** 思考内容增量（包括 reasoning delta 和 reasoning summary text delta） */
     private Flux<UnifiedStreamEvent> handleReasoningDelta(JsonNode json) {
         UnifiedStreamEvent e = new UnifiedStreamEvent();
         e.setType("thinking_delta");
+        e.setOutputIndex(intOrNull(json.get("output_index")));
+        e.setItemId(textOrNull(json.get("item_id")));
         e.setThinkingDelta(json.path("delta").asText());
         return Flux.just(e);
     }
@@ -442,6 +496,8 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
         if ("reasoning".equals(part.path("type").asText())) {
             UnifiedStreamEvent e = new UnifiedStreamEvent();
             e.setType("thinking_delta");
+            e.setOutputIndex(intOrNull(json.get("output_index")));
+            e.setItemId(textOrNull(json.get("item_id")));
             e.setThinkingDelta(part.path("text").asText());
             return Flux.just(e);
         }
@@ -451,22 +507,40 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
     /** 工具参数增量 */
     private Flux<UnifiedStreamEvent> handleFunctionCallDelta(JsonNode json, StreamState state) {
         String delta = json.path("delta").asText();
-        if (state.currentArgs != null) {
-            state.currentArgs.append(delta);
+        String callId = textOrNull(json.get("call_id"));
+        String itemId = textOrNull(json.get("item_id"));
+        Integer outputIndex = intOrNull(json.get("output_index"));
+
+        StreamToolCallState toolState = state.resolveToolCall(itemId, callId);
+        if (toolState != null) {
+            if (toolState.arguments != null) {
+                toolState.arguments.append(delta);
+            }
+            if (callId == null) {
+                callId = toolState.callId;
+            }
+            if (itemId == null) {
+                itemId = toolState.itemId;
+            }
+            if (outputIndex == null) {
+                outputIndex = toolState.outputIndex;
+            }
         }
 
         UnifiedStreamEvent e = new UnifiedStreamEvent();
         e.setType("tool_call_delta");
-        e.setToolCallId(state.currentCallId);
+        e.setOutputIndex(outputIndex);
+        e.setItemId(itemId);
+        e.setToolCallId(callId);
         e.setArgumentsDelta(delta);
         return Flux.just(e);
     }
 
     /** 输出条目完成 */
     private Flux<UnifiedStreamEvent> handleOutputItemDone(JsonNode json, StreamState state) {
-        state.currentCallId = null;
-        state.currentToolName = null;
-        state.currentArgs = null;
+        String itemId = textOrNull(json.get("item_id"));
+        String callId = textOrNull(json.get("call_id"));
+        state.forgetToolCall(itemId, callId);
         return Flux.empty();
     }
 
@@ -510,6 +584,13 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
         return usage;
     }
 
+    private Integer intOrNull(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode() || !node.canConvertToInt()) {
+            return null;
+        }
+        return node.asInt();
+    }
+
     private String extractTextContent(UnifiedMessage msg) {
         if (msg.getParts() == null || msg.getParts().isEmpty()) return "";
         StringBuilder sb = new StringBuilder();
@@ -525,8 +606,62 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
      * 流式解析状态
      */
     private static class StreamState {
-        String currentCallId;
-        String currentToolName;
-        StringBuilder currentArgs;
+        private final Map<String, StreamToolCallState> toolCallsByItemId = new HashMap<>();
+        private final Map<String, StreamToolCallState> toolCallsByCallId = new HashMap<>();
+        /** 最近一次 added 的 tool call，用于 delta 不带任何身份字段时的兜底回填 */
+        private StreamToolCallState lastToolCall;
+
+        void rememberToolCall(String itemId, String callId, Integer outputIndex, String toolName) {
+            StreamToolCallState state = new StreamToolCallState(itemId, callId, outputIndex, toolName);
+            if (itemId != null && !itemId.isBlank()) {
+                toolCallsByItemId.put(itemId, state);
+            }
+            if (callId != null && !callId.isBlank()) {
+                toolCallsByCallId.put(callId, state);
+            }
+            lastToolCall = state;
+        }
+
+        StreamToolCallState resolveToolCall(String itemId, String callId) {
+            if (itemId != null && !itemId.isBlank() && toolCallsByItemId.containsKey(itemId)) {
+                return toolCallsByItemId.get(itemId);
+            }
+            if (callId != null && !callId.isBlank()) {
+                return toolCallsByCallId.get(callId);
+            }
+            // delta 没带任何身份字段时，回退到最近一次 added 的 tool call
+            return lastToolCall;
+        }
+
+        void forgetToolCall(String itemId, String callId) {
+            StreamToolCallState state = resolveToolCall(itemId, callId);
+            if (state == null) {
+                return;
+            }
+            if (state.itemId != null && !state.itemId.isBlank()) {
+                toolCallsByItemId.remove(state.itemId);
+            }
+            if (state.callId != null && !state.callId.isBlank()) {
+                toolCallsByCallId.remove(state.callId);
+            }
+            if (state == lastToolCall) {
+                lastToolCall = null;
+            }
+        }
+    }
+
+    private static class StreamToolCallState {
+        private final String itemId;
+        private final String callId;
+        private final Integer outputIndex;
+        private final String toolName;
+        private final StringBuilder arguments = new StringBuilder();
+
+        private StreamToolCallState(String itemId, String callId, Integer outputIndex, String toolName) {
+            this.itemId = itemId;
+            this.callId = callId;
+            this.outputIndex = outputIndex;
+            this.toolName = toolName;
+        }
     }
 }

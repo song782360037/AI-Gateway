@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.ServerWebInputException;
+import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -39,28 +40,40 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * 处理网关业务异常
+     * 处理网关业务异常。
+     * <p>
+     * 对于 SSE/流式响应，如果响应头已经提交，则不能再尝试构造新的 ResponseEntity，
+     * 否则会触发 ReadOnlyHttpHeaders/response already committed 异常。
+     * </p>
      */
     @ExceptionHandler(GatewayException.class)
-    public ResponseEntity<?> handleGatewayException(GatewayException ex, ServerWebExchange exchange) {
+    public Mono<ResponseEntity<?>> handleGatewayException(GatewayException ex, ServerWebExchange exchange) {
         collectStats(exchange, ex);
+        if (exchange.getResponse().isCommitted()) {
+            log.warn("[网关] response already committed, skip gateway error rendering: {}", ex.getMessage());
+            return Mono.empty();
+        }
         ProtocolAdapter adapter = resolveAdapter(exchange);
         HttpStatus status = mapStatus(ex.getErrorCode());
-        return ResponseEntity.status(status)
+        return Mono.just(ResponseEntity.status(status)
                 .body(adapter.buildError(
                         ex.getMessage(),
                         adapter.mapErrorType(ex.getErrorCode()),
                         ex.getErrorCode().name(),
                         ex.getParam()
-                ));
+                )));
     }
 
     /**
      * 处理请求参数校验异常
      */
     @ExceptionHandler(WebExchangeBindException.class)
-    public ResponseEntity<?> handleWebExchangeBindException(WebExchangeBindException ex, ServerWebExchange exchange) {
+    public Mono<ResponseEntity<?>> handleWebExchangeBindException(WebExchangeBindException ex, ServerWebExchange exchange) {
         collectStats(exchange, ex);
+        if (exchange.getResponse().isCommitted()) {
+            log.warn("[网关] response already committed, skip validation error rendering: {}", ex.getMessage());
+            return Mono.empty();
+        }
         String message = ex.getBindingResult().getFieldErrors().stream()
                 .map(error -> error.getField() + " " + error.getDefaultMessage())
                 .collect(Collectors.joining("; "));
@@ -68,46 +81,58 @@ public class GlobalExceptionHandler {
                 .findFirst()
                 .map(fieldError -> fieldError.getField())
                 .orElse(null);
-        return buildClientError(exchange, message, ErrorCode.INVALID_REQUEST, param);
+        return Mono.just(buildClientError(exchange, message, ErrorCode.INVALID_REQUEST, param));
     }
 
     /**
      * 处理请求体输入异常
      */
     @ExceptionHandler(ServerWebInputException.class)
-    public ResponseEntity<?> handleServerWebInputException(ServerWebInputException ex, ServerWebExchange exchange) {
+    public Mono<ResponseEntity<?>> handleServerWebInputException(ServerWebInputException ex, ServerWebExchange exchange) {
         collectStats(exchange, ex);
+        if (exchange.getResponse().isCommitted()) {
+            log.warn("[网关] response already committed, skip input error rendering: {}", ex.getMessage());
+            return Mono.empty();
+        }
         String message = ex.getReason() == null ? "invalid request body" : ex.getReason();
-        return buildClientError(exchange, message, ErrorCode.INVALID_REQUEST, null);
+        return Mono.just(buildClientError(exchange, message, ErrorCode.INVALID_REQUEST, null));
     }
 
     /**
      * 处理约束校验异常
      */
     @ExceptionHandler(ConstraintViolationException.class)
-    public ResponseEntity<?> handleConstraintViolationException(ConstraintViolationException ex, ServerWebExchange exchange) {
+    public Mono<ResponseEntity<?>> handleConstraintViolationException(ConstraintViolationException ex, ServerWebExchange exchange) {
         collectStats(exchange, ex);
+        if (exchange.getResponse().isCommitted()) {
+            log.warn("[网关] response already committed, skip constraint violation rendering: {}", ex.getMessage());
+            return Mono.empty();
+        }
         String message = ex.getConstraintViolations().stream()
                 .map(violation -> violation.getPropertyPath() + " " + violation.getMessage())
                 .collect(Collectors.joining("; "));
-        return buildClientError(exchange, message, ErrorCode.INVALID_REQUEST, null);
+        return Mono.just(buildClientError(exchange, message, ErrorCode.INVALID_REQUEST, null));
     }
 
     /**
      * 处理未知异常
      */
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<?> handleException(Exception ex, ServerWebExchange exchange) {
+    public Mono<ResponseEntity<?>> handleException(Exception ex, ServerWebExchange exchange) {
         log.error("[网关] unexpected exception", ex);
         collectStats(exchange, ex);
+        if (exchange.getResponse().isCommitted()) {
+            log.warn("[网关] response already committed, skip internal error rendering: {}", ex.getMessage());
+            return Mono.empty();
+        }
         ProtocolAdapter adapter = resolveAdapter(exchange);
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+        return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(adapter.buildError(
                         "internal server error",
                         adapter.mapErrorType(ErrorCode.INTERNAL_ERROR),
                         ErrorCode.INTERNAL_ERROR.name(),
                         null
-                ));
+                )));
     }
 
     /**

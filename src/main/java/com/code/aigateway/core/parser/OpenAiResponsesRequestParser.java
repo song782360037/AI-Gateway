@@ -35,6 +35,7 @@ import java.util.Set;
 public class OpenAiResponsesRequestParser {
 
     private static final Set<String> STRING_TOOL_CHOICES = Set.of("auto", "none", "required");
+    private static final Set<String> VALID_REASONING_EFFORTS = Set.of("low", "medium", "high");
 
     public UnifiedRequest parse(OpenAiResponsesRequest request) {
         UnifiedRequest unifiedRequest = new UnifiedRequest();
@@ -55,10 +56,22 @@ public class OpenAiResponsesRequestParser {
         Map<String, Object> reasoning = request.getReasoning();
         if (reasoning != null) {
             Object effort = reasoning.get("effort");
-            if (effort instanceof String effortValue && !effortValue.isBlank()) {
+            Object summary = reasoning.get("summary");
+            String effortValue = null;
+            if (effort instanceof String value && !value.isBlank()) {
+                validateReasoningEffort(value);
+                effortValue = value;
+            }
+            boolean hasSummary = summary instanceof String summaryValue && !summaryValue.isBlank();
+            if (effortValue != null || hasSummary) {
                 UnifiedReasoningConfig unifiedReasoning = new UnifiedReasoningConfig();
                 unifiedReasoning.setEnabled(true);
-                unifiedReasoning.setEffort(effortValue);
+                if (effortValue != null) {
+                    unifiedReasoning.setEffort(effortValue);
+                }
+                if (hasSummary) {
+                    unifiedReasoning.setSummary((String) summary);
+                }
                 config.setReasoning(unifiedReasoning);
             }
         }
@@ -163,8 +176,44 @@ public class OpenAiResponsesRequestParser {
             parts.add(part);
             return parts;
         }
-        // 数组格式的 content 暂不处理（Responses API 的 message content 通常为字符串）
-        return parts;
+        if (content instanceof List<?> contentItems) {
+            for (int i = 0; i < contentItems.size(); i++) {
+                Object item = contentItems.get(i);
+                String itemParamPath = paramPath + "[" + i + "]";
+                if (!(item instanceof Map<?, ?> map)) {
+                    throw new GatewayException(ErrorCode.INVALID_REQUEST,
+                            "content item must be an object", itemParamPath);
+                }
+                Object type = map.get("type");
+                if (!(type instanceof String typeValue) || typeValue.isBlank()) {
+                    throw new GatewayException(ErrorCode.INVALID_REQUEST,
+                            "content item type is required", itemParamPath + ".type");
+                }
+                if (!"input_text".equals(typeValue) && !"text".equals(typeValue)) {
+                    throw new GatewayException(ErrorCode.INVALID_REQUEST,
+                            "unsupported content type: " + typeValue, itemParamPath + ".type");
+                }
+                Object text = map.get("text");
+                if (!(text instanceof String textValue)) {
+                    throw new GatewayException(ErrorCode.INVALID_REQUEST,
+                            "content text must be a string", itemParamPath + ".text");
+                }
+                UnifiedPart part = new UnifiedPart();
+                part.setType("text");
+                part.setText(textValue);
+                parts.add(part);
+            }
+            return parts;
+        }
+        throw new GatewayException(ErrorCode.INVALID_REQUEST,
+                "content must be a string or array", paramPath);
+    }
+
+    private void validateReasoningEffort(String effort) {
+        if (!VALID_REASONING_EFFORTS.contains(effort)) {
+            throw new GatewayException(ErrorCode.INVALID_REQUEST,
+                    "reasoning.effort must be one of low, medium, high", "reasoning.effort");
+        }
     }
 
     private List<UnifiedTool> parseTools(List<OpenAiResponsesRequest.ToolDef> tools) {

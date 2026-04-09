@@ -125,7 +125,50 @@ class OpenAiResponsesProviderClientTest {
         assertTrue(requestBody.get().contains("\"input\""));
     }
 
-    // ==================== 2. 非流式工具调用 ====================
+    @Test
+    void chat_reasoningSummary_parsesThinkingParts() {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
+                    {
+                      "id": "resp_reasoning_summary",
+                      "object": "response",
+                      "model": "gpt-4o",
+                      "status": "completed",
+                      "output": [
+                        {
+                          "type": "reasoning",
+                          "summary": [
+                            {"type": "summary_text", "text": "先分析问题，再给答案"}
+                          ]
+                        },
+                        {
+                          "type": "message",
+                          "role": "assistant",
+                          "content": [
+                            {"type": "output_text", "text": "最终答案"}
+                          ]
+                        }
+                      ],
+                      "usage": {"input_tokens": 10, "output_tokens": 6, "total_tokens": 16}
+                    }
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        StepVerifier.create(providerClient.chat(buildBasicRequest(false)))
+                .assertNext(response -> {
+                    assertEquals("stop", response.getFinishReason());
+                    assertEquals("先分析问题，再给答案",
+                            response.getOutputs().getFirst().getParts().stream()
+                                    .filter(part -> "thinking".equals(part.getType()))
+                                    .findFirst()
+                                    .orElseThrow()
+                                    .getText());
+                })
+                .verifyComplete();
+    }
+
 
     @Test
     void chat_functionCall_parsesToolCalls() {
@@ -165,6 +208,46 @@ class OpenAiResponsesProviderClientTest {
                     assertTrue(tc.getArgumentsJson().contains("Shanghai"));
                 })
                 .verifyComplete();
+    }
+
+    @Test
+    void chat_withAnthropicToolHistory_convertsToolCallIdsToResponsesFormat() throws Exception {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
+                    {
+                      "id": "resp_tool_history_001",
+                      "object": "response",
+                      "model": "gpt-4o",
+                      "status": "completed",
+                      "output": [
+                        {
+                          "type": "message",
+                          "role": "assistant",
+                          "content": [
+                            {"type": "output_text", "text": "处理完成"}
+                          ]
+                        }
+                      ],
+                      "usage": {"input_tokens": 12, "output_tokens": 6, "total_tokens": 18}
+                    }
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        StepVerifier.create(providerClient.chat(buildRequestWithToolHistory(false)))
+                .assertNext(response -> assertEquals("resp_tool_history_001", response.getId()))
+                .verifyComplete();
+
+        JsonNode root = objectMapper.readTree(requestBody.get());
+        JsonNode input = root.get("input");
+        assertNotNull(input);
+        assertEquals(3, input.size());
+        assertEquals("function_call", input.get(1).get("type").asText());
+        assertEquals("fc_1", input.get(1).get("id").asText());
+        assertEquals("fc_1", input.get(1).get("call_id").asText());
+        assertEquals("function_call_output", input.get(2).get("type").asText());
+        assertEquals("fc_1", input.get(2).get("call_id").asText());
     }
 
     // ==================== 3. 流式文本响应 ====================
@@ -253,7 +336,132 @@ class OpenAiResponsesProviderClientTest {
                 .verifyComplete();
     }
 
-    // ==================== 5. 错误处理 ====================
+    @Test
+    void streamChat_functionCall_preservesOutputIndexAndItemId() {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.TEXT_EVENT_STREAM_VALUE, """
+                    event: response.output_item.added
+                    data: {"type":"response.output_item.added","output_index":3,"item":{"type":"function_call","id":"item_fc_3","call_id":"fc_s3","name":"search"}}
+
+                    event: response.function_call_arguments.delta
+                    data: {"type":"response.function_call_arguments.delta","delta":"{\\\"query\\\":\\\"test\\\"}"}
+
+                    event: response.completed
+                    data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":12,"output_tokens":8,"total_tokens":20}}}
+
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        StepVerifier.create(providerClient.streamChat(buildBasicRequest(true)))
+                .assertNext(event -> {
+                    assertEquals("tool_call", event.getType());
+                    assertEquals(Integer.valueOf(3), event.getOutputIndex());
+                    assertEquals("item_fc_3", event.getItemId());
+                    assertEquals("fc_s3", event.getToolCallId());
+                })
+                .assertNext(event -> {
+                    assertEquals("tool_call_delta", event.getType());
+                    assertEquals(Integer.valueOf(3), event.getOutputIndex());
+                    assertEquals("item_fc_3", event.getItemId());
+                    assertEquals("fc_s3", event.getToolCallId());
+                    assertTrue(event.getArgumentsDelta().contains("test"));
+                })
+                .assertNext(event -> assertEquals("done", event.getType()))
+                .verifyComplete();
+    }
+
+    @Test
+    void streamChat_interleavedFunctionCalls_resolvesByItemIdAndCallId() {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.TEXT_EVENT_STREAM_VALUE, """
+                    event: response.output_item.added
+                    data: {"type":"response.output_item.added","output_index":1,"item":{"type":"function_call","id":"item_fc_1","call_id":"fc_1","name":"search"}}
+
+                    event: response.output_item.added
+                    data: {"type":"response.output_item.added","output_index":2,"item":{"type":"function_call","id":"item_fc_2","call_id":"fc_2","name":"lookup"}}
+
+                    event: response.function_call_arguments.delta
+                    data: {"type":"response.function_call_arguments.delta","item_id":"item_fc_2","delta":"{\\\"id\\\":1}"}
+
+                    event: response.function_call_arguments.delta
+                    data: {"type":"response.function_call_arguments.delta","call_id":"fc_1","delta":"{\\\"query\\\":\\\"abc\\\"}"}
+
+                    event: response.completed
+                    data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":12,"output_tokens":8,"total_tokens":20}}}
+
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        StepVerifier.create(providerClient.streamChat(buildBasicRequest(true)))
+                .assertNext(event -> {
+                    assertEquals("tool_call", event.getType());
+                    assertEquals(Integer.valueOf(1), event.getOutputIndex());
+                    assertEquals("item_fc_1", event.getItemId());
+                    assertEquals("fc_1", event.getToolCallId());
+                })
+                .assertNext(event -> {
+                    assertEquals("tool_call", event.getType());
+                    assertEquals(Integer.valueOf(2), event.getOutputIndex());
+                    assertEquals("item_fc_2", event.getItemId());
+                    assertEquals("fc_2", event.getToolCallId());
+                })
+                .assertNext(event -> {
+                    assertEquals("tool_call_delta", event.getType());
+                    assertEquals(Integer.valueOf(2), event.getOutputIndex());
+                    assertEquals("item_fc_2", event.getItemId());
+                    assertEquals("fc_2", event.getToolCallId());
+                })
+                .assertNext(event -> {
+                    assertEquals("tool_call_delta", event.getType());
+                    assertEquals(Integer.valueOf(1), event.getOutputIndex());
+                    assertEquals("item_fc_1", event.getItemId());
+                    assertEquals("fc_1", event.getToolCallId());
+                })
+                .assertNext(event -> assertEquals("done", event.getType()))
+                .verifyComplete();
+    }
+
+
+    @Test
+    void streamChat_functionCall_acceptsOutputFieldAlias() {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.TEXT_EVENT_STREAM_VALUE, """
+                    event: response.output_item.added
+                    data: {"type":"response.output_item.added","output_index":4,"output":{"type":"function_call","id":"item_fc_4","call_id":"fc_s4","name":"search"}}
+
+                    event: response.function_call_arguments.delta
+                    data: {"type":"response.function_call_arguments.delta","delta":"{\\"query\\":\\"alias\\"}"}
+
+                    event: response.completed
+                    data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":12,"output_tokens":8,"total_tokens":20}}}
+
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        StepVerifier.create(providerClient.streamChat(buildBasicRequest(true)))
+                .assertNext(event -> {
+                    assertEquals("tool_call", event.getType());
+                    assertEquals(Integer.valueOf(4), event.getOutputIndex());
+                    assertEquals("item_fc_4", event.getItemId());
+                    assertEquals("fc_s4", event.getToolCallId());
+                    assertEquals("search", event.getToolName());
+                })
+                .assertNext(event -> {
+                    assertEquals("tool_call_delta", event.getType());
+                    assertEquals(Integer.valueOf(4), event.getOutputIndex());
+                    assertEquals("item_fc_4", event.getItemId());
+                    assertEquals("fc_s4", event.getToolCallId());
+                    assertTrue(event.getArgumentsDelta().contains("alias"));
+                })
+                .assertNext(event -> assertEquals("done", event.getType()))
+                .verifyComplete();
+    }
 
     @Test
     void chat_rateLimited_throwsProviderRateLimit() {
@@ -414,9 +622,9 @@ class OpenAiResponsesProviderClientTest {
         assertEquals("user", input.get(0).get("role").asText());
         assertEquals("function_call", input.get(1).get("type").asText());
         assertEquals("get_weather", input.get(1).get("name").asText());
-        assertEquals("call_1", input.get(1).get("call_id").asText());
+        assertEquals("fc_1", input.get(1).get("call_id").asText());
         assertEquals("function_call_output", input.get(2).get("type").asText());
-        assertEquals("call_1", input.get(2).get("call_id").asText());
+        assertEquals("fc_1", input.get(2).get("call_id").asText());
     }
 
     @Test
@@ -553,6 +761,47 @@ class OpenAiResponsesProviderClientTest {
         return request;
     }
 
+    @Test
+    void chat_withMultipleAnthropicToolCalls_keepsStableDistinctResponsesIds() throws Exception {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
+                    {
+                      "id": "resp_multi_tool_history_001",
+                      "object": "response",
+                      "model": "gpt-4o",
+                      "status": "completed",
+                      "output": [
+                        {
+                          "type": "message",
+                          "role": "assistant",
+                          "content": [
+                            {"type": "output_text", "text": "处理完成"}
+                          ]
+                        }
+                      ],
+                      "usage": {"input_tokens": 18, "output_tokens": 7, "total_tokens": 25}
+                    }
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        StepVerifier.create(providerClient.chat(buildRequestWithMultipleToolHistory(false)))
+                .assertNext(response -> assertEquals("resp_multi_tool_history_001", response.getId()))
+                .verifyComplete();
+
+        JsonNode root = objectMapper.readTree(requestBody.get());
+        JsonNode input = root.get("input");
+        assertNotNull(input);
+        assertEquals(5, input.size());
+        assertEquals("fc_1", input.get(1).get("id").asText());
+        assertEquals("fc_1", input.get(1).get("call_id").asText());
+        assertEquals("fc_2", input.get(2).get("id").asText());
+        assertEquals("fc_2", input.get(2).get("call_id").asText());
+        assertEquals("fc_1", input.get(3).get("call_id").asText());
+        assertEquals("fc_2", input.get(4).get("call_id").asText());
+    }
+
     private UnifiedRequest buildRequestWithToolHistory(boolean stream) {
         UnifiedPart userPart = new UnifiedPart();
         userPart.setType("text");
@@ -583,6 +832,52 @@ class OpenAiResponsesProviderClientTest {
         request.setModel("gpt-4o");
         request.setSystemPrompt("你是一个助手");
         request.setMessages(List.of(userMsg, assistantMsg, toolResult));
+        request.setStream(stream);
+
+        UnifiedRequest.ProviderExecutionContext ctx = new UnifiedRequest.ProviderExecutionContext();
+        ctx.setProviderName("openai-responses");
+        ctx.setProviderBaseUrl("http://127.0.0.1:" + httpServer.getAddress().getPort());
+        request.setExecutionContext(ctx);
+        return request;
+    }
+
+    private UnifiedRequest buildRequestWithMultipleToolHistory(boolean stream) {
+        UnifiedMessage userMsg = new UnifiedMessage();
+        userMsg.setRole("user");
+        userMsg.setParts(List.of(textPart("查天气和时间")));
+
+        UnifiedToolCall weatherToolCall = new UnifiedToolCall();
+        weatherToolCall.setId("call_1");
+        weatherToolCall.setType("function");
+        weatherToolCall.setToolName("get_weather");
+        weatherToolCall.setArgumentsJson("{\"city\":\"Shanghai\"}");
+
+        UnifiedToolCall timeToolCall = new UnifiedToolCall();
+        timeToolCall.setId("call_2");
+        timeToolCall.setType("function");
+        timeToolCall.setToolName("get_time");
+        timeToolCall.setArgumentsJson("{\"timezone\":\"Asia/Shanghai\"}");
+
+        UnifiedMessage assistantMsg = new UnifiedMessage();
+        assistantMsg.setRole("assistant");
+        assistantMsg.setParts(List.of());
+        assistantMsg.setToolCalls(List.of(weatherToolCall, timeToolCall));
+
+        UnifiedMessage weatherToolResult = new UnifiedMessage();
+        weatherToolResult.setRole("tool");
+        weatherToolResult.setToolCallId("call_1");
+        weatherToolResult.setParts(List.of(textPart("晴天")));
+
+        UnifiedMessage timeToolResult = new UnifiedMessage();
+        timeToolResult.setRole("tool");
+        timeToolResult.setToolCallId("call_2");
+        timeToolResult.setParts(List.of(textPart("10:00")));
+
+        UnifiedRequest request = new UnifiedRequest();
+        request.setProvider("openai-responses");
+        request.setModel("gpt-4o");
+        request.setSystemPrompt("你是一个助手");
+        request.setMessages(List.of(userMsg, assistantMsg, weatherToolResult, timeToolResult));
         request.setStream(stream);
 
         UnifiedRequest.ProviderExecutionContext ctx = new UnifiedRequest.ProviderExecutionContext();

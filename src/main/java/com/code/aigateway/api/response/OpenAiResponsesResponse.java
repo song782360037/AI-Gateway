@@ -33,6 +33,10 @@ public class OpenAiResponsesResponse {
         private String type;
         private String role;
         private List<ContentPart> content;
+        /**
+         * reasoning 输出的摘要内容
+         */
+        private List<ContentPart> summary;
         @JsonProperty("call_id")
         private String callId;
         private String name;
