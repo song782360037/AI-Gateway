@@ -4,7 +4,7 @@ export interface RequestLogQueryReq {
   endTime?: string
   /** 提供商类型：OPENAI / ANTHROPIC / GEMINI / OPENAI_RESPONSES */
   providerType?: string
-  /** 请求状态：SUCCESS / ERROR */
+  /** 请求状态：SUCCESS / ERROR / CANCELLED */
   status?: string
   /** 模型别名（模糊匹配） */
   aliasModel?: string

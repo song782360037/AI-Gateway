@@ -133,7 +133,7 @@ public class ChatGatewayService {
                 })
                 .doOnCancel(() -> {
                     if (streamErrorRef.get() == null) {
-                        requestStatsCollector.collectStreamSuccess(context, finalUsageRef.get());
+                        requestStatsCollector.collectStreamCancelled(context, finalUsageRef.get());
                     }
                 });
     }

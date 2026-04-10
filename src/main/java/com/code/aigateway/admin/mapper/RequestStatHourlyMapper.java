@@ -21,6 +21,7 @@ public interface RequestStatHourlyMapper {
             @Result(property = "requestCount", column = "request_count"),
             @Result(property = "successCount", column = "success_count"),
             @Result(property = "errorCount", column = "error_count"),
+            @Result(property = "cancelCount", column = "cancel_count"),
             @Result(property = "promptTokens", column = "prompt_tokens"),
             @Result(property = "cachedInputTokens", column = "cached_input_tokens"),
             @Result(property = "completionTokens", column = "completion_tokens"),
@@ -37,12 +38,12 @@ public interface RequestStatHourlyMapper {
     @Insert("""
             INSERT INTO request_stat_hourly (
                 stat_time, alias_model, provider_code,
-                request_count, success_count, error_count,
+                request_count, success_count, error_count, cancel_count,
                 prompt_tokens, cached_input_tokens, completion_tokens, total_tokens,
                 total_duration_ms, estimated_cost
             ) VALUES (
                 #{statTime}, #{aliasModel}, #{providerCode},
-                #{requestCount}, #{successCount}, #{errorCount},
+                #{requestCount}, #{successCount}, #{errorCount}, #{cancelCount},
                 #{promptTokens}, #{cachedInputTokens}, #{completionTokens}, #{totalTokens},
                 #{totalDurationMs}, #{estimatedCost}
             )
@@ -50,6 +51,7 @@ public interface RequestStatHourlyMapper {
                 request_count       = request_count + VALUES(request_count),
                 success_count       = success_count + VALUES(success_count),
                 error_count         = error_count + VALUES(error_count),
+                cancel_count        = cancel_count + VALUES(cancel_count),
                 prompt_tokens       = prompt_tokens + VALUES(prompt_tokens),
                 cached_input_tokens = cached_input_tokens + VALUES(cached_input_tokens),
                 completion_tokens   = completion_tokens + VALUES(completion_tokens),

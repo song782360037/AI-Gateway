@@ -32,6 +32,9 @@ public class RequestStatHourlyDO {
     /** 失败数 */
     private Integer errorCount;
 
+    /** 取消数（客户端主动断开流式连接） */
+    private Integer cancelCount;
+
     /** 输入 Token 总数 */
     private Long promptTokens;
 

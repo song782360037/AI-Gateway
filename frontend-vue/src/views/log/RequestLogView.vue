@@ -47,6 +47,7 @@
           >
             <el-option label="成功" value="SUCCESS" />
             <el-option label="失败" value="ERROR" />
+            <el-option label="已取消" value="CANCELLED" />
           </el-select>
         </el-form-item>
         <el-form-item label="模型别名">
@@ -107,8 +108,8 @@
         </el-table-column>
         <el-table-column label="状态" min-width="70" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'SUCCESS' ? 'success' : 'danger'" size="small">
-              {{ row.status === 'SUCCESS' ? '成功' : '失败' }}
+            <el-tag :type="statusTagType(row.status)" size="small">
+              {{ statusLabel(row.status) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -273,6 +274,27 @@ function providerLabel(type: string): string {
 
 function providerTagType(type: string): string {
   return providerTagTypeMap[type] ?? 'info'
+}
+
+/** 请求状态标签映射 */
+const statusLabelMap: Record<string, string> = {
+  SUCCESS: '成功',
+  ERROR: '失败',
+  CANCELLED: '已取消',
+}
+
+const statusTagTypeMap: Record<string, string> = {
+  SUCCESS: 'success',
+  ERROR: 'danger',
+  CANCELLED: 'warning',
+}
+
+function statusLabel(status: string): string {
+  return statusLabelMap[status] ?? status
+}
+
+function statusTagType(status: string): string {
+  return statusTagTypeMap[status] ?? 'info'
 }
 
 /** 格式化耗时：大于 1000ms 显示为秒 */

@@ -91,6 +91,26 @@ public class RequestStatsCollector {
     }
 
     /**
+     * 记录流式请求被客户端取消（主动断开连接、代理层超时等）
+     * <p>
+     * 取消时可能已有部分 usage 数据（partial usage），仍记录但不计入成功率。
+     * </p>
+     */
+    public void collectStreamCancelled(RequestStatsContext context, UnifiedUsage usage) {
+        if (context == null || context.getRequestInfo() == null || !context.tryMarkCollected()) {
+            return;
+        }
+        RequestLogDO logDO = buildLog(context, "CANCELLED", "STREAM_CANCELLED", "Client disconnected");
+        applyUsage(logDO, usage);
+        log.info("[流式取消] requestId={}, model={}, provider={}, duration={}ms",
+                logDO.getRequestId(),
+                context.getRequestInfo().getModel(),
+                context.getRouteResult() != null ? context.getRouteResult().getProviderName() : "N/A",
+                context.elapsedMs());
+        emit(logDO);
+    }
+
+    /**
      * 记录请求失败
      */
     public void collectError(RequestStatsContext context, Throwable ex) {
@@ -150,6 +170,7 @@ public class RequestStatsCollector {
             stat.setRequestCount(1);
             stat.setSuccessCount("SUCCESS".equals(record.getStatus()) ? 1 : 0);
             stat.setErrorCount("ERROR".equals(record.getStatus()) ? 1 : 0);
+            stat.setCancelCount("CANCELLED".equals(record.getStatus()) ? 1 : 0);
             stat.setPromptTokens((long) nullToZero(record.getPromptTokens()));
             stat.setCachedInputTokens((long) nullToZero(record.getCachedInputTokens()));
             stat.setCompletionTokens((long) nullToZero(record.getCompletionTokens()));
