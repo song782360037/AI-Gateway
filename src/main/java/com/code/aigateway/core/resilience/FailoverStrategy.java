@@ -9,8 +9,11 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Provider 故障转移策略
@@ -48,6 +51,9 @@ public class FailoverStrategy {
             return callFunction.apply(candidates.get(0));
         }
 
+        // 收集每个候选的错误信息，用于最终错误聚合
+        final List<CandidateError> candidateErrors = Collections.synchronizedList(new ArrayList<>());
+
         // 从前往后构建 switchIfEmpty 链：index 0 在最内层（最先执行），index N 在最外层（最后执行）
         Mono<T> chain = Mono.empty();
         for (int i = 0; i < candidates.size(); i++) {
@@ -58,6 +64,8 @@ public class FailoverStrategy {
                 if (circuitBreakerManager.isCircuitOpen(candidate.getProviderName(), candidate.getTargetModel())) {
                     log.warn("[故障转移] provider={}, model={} 熔断已打开，跳过, correlationId={}",
                             candidate.getProviderName(), candidate.getTargetModel(), correlationId);
+                    candidateErrors.add(new CandidateError(
+                            candidate.getProviderName(), candidate.getTargetModel(), "circuit-open"));
                     return Mono.empty();
                 }
                 log.debug("[故障转移] 尝试候选 #{}: provider={}, model={}, correlationId={}",
@@ -69,18 +77,19 @@ public class FailoverStrategy {
                                         index, candidate.getProviderName(), correlationId);
                             }
                         })
-                        // 将 error 转为 empty，使 switchIfEmpty 能尝试下一个候选
                         .onErrorResume(ex -> {
                             log.warn("[故障转移] 候选 #{} 失败: provider={}, error={}, correlationId={}",
                                     index, candidate.getProviderName(), ex.getMessage(), correlationId);
+                            candidateErrors.add(new CandidateError(
+                                    candidate.getProviderName(), candidate.getTargetModel(),
+                                    extractErrorMessage(ex)));
                             return Mono.empty();
                         });
             }));
         }
 
         return chain.switchIfEmpty(Mono.error(() ->
-                new GatewayException(ErrorCode.PROVIDER_CIRCUIT_OPEN,
-                        "all providers are circuit-open or unavailable")));
+                buildAllFailedException(candidateErrors, correlationId)));
     }
 
     /**
@@ -97,6 +106,9 @@ public class FailoverStrategy {
             return callFunction.apply(candidates.get(0));
         }
 
+        // 收集每个候选的错误信息
+        final List<CandidateError> candidateErrors = Collections.synchronizedList(new ArrayList<>());
+
         // 从前往后构建 switchIfEmpty 链：index 0 在最内层（最先执行），index N 在最外层（最后执行）
         Flux<T> chain = Flux.empty();
         for (int i = 0; i < candidates.size(); i++) {
@@ -107,21 +119,65 @@ public class FailoverStrategy {
                 if (circuitBreakerManager.isCircuitOpen(candidate.getProviderName(), candidate.getTargetModel())) {
                     log.warn("[故障转移-流式] provider={}, model={} 熔断已打开，跳过, correlationId={}",
                             candidate.getProviderName(), candidate.getTargetModel(), correlationId);
+                    candidateErrors.add(new CandidateError(
+                            candidate.getProviderName(), candidate.getTargetModel(), "circuit-open"));
                     return Flux.empty();
                 }
                 return callFunction.apply(candidate)
-                        // 将 error 转为 empty，使 switchIfEmpty 能尝试下一个候选
                         .onErrorResume(ex -> {
                             log.warn("[故障转移-流式] 候选 #{} 失败: provider={}, model={}, error={}, correlationId={}",
                                     index, candidate.getProviderName(), candidate.getTargetModel(),
                                     ex.getMessage(), correlationId);
+                            candidateErrors.add(new CandidateError(
+                                    candidate.getProviderName(), candidate.getTargetModel(),
+                                    extractErrorMessage(ex)));
                             return Flux.empty();
                         });
             }));
         }
 
         return chain.switchIfEmpty(Flux.error(() ->
-                new GatewayException(ErrorCode.PROVIDER_CIRCUIT_OPEN,
-                        "all providers are circuit-open or unavailable")));
+                buildAllFailedException(candidateErrors, correlationId)));
+    }
+
+    /**
+     * 候选错误记录
+     */
+    private record CandidateError(String provider, String model, String error) {}
+
+    /**
+     * 从异常中提取可读的错误消息，优先使用 GatewayException 的上游上下文
+     */
+    private String extractErrorMessage(Throwable ex) {
+        if (ex instanceof GatewayException gwEx) {
+            StringBuilder sb = new StringBuilder(ex.getMessage());
+            if (gwEx.getUpstreamHttpStatus() != null) {
+                sb.append(" (HTTP ").append(gwEx.getUpstreamHttpStatus()).append(")");
+            }
+            if (gwEx.getUpstreamErrorType() != null) {
+                sb.append(" [").append(gwEx.getUpstreamErrorType()).append("]");
+            }
+            return sb.toString();
+        }
+        return ex.getMessage();
+    }
+
+    /**
+     * 构建所有候选都失败时的聚合异常，保留每个候选的真实错误原因
+     */
+    private GatewayException buildAllFailedException(List<CandidateError> candidateErrors, String correlationId) {
+        if (candidateErrors.isEmpty()) {
+            return new GatewayException(ErrorCode.PROVIDER_CIRCUIT_OPEN,
+                    "all providers are circuit-open or unavailable");
+        }
+
+        String details = candidateErrors.stream()
+                .map(e -> e.provider() + "/" + e.model() + ": " + e.error())
+                .collect(Collectors.joining("; "));
+
+        String message = "all providers failed — " + details;
+        log.error("[故障转移] 所有候选均失败, correlationId={}, 详情: {}", correlationId, details);
+
+        return new GatewayException(ErrorCode.PROVIDER_CIRCUIT_OPEN, message);
     }
 }
