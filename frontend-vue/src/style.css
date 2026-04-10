@@ -688,7 +688,7 @@ a {
 
 .overview-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 20px;
 }
 
@@ -1238,6 +1238,12 @@ a {
 }
 
 /* ==================== 响应式 ==================== */
+@media (max-width: 1200px) {
+  .overview-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
 @media (max-width: 768px) {
   .admin-layout {
     flex-direction: column;

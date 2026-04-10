@@ -61,6 +61,11 @@ public class DashboardServiceImpl implements IDashboardService {
         long previousTokens = requestStatHourlyMapper.sumTotalTokens(previousStart) - currentTokens;
         rsp.setTokens(new DashboardOverviewRsp.DualMetric(currentTokens, previousTokens));
 
+        // 缓存命中 Token
+        long currentCacheTokens = requestStatHourlyMapper.sumCachedInputTokens(currentStart);
+        long previousCacheTokens = requestStatHourlyMapper.sumCachedInputTokens(previousStart) - currentCacheTokens;
+        rsp.setCacheTokens(new DashboardOverviewRsp.DualMetric(currentCacheTokens, previousCacheTokens));
+
         // 消费金额
         BigDecimal currentCost = safeBigDecimal(requestStatHourlyMapper.sumEstimatedCost(currentStart));
         BigDecimal prevCost = safeBigDecimal(requestStatHourlyMapper.sumEstimatedCost(previousStart)).subtract(currentCost);
@@ -98,16 +103,28 @@ public class DashboardServiceImpl implements IDashboardService {
             RequestLogMapper.ModelAggregation item = records.get(i);
             ModelUsageRankRsp rsp = new ModelUsageRankRsp();
             rsp.setRank(i + 1);
+            // 展示用户友好的别名
             rsp.setModelName(item.aliasModel());
+            // 记录真实目标模型
+            rsp.setTargetModel(item.targetModel());
             rsp.setCallCount(item.callCount());
             rsp.setTokenCount(item.tokenCount());
+            // 缓存 Token 统计
+            rsp.setCachedTokens(item.cachedInputSum());
+            // 费用估算基于真实目标模型
             double cost = ModelPriceTable.estimateCost(
-                    item.aliasModel(),
+                    item.targetModel(),
                     safeToInt(item.promptSum()),
                     safeToInt(item.cachedInputSum()),
                     safeToInt(item.completionSum())
             );
             rsp.setCost(round(cost));
+            // 缓存节省费用
+            double saved = ModelPriceTable.cacheSavedCost(
+                    item.targetModel(),
+                    safeToInt(item.cachedInputSum())
+            );
+            rsp.setCacheSavedCost(round(saved));
             result.add(rsp);
         }
 

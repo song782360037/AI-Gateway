@@ -24,6 +24,7 @@ export interface RequestLogRsp {
   providerType: string
   isStream: boolean
   promptTokens: number | null
+  cachedInputTokens: number | null
   completionTokens: number | null
   totalTokens: number | null
   durationMs: number | null

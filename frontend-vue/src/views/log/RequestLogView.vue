@@ -85,12 +85,15 @@
             <el-tag v-else type="info" size="small">否</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="Token 用量" min-width="160">
+        <el-table-column label="Token 用量" min-width="190">
           <template #default="{ row }">
             <span v-if="row.totalTokens != null" class="token-usage">
               <span class="token-total">{{ row.totalTokens.toLocaleString() }}</span>
               <span class="token-detail">
                 ({{ row.promptTokens ?? 0 }} / {{ row.completionTokens ?? 0 }})
+              </span>
+              <span v-if="row.cachedInputTokens > 0" class="token-cached">
+                缓存: {{ row.cachedInputTokens.toLocaleString() }}
               </span>
             </span>
             <span v-else class="text-muted">-</span>
@@ -306,6 +309,14 @@ onMounted(loadData)
 .token-detail {
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+.token-cached {
+  font-size: 12px;
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.08);
+  padding: 1px 6px;
+  border-radius: 4px;
 }
 
 /* 次要文本 */

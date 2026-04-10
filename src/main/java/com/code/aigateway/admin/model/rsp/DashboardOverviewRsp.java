@@ -17,6 +17,9 @@ public class DashboardOverviewRsp {
     /** Token 消耗 */
     private DualMetric tokens;
 
+    /** 缓存命中 Token 数 */
+    private DualMetric cacheTokens;
+
     /** 平均响应时间（ms） */
     private DualMetric avgResponseMs;
 

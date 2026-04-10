@@ -77,6 +77,21 @@ public final class ModelPriceTable {
                 + safeCompletionTokens * price.outputPrice()) / 1_000_000.0;
     }
 
+    /**
+     * 计算缓存 Token 相比正常输入价格的节省费用
+     *
+     * @param targetModel       目标模型名称
+     * @param cachedInputTokens 缓存命中 Token 数
+     * @return 节省费用（USD）
+     */
+    public static double cacheSavedCost(String targetModel, int cachedInputTokens) {
+        Price price = resolvePrice(targetModel);
+        int safeCachedTokens = Math.max(cachedInputTokens, 0);
+        // 节省金额 = (输入价 - 缓存价) * 缓存 token 数
+        double savedPerMillion = price.inputPrice() - price.cachedInputPrice();
+        return (safeCachedTokens * savedPerMillion) / 1_000_000.0;
+    }
+
     private static Price resolvePrice(String targetModel) {
         if (targetModel == null || targetModel.isBlank()) {
             return DEFAULT_PRICE;

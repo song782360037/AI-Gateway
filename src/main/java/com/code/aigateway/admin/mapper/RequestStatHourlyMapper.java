@@ -125,4 +125,13 @@ public interface RequestStatHourlyMapper {
             WHERE stat_time >= #{startTime}
             """)
     long sumDurationMs(@Param("startTime") LocalDateTime startTime);
+
+    /**
+     * 汇总指定时间范围内的缓存 Token 总数
+     */
+    @Select("""
+            SELECT COALESCE(SUM(cached_input_tokens), 0) FROM request_stat_hourly
+            WHERE stat_time >= #{startTime}
+            """)
+    long sumCachedInputTokens(@Param("startTime") LocalDateTime startTime);
 }

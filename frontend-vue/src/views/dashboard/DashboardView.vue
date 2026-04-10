@@ -75,14 +75,22 @@
                   <span class="rank-badge" :class="rankClass(row.rank)">{{ row.rank }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="modelName" label="模型" min-width="140" show-overflow-tooltip align="center" />
-              <el-table-column prop="callCount" label="调用次数" min-width="100" align="center">
+              <el-table-column prop="modelName" label="模型" min-width="120" show-overflow-tooltip align="center" />
+              <el-table-column prop="callCount" label="调用次数" min-width="90" align="center">
                 <template #default="{ row }">{{ formatNumber(row.callCount) }}</template>
               </el-table-column>
-              <el-table-column prop="tokenCount" label="Token" min-width="90" align="center">
+              <el-table-column prop="tokenCount" label="Token" min-width="80" align="center">
                 <template #default="{ row }">{{ formatTokenCount(row.tokenCount) }}</template>
               </el-table-column>
-              <el-table-column prop="cost" label="费用" min-width="80" align="center">
+              <el-table-column label="缓存 Token" min-width="80" align="center">
+                <template #default="{ row }">
+                  <span v-if="row.cachedTokens > 0" class="cache-highlight">
+                    {{ formatTokenCount(row.cachedTokens) }}
+                  </span>
+                  <span v-else class="text-muted">-</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="cost" label="费用" min-width="72" align="center">
                 <template #default="{ row }">${{ row.cost.toFixed(2) }}</template>
               </el-table-column>
             </el-table>
@@ -142,6 +150,7 @@ import {
   Coin,
   Connection,
   Document,
+  Lightning,
   Timer,
   TrendCharts,
 } from '@element-plus/icons-vue'
@@ -165,6 +174,7 @@ const stats = reactive<DashboardStats>({
   requests: { current: 0, previous: 0, changePercent: 0 },
   cost: { current: 0, previous: 0, changePercent: 0 },
   tokens: { current: 0, previous: 0, changePercent: 0 },
+  cacheTokens: { current: 0, previous: 0, changePercent: 0 },
   avgResponseMs: { current: 0, previous: 0, changePercent: 0 },
 })
 const modelRank = ref<ModelUsageRank[]>([])
@@ -261,6 +271,16 @@ const overviewCards = computed(() => [
     accentBg: 'rgba(16, 185, 129, 0.06)',
   },
   {
+    key: 'cacheTokens',
+    label: '缓存命中',
+    displayValue: formatTokenCount(stats.cacheTokens.current),
+    subLabel: `${periodPrevLabel.value} ${formatTokenCount(stats.cacheTokens.previous)}`,
+    metric: stats.cacheTokens,
+    icon: Lightning,
+    accent: '#06b6d4',
+    accentBg: 'rgba(6, 182, 212, 0.06)',
+  },
+  {
     key: 'duration',
     label: '平均响应耗时',
     displayValue: formatMs(stats.avgResponseMs.current),
@@ -323,3 +343,16 @@ onMounted(() => {
   loadHealth()
 })
 </script>
+
+<style scoped>
+/* 缓存 Token 高亮 */
+.cache-highlight {
+  color: #06b6d4;
+  font-weight: 500;
+}
+
+/* 次要文本 */
+.text-muted {
+  color: var(--text-placeholder);
+}
+</style>

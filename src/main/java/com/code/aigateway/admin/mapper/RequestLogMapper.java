@@ -138,11 +138,17 @@ public interface RequestLogMapper {
     long sumTokensLastMinute(@Param("startTime") LocalDateTime startTime);
 
     /**
-     * 按模型聚合统计：按总 Token 数降序取 Top N
+     * 按目标模型聚合统计：按调用次数降序取 Top N
+     * <p>
+     * 按 target_model + alias_model 联合分组，确保同一目标模型的不同别名
+     * 各自独立统计，同时保证 SQL 严格模式兼容性。
+     * 费用估算使用 targetModel，前端展示使用 aliasModel。
+     * </p>
      */
     @Select("""
             <script>
-            SELECT alias_model AS aliasModel,
+            SELECT target_model AS targetModel,
+                   alias_model AS aliasModel,
                    COUNT(1) AS callCount,
                    COALESCE(SUM(total_tokens), 0) AS tokenCount,
                    COALESCE(SUM(prompt_tokens), 0) AS promptSum,
@@ -153,7 +159,7 @@ public interface RequestLogMapper {
             <if test='startTime != null'>
                 AND create_time >= #{startTime}
             </if>
-            GROUP BY alias_model
+            GROUP BY target_model, alias_model
             ORDER BY callCount DESC
             LIMIT #{limit}
             </script>
@@ -163,8 +169,17 @@ public interface RequestLogMapper {
 
     /**
      * 模型聚合结果
+     *
+     * @param targetModel   实际路由到的目标模型（用于费用估算）
+     * @param aliasModel    用户请求的模型别名（用于前端展示）
+     * @param callCount     调用次数
+     * @param tokenCount    总 Token 数
+     * @param promptSum     输入 Token 总数
+     * @param cachedInputSum 缓存命中 Token 总数
+     * @param completionSum 输出 Token 总数
      */
     record ModelAggregation(
+            String targetModel,
             String aliasModel,
             long callCount,
             long tokenCount,

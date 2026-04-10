@@ -46,6 +46,7 @@ public class RequestLogService {
         rsp.setProviderType(record.getProviderType());
         rsp.setIsStream(record.getIsStream());
         rsp.setPromptTokens(record.getPromptTokens());
+        rsp.setCachedInputTokens(record.getCachedInputTokens());
         rsp.setCompletionTokens(record.getCompletionTokens());
         rsp.setTotalTokens(record.getTotalTokens());
         rsp.setDurationMs(record.getDurationMs());

@@ -19,6 +19,8 @@ export interface DashboardStats {
   cost: DualMetric
   /** Token 消耗 */
   tokens: DualMetric
+  /** 缓存命中 Token 数 */
+  cacheTokens: DualMetric
   /** 平均响应时间（ms） */
   avgResponseMs: DualMetric
 }
@@ -27,8 +29,11 @@ export interface DashboardStats {
 export interface ModelUsageRank {
   rank: number
   modelName: string
+  targetModel: string
   callCount: number
   tokenCount: number
+  cachedTokens: number
+  cacheSavedCost: number
   cost: number
 }
 
