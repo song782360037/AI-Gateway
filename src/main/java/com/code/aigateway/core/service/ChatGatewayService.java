@@ -93,6 +93,8 @@ public class ChatGatewayService {
                 ? context.getRouteResult().getTargetModel() : "";
         StreamContext streamCtx = new StreamContext(responseId, created, streamModel);
 
+        AtomicReference<Throwable> streamErrorRef = new AtomicReference<>();
+
         return Flux.concat(
                     // 流起始事件（如 Anthropic 的 message_start）
                     adapter.initialStreamEvents(streamCtx),
@@ -119,9 +121,21 @@ public class ChatGatewayService {
                     // 流终止事件（如 OpenAI 的 [DONE]、Anthropic 的 message_stop）
                     adapter.terminalStreamEvents(streamCtx)
                 )
-                .doOnComplete(() -> requestStatsCollector.collectStreamSuccess(context, finalUsageRef.get()))
                 .doOnError(ex -> requestStatsCollector.collectError(context, ex))
-                .doOnCancel(() -> requestStatsCollector.collectStreamSuccess(context, finalUsageRef.get()));
+                .onErrorResume(ex -> {
+                    streamErrorRef.set(ex);
+                    return adapter.encodeStreamError(ex, streamCtx);
+                })
+                .doOnComplete(() -> {
+                    if (streamErrorRef.get() == null) {
+                        requestStatsCollector.collectStreamSuccess(context, finalUsageRef.get());
+                    }
+                })
+                .doOnCancel(() -> {
+                    if (streamErrorRef.get() == null) {
+                        requestStatsCollector.collectStreamSuccess(context, finalUsageRef.get());
+                    }
+                });
     }
 
     /**

@@ -166,6 +166,67 @@ class ChatGatewayServiceStreamSseTest {
                 .verifyComplete();
     }
 
+    @Test
+    void streamChat_providerFailsBeforeFirstChunk_returnsStructuredErrorAndDoneMarker() {
+        OpenAiChatCompletionRequest request = buildRequest();
+        RouteResult routeResult = RouteResult.builder()
+                .providerType(ProviderType.OPENAI)
+                .targetModel("gpt-5.4")
+                .providerName("openai")
+                .providerBaseUrl("http://provider.test")
+                .providerTimeoutSeconds(30)
+                .build();
+
+        Mockito.when(modelRouter.routeAll(Mockito.any())).thenReturn(List.of(routeResult));
+        Mockito.when(providerClient.streamChat(Mockito.any()))
+                .thenReturn(Flux.error(new RuntimeException("upstream exploded")));
+
+        Flux<ServerSentEvent<String>> flux = chatGatewayService.streamChat(request, protocolAdapter, new RequestStatsContext())
+                .map(e -> (ServerSentEvent<String>) e);
+
+        StepVerifier.create(flux)
+                .assertNext(event -> {
+                    JsonNode jsonNode = parseJson(event.data());
+                    assertEquals("upstream exploded", jsonNode.path("error").path("message").asText());
+                    assertEquals("server_error", jsonNode.path("error").path("type").asText());
+                })
+                .assertNext(last -> assertEquals("[DONE]", last.data()))
+                .verifyComplete();
+    }
+
+    @Test
+    void streamChat_providerFailsAfterTextDelta_returnsStructuredErrorAndDoneMarker() {
+        OpenAiChatCompletionRequest request = buildRequest();
+        RouteResult routeResult = RouteResult.builder()
+                .providerType(ProviderType.OPENAI)
+                .targetModel("gpt-5.4")
+                .providerName("openai")
+                .providerBaseUrl("http://provider.test")
+                .providerTimeoutSeconds(30)
+                .build();
+
+        UnifiedStreamEvent textEvent = new UnifiedStreamEvent();
+        textEvent.setType("text_delta");
+        textEvent.setTextDelta("你好");
+
+        Mockito.when(modelRouter.routeAll(Mockito.any())).thenReturn(List.of(routeResult));
+        Mockito.when(providerClient.streamChat(Mockito.any()))
+                .thenReturn(Flux.just(textEvent).concatWith(Flux.error(new RuntimeException("stream interrupted"))));
+
+        Flux<ServerSentEvent<String>> flux = chatGatewayService.streamChat(request, protocolAdapter, new RequestStatsContext())
+                .map(e -> (ServerSentEvent<String>) e);
+
+        StepVerifier.create(flux)
+                .assertNext(first -> assertTextChunk(first, "你好", "gpt-5.4"))
+                .assertNext(event -> {
+                    JsonNode jsonNode = parseJson(event.data());
+                    assertEquals("stream interrupted", jsonNode.path("error").path("message").asText());
+                    assertEquals("server_error", jsonNode.path("error").path("type").asText());
+                })
+                .assertNext(last -> assertEquals("[DONE]", last.data()))
+                .verifyComplete();
+    }
+
     private void assertTextChunk(ServerSentEvent<String> event, String expectedContent, String expectedModel) {
         JsonNode jsonNode = parseJson(event.data());
         assertEquals("chat.completion.chunk", jsonNode.path("object").asText());

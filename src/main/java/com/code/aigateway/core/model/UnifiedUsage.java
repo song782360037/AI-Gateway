@@ -19,6 +19,11 @@ public class UnifiedUsage {
     private Integer inputTokens;
 
     /**
+     * 输入命中缓存的 Token 数量
+     */
+    private Integer cachedInputTokens;
+
+    /**
      * 输出 Token 数量
      */
     private Integer outputTokens;

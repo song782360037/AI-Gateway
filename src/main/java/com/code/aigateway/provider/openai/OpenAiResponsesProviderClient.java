@@ -250,26 +250,19 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
     }
 
     /**
-     * 将统一模型中的工具调用 ID 映射为 OpenAI Responses 可接受的 call_id。
+     * 将统一模型中的工具调用 ID 映射为 Responses 请求内稳定、显式管理的 call_id。
      * <p>
-     * Anthropic 工具调用历史通常使用 call_ 前缀，Responses API 要求 function call
-     * 相关 ID 使用 fc_ 前缀。这里在单次请求构建期间维护稳定映射，确保 assistant 的
-     * function_call 与后续 tool 的 function_call_output 使用同一个 call_id。
+     * 不再依赖原始 ID 的前缀语义，而是在单次请求内为每个原始 ID 建立一条稳定映射，
+     * 确保 assistant 的 function_call 与后续 tool 的 function_call_output 始终复用同一个
+     * Responses call_id。
      * </p>
      */
     private String mapToolCallIdForResponses(String originalId, Map<String, String> toolCallIdMappings) {
         if (originalId == null || originalId.isBlank()) {
             return "";
         }
-        return toolCallIdMappings.computeIfAbsent(originalId, id -> {
-            if (id.startsWith("fc_")) {
-                return id;
-            }
-            if (id.startsWith("call_")) {
-                return "fc_" + id.substring("call_".length());
-            }
-            return id;
-        });
+        return toolCallIdMappings.computeIfAbsent(originalId,
+                ignored -> "fc_" + toolCallIdMappings.size());
     }
 
     /**
@@ -569,7 +562,7 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
         };
     }
 
-    /** 解析 Responses API usage（input_tokens / output_tokens / total_tokens） */
+    /** 解析 Responses API usage（input_tokens / output_tokens / total_tokens / cached_tokens） */
     private UnifiedUsage parseResponseUsage(JsonNode usageNode) {
         if (usageNode == null || usageNode.isNull() || usageNode.isMissingNode()) {
             return null;
@@ -577,6 +570,8 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
         UnifiedUsage usage = new UnifiedUsage();
         usage.setInputTokens(usageNode.path("input_tokens").isMissingNode()
                 ? null : usageNode.path("input_tokens").asInt());
+        usage.setCachedInputTokens(usageNode.path("input_tokens_details").path("cached_tokens").isMissingNode()
+                ? null : usageNode.path("input_tokens_details").path("cached_tokens").asInt());
         usage.setOutputTokens(usageNode.path("output_tokens").isMissingNode()
                 ? null : usageNode.path("output_tokens").asInt());
         usage.setTotalTokens(usageNode.path("total_tokens").isMissingNode()

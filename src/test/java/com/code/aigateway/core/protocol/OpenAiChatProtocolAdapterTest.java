@@ -156,7 +156,20 @@ class OpenAiChatProtocolAdapterTest {
         assertEquals("stop", root.get("choices").get(0).get("finish_reason").asText());
     }
 
-    // ========== terminalStreamEvents ==========
+    @Test
+    void encodeStreamError_returnsOpenAiErrorChunk() throws Exception {
+        StreamContext ctx = new StreamContext("chatcmpl-123", 1710000000L, "gpt-4o");
+
+        ServerSentEvent<String> sse = adapter.encodeStreamError(
+                new RuntimeException("boom"), ctx).blockFirst();
+
+        assertNotNull(sse);
+        JsonNode root = objectMapper.readTree(sse.data());
+        assertEquals("boom", root.get("error") .get("message").asText());
+        assertEquals("server_error", root.get("error").get("type").asText());
+        assertEquals(ErrorCode.INTERNAL_ERROR.name(), root.get("error").get("code").asText());
+    }
+
 
     @Test
     void terminalStreamEvents_returnsDone() {

@@ -126,31 +126,32 @@ class OpenAiResponsesProviderClientTest {
     }
 
     @Test
-    void chat_reasoningSummary_parsesThinkingParts() {
+    void chat_usageWithCachedTokens_parsesCachedTokens() {
         startServer(exchange -> {
             captureRequest(exchange);
             writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
                     {
-                      "id": "resp_reasoning_summary",
+                      "id": "resp_cached_001",
                       "object": "response",
                       "model": "gpt-4o",
                       "status": "completed",
                       "output": [
                         {
-                          "type": "reasoning",
-                          "summary": [
-                            {"type": "summary_text", "text": "先分析问题，再给答案"}
-                          ]
-                        },
-                        {
                           "type": "message",
                           "role": "assistant",
                           "content": [
-                            {"type": "output_text", "text": "最终答案"}
+                            {"type": "output_text", "text": "命中缓存"}
                           ]
                         }
                       ],
-                      "usage": {"input_tokens": 10, "output_tokens": 6, "total_tokens": 16}
+                      "usage": {
+                        "input_tokens": 15,
+                        "output_tokens": 8,
+                        "total_tokens": 23,
+                        "input_tokens_details": {
+                          "cached_tokens": 6
+                        }
+                      }
                     }
                     """);
         });
@@ -158,17 +159,11 @@ class OpenAiResponsesProviderClientTest {
 
         StepVerifier.create(providerClient.chat(buildBasicRequest(false)))
                 .assertNext(response -> {
-                    assertEquals("stop", response.getFinishReason());
-                    assertEquals("先分析问题，再给答案",
-                            response.getOutputs().getFirst().getParts().stream()
-                                    .filter(part -> "thinking".equals(part.getType()))
-                                    .findFirst()
-                                    .orElseThrow()
-                                    .getText());
+                    assertNotNull(response.getUsage());
+                    assertEquals(6, response.getUsage().getCachedInputTokens());
                 })
                 .verifyComplete();
     }
-
 
     @Test
     void chat_functionCall_parsesToolCalls() {
@@ -211,7 +206,7 @@ class OpenAiResponsesProviderClientTest {
     }
 
     @Test
-    void chat_withAnthropicToolHistory_convertsToolCallIdsToResponsesFormat() throws Exception {
+    void chat_withToolHistory_reusesSameResponsesCallIdAcrossAssistantAndTool() throws Exception {
         startServer(exchange -> {
             captureRequest(exchange);
             writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
@@ -244,10 +239,51 @@ class OpenAiResponsesProviderClientTest {
         assertNotNull(input);
         assertEquals(3, input.size());
         assertEquals("function_call", input.get(1).get("type").asText());
-        assertEquals("fc_1", input.get(1).get("id").asText());
-        assertEquals("fc_1", input.get(1).get("call_id").asText());
+        String responsesCallId = input.get(1).get("call_id").asText();
+        assertEquals(responsesCallId, input.get(1).get("id").asText());
         assertEquals("function_call_output", input.get(2).get("type").asText());
-        assertEquals("fc_1", input.get(2).get("call_id").asText());
+        assertEquals(responsesCallId, input.get(2).get("call_id").asText());
+    }
+
+    @Test
+    void chat_withOpaqueToolHistory_reusesMappedToolCallId() throws Exception {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
+                    {
+                      "id": "resp_opaque_tool_history_001",
+                      "object": "response",
+                      "model": "gpt-4o",
+                      "status": "completed",
+                      "output": [
+                        {
+                          "type": "message",
+                          "role": "assistant",
+                          "content": [
+                            {"type": "output_text", "text": "处理完成"}
+                          ]
+                        }
+                      ],
+                      "usage": {"input_tokens": 12, "output_tokens": 6, "total_tokens": 18}
+                    }
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        StepVerifier.create(providerClient.chat(buildRequestWithOpaqueToolHistory(false)))
+                .assertNext(response -> assertEquals("resp_opaque_tool_history_001", response.getId()))
+                .verifyComplete();
+
+        JsonNode root = objectMapper.readTree(requestBody.get());
+        JsonNode input = root.get("input");
+        assertNotNull(input);
+        assertEquals(3, input.size());
+        String mappedCallId = input.get(1).get("call_id").asText();
+        assertEquals(mappedCallId, input.get(1).get("id").asText());
+        assertEquals("function_call_output", input.get(2).get("type").asText());
+        assertEquals(mappedCallId, input.get(2).get("call_id").asText());
+        assertTrue(mappedCallId.startsWith("fc_"));
+        assertTrue(!"opaque-tool-id-42".equals(mappedCallId));
     }
 
     // ==================== 3. 流式文本响应 ====================
@@ -288,6 +324,27 @@ class OpenAiResponsesProviderClientTest {
     }
 
     // ==================== 4. 流式工具调用 ====================
+
+    @Test
+    void streamChat_completedUsageWithCachedTokens_parsesCachedTokens() {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.TEXT_EVENT_STREAM_VALUE, """
+                    event: response.completed
+                    data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15,"input_tokens_details":{"cached_tokens":4}}}}
+
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        StepVerifier.create(providerClient.streamChat(buildBasicRequest(true)))
+                .assertNext(event -> {
+                    assertEquals("done", event.getType());
+                    assertNotNull(event.getUsage());
+                    assertEquals(4, event.getUsage().getCachedInputTokens());
+                })
+                .verifyComplete();
+    }
 
     @Test
     void streamChat_functionCall_parsesToolCallEvents() {
@@ -622,9 +679,11 @@ class OpenAiResponsesProviderClientTest {
         assertEquals("user", input.get(0).get("role").asText());
         assertEquals("function_call", input.get(1).get("type").asText());
         assertEquals("get_weather", input.get(1).get("name").asText());
-        assertEquals("fc_1", input.get(1).get("call_id").asText());
+        String responsesCallId = input.get(1).get("call_id").asText();
+        assertEquals(input.get(1).get("id").asText(), responsesCallId);
+        assertEquals("fc_0", responsesCallId);
         assertEquals("function_call_output", input.get(2).get("type").asText());
-        assertEquals("fc_1", input.get(2).get("call_id").asText());
+        assertEquals(responsesCallId, input.get(2).get("call_id").asText());
     }
 
     @Test
@@ -762,7 +821,7 @@ class OpenAiResponsesProviderClientTest {
     }
 
     @Test
-    void chat_withMultipleAnthropicToolCalls_keepsStableDistinctResponsesIds() throws Exception {
+    void chat_withMultipleToolHistory_keepsStableDistinctResponsesIds() throws Exception {
         startServer(exchange -> {
             captureRequest(exchange);
             writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
@@ -794,12 +853,17 @@ class OpenAiResponsesProviderClientTest {
         JsonNode input = root.get("input");
         assertNotNull(input);
         assertEquals(5, input.size());
-        assertEquals("fc_1", input.get(1).get("id").asText());
-        assertEquals("fc_1", input.get(1).get("call_id").asText());
-        assertEquals("fc_2", input.get(2).get("id").asText());
-        assertEquals("fc_2", input.get(2).get("call_id").asText());
-        assertEquals("fc_1", input.get(3).get("call_id").asText());
-        assertEquals("fc_2", input.get(4).get("call_id").asText());
+        String firstResponsesCallId = input.get(1).get("call_id").asText();
+        String secondResponsesCallId = input.get(2).get("call_id").asText();
+        assertEquals("fc_0", firstResponsesCallId);
+        assertEquals("fc_1", secondResponsesCallId);
+        assertEquals(firstResponsesCallId, input.get(1).get("id").asText());
+        assertEquals(secondResponsesCallId, input.get(2).get("id").asText());
+        assertTrue(!firstResponsesCallId.isBlank());
+        assertTrue(!secondResponsesCallId.isBlank());
+        assertTrue(!firstResponsesCallId.equals(secondResponsesCallId));
+        assertEquals(firstResponsesCallId, input.get(3).get("call_id").asText());
+        assertEquals(secondResponsesCallId, input.get(4).get("call_id").asText());
     }
 
     private UnifiedRequest buildRequestWithToolHistory(boolean stream) {
@@ -827,18 +891,7 @@ class OpenAiResponsesProviderClientTest {
         toolResult.setToolCallId("call_1");
         toolResult.setParts(List.of(textPart("晴天")));
 
-        UnifiedRequest request = new UnifiedRequest();
-        request.setProvider("openai-responses");
-        request.setModel("gpt-4o");
-        request.setSystemPrompt("你是一个助手");
-        request.setMessages(List.of(userMsg, assistantMsg, toolResult));
-        request.setStream(stream);
-
-        UnifiedRequest.ProviderExecutionContext ctx = new UnifiedRequest.ProviderExecutionContext();
-        ctx.setProviderName("openai-responses");
-        ctx.setProviderBaseUrl("http://127.0.0.1:" + httpServer.getAddress().getPort());
-        request.setExecutionContext(ctx);
-        return request;
+        return buildToolHistoryRequest(stream, List.of(userMsg, assistantMsg, toolResult));
     }
 
     private UnifiedRequest buildRequestWithMultipleToolHistory(boolean stream) {
@@ -873,11 +926,39 @@ class OpenAiResponsesProviderClientTest {
         timeToolResult.setToolCallId("call_2");
         timeToolResult.setParts(List.of(textPart("10:00")));
 
+        return buildToolHistoryRequest(stream, List.of(userMsg, assistantMsg, weatherToolResult, timeToolResult));
+    }
+
+    private UnifiedRequest buildRequestWithOpaqueToolHistory(boolean stream) {
+        UnifiedMessage userMsg = new UnifiedMessage();
+        userMsg.setRole("user");
+        userMsg.setParts(List.of(textPart("查天气")));
+
+        UnifiedToolCall toolCall = new UnifiedToolCall();
+        toolCall.setId("opaque-tool-id-42");
+        toolCall.setType("function");
+        toolCall.setToolName("get_weather");
+        toolCall.setArgumentsJson("{\"city\":\"Shanghai\"}");
+
+        UnifiedMessage assistantMsg = new UnifiedMessage();
+        assistantMsg.setRole("assistant");
+        assistantMsg.setParts(List.of());
+        assistantMsg.setToolCalls(List.of(toolCall));
+
+        UnifiedMessage toolResult = new UnifiedMessage();
+        toolResult.setRole("tool");
+        toolResult.setToolCallId("opaque-tool-id-42");
+        toolResult.setParts(List.of(textPart("晴天")));
+
+        return buildToolHistoryRequest(stream, List.of(userMsg, assistantMsg, toolResult));
+    }
+
+    private UnifiedRequest buildToolHistoryRequest(boolean stream, List<UnifiedMessage> messages) {
         UnifiedRequest request = new UnifiedRequest();
         request.setProvider("openai-responses");
         request.setModel("gpt-4o");
         request.setSystemPrompt("你是一个助手");
-        request.setMessages(List.of(userMsg, assistantMsg, weatherToolResult, timeToolResult));
+        request.setMessages(messages);
         request.setStream(stream);
 
         UnifiedRequest.ProviderExecutionContext ctx = new UnifiedRequest.ProviderExecutionContext();

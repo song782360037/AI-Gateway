@@ -5,6 +5,8 @@ import com.code.aigateway.api.response.OpenAiErrorResponse;
 import com.code.aigateway.api.response.OpenAiResponsesResponse;
 import com.code.aigateway.core.encoder.OpenAiResponsesResponseEncoder;
 import com.code.aigateway.core.error.ErrorCode;
+import com.code.aigateway.core.error.GatewayException;
+import com.code.aigateway.core.model.OpenAiResponsesStreamState;
 import com.code.aigateway.core.model.ResponseProtocol;
 import com.code.aigateway.core.model.StreamContext;
 import com.code.aigateway.core.model.UnifiedRequest;
@@ -72,14 +74,15 @@ public class OpenAiResponsesProtocolAdapter implements ProtocolAdapter {
 
     /** 编码流结束事件：关闭未关闭的块，发送 response.completed */
     private Flux<ServerSentEvent<String>> encodeDoneEvent(UnifiedStreamEvent event, StreamContext ctx) {
+        OpenAiResponsesStreamState responsesState = ctx.responses();
         Flux<ServerSentEvent<String>> closeItems = Flux.empty();
-        if (ctx.isTextBlockOpen()) {
-            closeItems = closeItems.concatWith(Flux.just(buildOutputItemDone(ctx.getOpenAiTextOutputItemIndex())));
-            ctx.closeTextBlock();
+        if (responsesState.isTextBlockOpen()) {
+            closeItems = closeItems.concatWith(Flux.just(buildOutputItemDone(responsesState.getTextOutputItemIndex())));
+            responsesState.closeTextBlock();
         }
-        if (ctx.isReasoningBlockOpen()) {
-            closeItems = closeItems.concatWith(Flux.just(buildOutputItemDone(ctx.getOpenAiReasoningOutputItemIndex())));
-            ctx.closeReasoningBlock();
+        if (responsesState.isReasoningBlockOpen()) {
+            closeItems = closeItems.concatWith(Flux.just(buildOutputItemDone(responsesState.getReasoningOutputItemIndex())));
+            responsesState.closeReasoningBlock();
         }
         Map<String, Object> payload = Map.of(
                 "type", "response.completed",
@@ -113,20 +116,22 @@ public class OpenAiResponsesProtocolAdapter implements ProtocolAdapter {
 
     /** 编码文本增量：首次打开时发送 output_item.added，之后发送 output_text.delta */
     private Flux<ServerSentEvent<String>> encodeTextDelta(UnifiedStreamEvent event, StreamContext ctx) {
-        return encodeBlockDelta(event, ctx, new BlockDeltaConfig(
+        OpenAiResponsesStreamState responsesState = ctx.responses();
+        return encodeBlockDelta(event, ctx, responsesState, new BlockDeltaConfig(
                 "message", "response.output_text.delta", event.getTextDelta(),
                 "msg_", Map.of("role", "assistant"),
-                ctx::tryOpenTextBlock, ctx::setOpenAiTextOutputItemIndex, ctx::setOpenAiTextItemId,
-                ctx::getOpenAiTextOutputItemIndex, ctx::getOpenAiTextItemId));
+                responsesState::tryOpenTextBlock, responsesState::setTextOutputItemIndex, responsesState::setTextItemId,
+                responsesState::getTextOutputItemIndex, responsesState::getTextItemId));
     }
 
     /** 编码思考增量：首次打开时发送 reasoning 块的 output_item.added */
     private Flux<ServerSentEvent<String>> encodeThinkingDelta(UnifiedStreamEvent event, StreamContext ctx) {
-        return encodeBlockDelta(event, ctx, new BlockDeltaConfig(
+        OpenAiResponsesStreamState responsesState = ctx.responses();
+        return encodeBlockDelta(event, ctx, responsesState, new BlockDeltaConfig(
                 "reasoning", "response.reasoning_summary_text.delta", event.getThinkingDelta(),
                 "rs_", Map.of(),
-                ctx::tryOpenReasoningBlock, ctx::setOpenAiReasoningOutputItemIndex, ctx::setOpenAiReasoningItemId,
-                ctx::getOpenAiReasoningOutputItemIndex, ctx::getOpenAiReasoningItemId));
+                responsesState::tryOpenReasoningBlock, responsesState::setReasoningOutputItemIndex, responsesState::setReasoningItemId,
+                responsesState::getReasoningOutputItemIndex, responsesState::getReasoningItemId));
     }
 
     /**
@@ -134,11 +139,17 @@ public class OpenAiResponsesProtocolAdapter implements ProtocolAdapter {
      * 首次收到增量时发送 output_item.added 打开块，后续发送 delta 事件。
      */
     private Flux<ServerSentEvent<String>> encodeBlockDelta(
-            UnifiedStreamEvent event, StreamContext ctx, BlockDeltaConfig cfg) {
+            UnifiedStreamEvent event,
+            StreamContext ctx,
+            OpenAiResponsesStreamState responsesState,
+            BlockDeltaConfig cfg) {
 
         Flux<ServerSentEvent<String>> framing = Flux.empty();
         if (cfg.openBlockCas().getAsBoolean()) {
-            int outputIndex = event.getOutputIndex() != null ? event.getOutputIndex() : ctx.nextOpenAiOutputItemIndex();
+            int outputIndex = event.getOutputIndex() != null ? event.getOutputIndex() : responsesState.nextOutputItemIndex();
+            if (outputIndex < 0) {
+                outputIndex = 0;
+            }
             cfg.outputIndexWriter().accept(outputIndex);
             String itemId = event.getItemId() != null && !event.getItemId().isBlank()
                     ? event.getItemId()
@@ -163,6 +174,8 @@ public class OpenAiResponsesProtocolAdapter implements ProtocolAdapter {
             payload.put("output_index", event.getOutputIndex());
         } else if (cfg.outputIndexReader().getAsInt() >= 0) {
             payload.put("output_index", cfg.outputIndexReader().getAsInt());
+        } else if (responsesState.getLastOutputItemIndex() >= 0) {
+            payload.put("output_index", responsesState.getLastOutputItemIndex());
         }
         String resolvedItemId = event.getItemId() != null && !event.getItemId().isBlank()
                 ? event.getItemId()
@@ -179,7 +192,8 @@ public class OpenAiResponsesProtocolAdapter implements ProtocolAdapter {
 
     /** 编码工具调用开始事件 */
     private Flux<ServerSentEvent<String>> encodeToolCall(UnifiedStreamEvent event, StreamContext ctx) {
-        int outputIndex = event.getOutputIndex() != null ? event.getOutputIndex() : ctx.nextOpenAiOutputItemIndex();
+        OpenAiResponsesStreamState responsesState = ctx.responses();
+        int outputIndex = event.getOutputIndex() != null ? event.getOutputIndex() : responsesState.nextOutputItemIndex();
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("type", "function_call");
         if (event.getItemId() != null && !event.getItemId().isBlank()) {
@@ -219,6 +233,22 @@ public class OpenAiResponsesProtocolAdapter implements ProtocolAdapter {
                 .event("response.function_call_arguments.delta")
                 .data(toJson(payload))
                 .build());
+    }
+
+    @Override
+    public Flux<ServerSentEvent<String>> encodeStreamError(Throwable throwable, StreamContext ctx) {
+        ErrorCode errorCode = throwable instanceof GatewayException ge
+                ? ge.getErrorCode()
+                : ErrorCode.INTERNAL_ERROR;
+        String message = throwable.getMessage() == null || throwable.getMessage().isBlank()
+                ? "internal server error"
+                : throwable.getMessage();
+        String param = throwable instanceof GatewayException ge ? ge.getParam() : null;
+        ServerSentEvent<String> errorEvent = ServerSentEvent.<String>builder()
+                .event("error")
+                .data(toJson(buildError(message, mapErrorType(errorCode), errorCode.name(), param)))
+                .build();
+        return Flux.just(errorEvent);
     }
 
     @Override

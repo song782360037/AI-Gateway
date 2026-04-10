@@ -5,6 +5,7 @@ import com.code.aigateway.api.response.OpenAiChatCompletionChunkResponse;
 import com.code.aigateway.api.response.OpenAiErrorResponse;
 import com.code.aigateway.core.encoder.OpenAiChatResponseEncoder;
 import com.code.aigateway.core.error.ErrorCode;
+import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.model.ResponseProtocol;
 import com.code.aigateway.core.model.StreamContext;
 import com.code.aigateway.core.model.UnifiedRequest;
@@ -165,6 +166,21 @@ public class OpenAiChatProtocolAdapter implements ProtocolAdapter {
                 ))
                 .build();
         return Flux.just(ServerSentEvent.builder(toJson(chunk)).build());
+    }
+
+    @Override
+    public Flux<ServerSentEvent<String>> encodeStreamError(Throwable throwable, StreamContext ctx) {
+        ErrorCode errorCode = throwable instanceof GatewayException ge
+                ? ge.getErrorCode()
+                : ErrorCode.INTERNAL_ERROR;
+        String message = throwable.getMessage() == null || throwable.getMessage().isBlank()
+                ? "internal server error"
+                : throwable.getMessage();
+        String param = throwable instanceof GatewayException ge ? ge.getParam() : null;
+        ServerSentEvent<String> errorEvent = ServerSentEvent.<String>builder(
+                toJson(buildError(message, mapErrorType(errorCode), errorCode.name(), param)))
+                .build();
+        return Flux.just(errorEvent).concatWith(terminalStreamEvents(ctx));
     }
 
     @Override

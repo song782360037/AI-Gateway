@@ -79,8 +79,9 @@ public class OpenAiResponsesRequestParser {
 
         // 解析 input 数组为消息列表
         unifiedRequest.setMessages(parseInputItems(request.getInput()));
-        unifiedRequest.setTools(parseTools(request.getTools()));
-        unifiedRequest.setToolChoice(parseToolChoice(request.getToolChoice()));
+        List<UnifiedTool> unifiedTools = parseTools(request.getTools());
+        unifiedRequest.setTools(unifiedTools);
+        unifiedRequest.setToolChoice(normalizeToolChoice(parseToolChoice(request.getToolChoice()), unifiedTools));
 
         if (reasoning != null) {
             Map<String, Object> metadata = unifiedRequest.getMetadata() == null
@@ -264,15 +265,39 @@ public class OpenAiResponsesRequestParser {
             choice.setType(str);
             return choice;
         }
-        // 对象格式的 tool_choice（{"type":"function","name":"xxx"}）
-        if (toolChoiceObj instanceof java.util.Map<?, ?> map) {
-            Object nameObj = map.get("name");
-            if (nameObj instanceof String toolName && !toolName.isBlank()) {
-                choice.setType("specific");
-                choice.setToolName(toolName);
-                return choice;
-            }
+        if (!(toolChoiceObj instanceof java.util.Map<?, ?> map)) {
+            throw new GatewayException(ErrorCode.INVALID_REQUEST, "tool_choice must be a string or object", "tool_choice");
         }
-        return null;
+
+        Object typeObj = map.get("type");
+        if (!(typeObj instanceof String type) || !"function".equals(type)) {
+            throw new GatewayException(ErrorCode.INVALID_REQUEST, "tool_choice.type must be function", "tool_choice.type");
+        }
+
+        Object nameObj = map.get("name");
+        if (!(nameObj instanceof String toolName) || toolName.isBlank()) {
+            throw new GatewayException(ErrorCode.INVALID_REQUEST, "tool_choice.name is required", "tool_choice.name");
+        }
+
+        choice.setType("specific");
+        choice.setToolName(toolName);
+        return choice;
+    }
+
+    private UnifiedToolChoice normalizeToolChoice(UnifiedToolChoice toolChoice, List<UnifiedTool> tools) {
+        if (toolChoice == null || !"specific".equals(toolChoice.getType())) {
+            return toolChoice;
+        }
+        if (tools == null || tools.isEmpty()) {
+            throw new GatewayException(ErrorCode.INVALID_REQUEST, "tool_choice requires non-empty tools", "tool_choice");
+        }
+        boolean toolExists = tools.stream()
+                .map(UnifiedTool::getName)
+                .anyMatch(toolChoice.getToolName()::equals);
+        if (!toolExists) {
+            throw new GatewayException(ErrorCode.INVALID_REQUEST,
+                    "tool_choice.name must match one of tools", "tool_choice.name");
+        }
+        return toolChoice;
     }
 }

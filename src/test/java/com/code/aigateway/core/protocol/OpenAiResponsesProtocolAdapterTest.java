@@ -6,6 +6,7 @@ import com.code.aigateway.api.response.OpenAiResponsesResponse;
 import com.code.aigateway.core.encoder.OpenAiResponsesResponseEncoder;
 import com.code.aigateway.core.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
+import com.code.aigateway.core.model.OpenAiResponsesStreamState;
 import com.code.aigateway.core.model.ResponseProtocol;
 import com.code.aigateway.core.model.StreamContext;
 import com.code.aigateway.core.model.UnifiedRequest;
@@ -78,6 +79,53 @@ class OpenAiResponsesProtocolAdapterTest {
     }
 
     // ========== encodeStreamEvent ==========
+
+    @Test
+    void encodeStreamEvent_textDelta_withoutExplicitOutputIndex_stillUsesResponsesStateIndex() throws Exception {
+        StreamContext ctx = new StreamContext("resp-123", 1710000000L, "gpt-4o");
+        UnifiedStreamEvent event = new UnifiedStreamEvent();
+        event.setType("text_delta");
+        event.setTextDelta("Hi there");
+
+        List<ServerSentEvent<String>> events = adapter.encodeStreamEvent(event, ctx).collectList().block();
+
+        assertNotNull(events);
+        assertEquals(2, events.size());
+        JsonNode addedPayload = objectMapper.readTree(events.get(0).data());
+        JsonNode deltaPayload = objectMapper.readTree(events.get(1).data());
+        assertEquals(0, addedPayload.get("output_index").asInt());
+        assertEquals(0, deltaPayload.get("output_index").asInt());
+        assertEquals("msg_resp-123_0", addedPayload.get("item").get("id").asText());
+        assertEquals("msg_resp-123_0", deltaPayload.get("item_id").asText());
+    }
+
+    @Test
+    void streamContext_responsesState_isIsolatedFromCommonState() {
+        StreamContext ctx = new StreamContext("resp-123", 1710000000L, "gpt-4o");
+
+        int contentBlockIndex = ctx.allocateAndOpenContentBlock("text");
+        OpenAiResponsesStreamState responsesState = ctx.responses();
+        int outputItemIndex = responsesState.nextOutputItemIndex();
+        responsesState.tryOpenTextBlock();
+        responsesState.setTextOutputItemIndex(outputItemIndex);
+        responsesState.setTextItemId("msg_001");
+
+        assertEquals(0, contentBlockIndex);
+        assertEquals(0, ctx.getOpenBlockIndex());
+        assertEquals("text", ctx.getOpenBlockType());
+        assertTrue(ctx.hasOpenContentBlock());
+        assertEquals(0, outputItemIndex);
+        assertEquals(0, responsesState.getTextOutputItemIndex());
+        assertEquals("msg_001", responsesState.getTextItemId());
+
+        responsesState.closeTextBlock();
+
+        assertEquals(0, ctx.getOpenBlockIndex());
+        assertEquals("text", ctx.getOpenBlockType());
+        assertTrue(ctx.hasOpenContentBlock());
+        assertEquals(-1, responsesState.getTextOutputItemIndex());
+        assertNull(responsesState.getTextItemId());
+    }
 
     @Test
     void encodeStreamEvent_textDelta_includesOutputIndexAndItemId() throws Exception {
@@ -244,6 +292,21 @@ class OpenAiResponsesProtocolAdapterTest {
         GatewayException exception = assertThrows(GatewayException.class, () -> realParser.parse(request));
         assertEquals(ErrorCode.INVALID_REQUEST, exception.getErrorCode());
         assertEquals("input[0][0].type", exception.getParam());
+    }
+
+    @Test
+    void encodeStreamError_returnsNamedErrorEvent() throws Exception {
+        StreamContext ctx = new StreamContext("resp-123", 1710000000L, "gpt-4o");
+
+        ServerSentEvent<String> sse = adapter.encodeStreamError(
+                new RuntimeException("boom"), ctx).blockFirst();
+
+        assertNotNull(sse);
+        assertEquals("error", sse.event());
+        JsonNode root = objectMapper.readTree(sse.data());
+        assertEquals("boom", root.get("error").get("message").asText());
+        assertEquals("server_error", root.get("error").get("type").asText());
+        assertEquals(ErrorCode.INTERNAL_ERROR.name(), root.get("error").get("code").asText());
     }
 
     // ========== terminalStreamEvents ==========

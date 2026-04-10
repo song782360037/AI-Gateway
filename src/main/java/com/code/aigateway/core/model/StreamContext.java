@@ -20,8 +20,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   <li>firstContentSent — 首个 content chunk 是否已发送（CAS 保护）</li>
  *   <li>openBlockIndex — 当前打开的 content block 索引（-1 表示无）</li>
  *   <li>nextContentBlockSeq — Anthropic content block 序号分配器（原子递增）</li>
- *   <li>openaiOutputItemIndex — Responses output item 序号分配器（原子递增）</li>
- *   <li>textBlockOpen / reasoningBlockOpen — 块打开状态（CAS 保护）</li>
  *   <li>inputTokens — 输入 token 数（Anthropic message_start 事件）</li>
  * </ul>
  */
@@ -40,20 +38,8 @@ public class StreamContext {
     private final AtomicInteger nextContentBlockSeq = new AtomicInteger(0);
     /** 输入 token 数，用于 Anthropic message_start 的 usage */
     private volatile int inputTokens;
-    /** OpenAI Responses: 下一个 output item 的索引 */
-    private final AtomicInteger openaiOutputItemIndex = new AtomicInteger(0);
-    /** OpenAI Responses: 当前打开的 reasoning output item 索引，-1 表示未打开 */
-    private volatile int openaiReasoningOutputItemIndex = -1;
-    /** OpenAI Responses: 当前打开的 reasoning output item ID */
-    private volatile String openaiReasoningItemId;
-    /** OpenAI Responses: 当前打开的 text output item 索引，-1 表示未打开 */
-    private volatile int openaiTextOutputItemIndex = -1;
-    /** OpenAI Responses: 当前打开的 text output item ID */
-    private volatile String openaiTextItemId;
-    /** OpenAI Responses: reasoning 块是否已打开 */
-    private final AtomicBoolean reasoningBlockOpen = new AtomicBoolean(false);
-    /** OpenAI Responses: text 块是否已打开 */
-    private final AtomicBoolean textBlockOpen = new AtomicBoolean(false);
+    /** OpenAI Responses 专属流状态，保持协议私有状态从通用上下文中剥离 */
+    private final OpenAiResponsesStreamState responsesState = new OpenAiResponsesStreamState();
 
     public StreamContext(String responseId, long created, String model) {
         this.responseId = responseId;
@@ -134,82 +120,7 @@ public class StreamContext {
         this.model = model;
     }
 
-    /** 分配下一个 OpenAI Responses output item 索引 */
-    public int nextOpenAiOutputItemIndex() {
-        return openaiOutputItemIndex.getAndIncrement();
-    }
-
-    /** 尝试打开 reasoning 块，返回 true 表示本次成功占位 */
-    public boolean tryOpenReasoningBlock() {
-        return reasoningBlockOpen.compareAndSet(false, true);
-    }
-
-    /** 记录当前打开的 reasoning output item 索引 */
-    public void setOpenAiReasoningOutputItemIndex(int outputIndex) {
-        this.openaiReasoningOutputItemIndex = outputIndex;
-    }
-
-    /** 获取当前打开的 reasoning output item 索引 */
-    public int getOpenAiReasoningOutputItemIndex() {
-        return openaiReasoningOutputItemIndex;
-    }
-
-    /** 记录当前打开的 reasoning output item ID */
-    public void setOpenAiReasoningItemId(String itemId) {
-        this.openaiReasoningItemId = itemId;
-    }
-
-    /** 获取当前打开的 reasoning output item ID */
-    public String getOpenAiReasoningItemId() {
-        return openaiReasoningItemId;
-    }
-
-    /** 尝试打开 text 块，返回 true 表示本次成功占位 */
-    public boolean tryOpenTextBlock() {
-        return textBlockOpen.compareAndSet(false, true);
-    }
-
-    /** 记录当前打开的 text output item 索引 */
-    public void setOpenAiTextOutputItemIndex(int outputIndex) {
-        this.openaiTextOutputItemIndex = outputIndex;
-    }
-
-    /** 获取当前打开的 text output item 索引 */
-    public int getOpenAiTextOutputItemIndex() {
-        return openaiTextOutputItemIndex;
-    }
-
-    /** 记录当前打开的 text output item ID */
-    public void setOpenAiTextItemId(String itemId) {
-        this.openaiTextItemId = itemId;
-    }
-
-    /** 获取当前打开的 text output item ID */
-    public String getOpenAiTextItemId() {
-        return openaiTextItemId;
-    }
-
-    /** text 块是否已打开 */
-    public boolean isTextBlockOpen() {
-        return textBlockOpen.get();
-    }
-
-    /** 关闭 text 块 */
-    public void closeTextBlock() {
-        textBlockOpen.set(false);
-        openaiTextOutputItemIndex = -1;
-        openaiTextItemId = null;
-    }
-
-    /** reasoning 块是否已打开 */
-    public boolean isReasoningBlockOpen() {
-        return reasoningBlockOpen.get();
-    }
-
-    /** 关闭 reasoning 块 */
-    public void closeReasoningBlock() {
-        reasoningBlockOpen.set(false);
-        openaiReasoningOutputItemIndex = -1;
-        openaiReasoningItemId = null;
+    public OpenAiResponsesStreamState responses() {
+        return responsesState;
     }
 }

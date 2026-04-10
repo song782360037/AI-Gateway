@@ -1,11 +1,14 @@
 package com.code.aigateway.core.protocol;
 
 import com.code.aigateway.core.error.ErrorCode;
+import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.model.ResponseProtocol;
 import com.code.aigateway.core.model.StreamContext;
 import com.code.aigateway.core.model.UnifiedRequest;
 import com.code.aigateway.core.model.UnifiedResponse;
 import com.code.aigateway.core.model.UnifiedStreamEvent;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.codec.ServerSentEvent;
 import reactor.core.publisher.Flux;
 
@@ -63,6 +66,40 @@ public interface ProtocolAdapter {
      */
     default Flux<ServerSentEvent<String>> initialStreamEvents(StreamContext ctx) {
         return Flux.empty();
+    }
+
+    /**
+     * 将流处理链中的异常编码为协议特定的结构化错误事件。
+     * <p>
+     * 该方法用于 SSE/流式响应已经开始写出后的异常兜底，避免仅中断连接而没有协议内错误反馈。
+     * 默认将异常映射为协议标准错误体并序列化为 JSON，由具体协议决定是否追加终止标记。
+     * 子类若需要自定义 SSE 事件命名或追加终止标记，应覆写此方法。
+     * </p>
+     *
+     * @param throwable 流处理中抛出的异常
+     * @param ctx       流式编码上下文
+     * @return 协议特定的错误事件流
+     */
+    default Flux<ServerSentEvent<String>> encodeStreamError(Throwable throwable, StreamContext ctx) {
+        ErrorCode errorCode = throwable instanceof GatewayException ge
+                ? ge.getErrorCode()
+                : ErrorCode.INTERNAL_ERROR;
+        String message = throwable.getMessage() == null || throwable.getMessage().isBlank()
+                ? "internal server error"
+                : throwable.getMessage();
+        Object errorBody = buildError(
+                message,
+                mapErrorType(errorCode),
+                errorCode.name(),
+                throwable instanceof GatewayException ge ? ge.getParam() : null
+        );
+        String json;
+        try {
+            json = new ObjectMapper().writeValueAsString(errorBody);
+        } catch (JsonProcessingException e) {
+            json = "{\"error\":{\"message\":\"internal server error\"}}";
+        }
+        return Flux.just(ServerSentEvent.<String>builder(json).build());
     }
 
     /**
