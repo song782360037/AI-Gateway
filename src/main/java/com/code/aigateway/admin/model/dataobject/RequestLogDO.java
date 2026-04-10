@@ -34,6 +34,9 @@ public class RequestLogDO {
     /** 输入 Token 数 */
     private Integer promptTokens;
 
+    /** 输入命中缓存的 Token 数 */
+    private Integer cachedInputTokens;
+
     /** 输出 Token 数 */
     private Integer completionTokens;
 

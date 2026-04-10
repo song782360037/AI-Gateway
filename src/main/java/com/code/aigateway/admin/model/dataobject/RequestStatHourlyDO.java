@@ -35,6 +35,9 @@ public class RequestStatHourlyDO {
     /** 输入 Token 总数 */
     private Long promptTokens;
 
+    /** 输入命中缓存的 Token 总数 */
+    private Long cachedInputTokens;
+
     /** 输出 Token 总数 */
     private Long completionTokens;
 

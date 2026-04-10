@@ -74,11 +74,7 @@ public class RequestStatsCollector {
             return;
         }
         RequestLogDO logDO = buildLog(context, "SUCCESS", null, null);
-        if (usage != null) {
-            logDO.setPromptTokens(usage.getInputTokens());
-            logDO.setCompletionTokens(usage.getOutputTokens());
-            logDO.setTotalTokens(usage.getTotalTokens());
-        }
+        applyUsage(logDO, usage);
         emit(logDO);
     }
 
@@ -90,11 +86,7 @@ public class RequestStatsCollector {
             return;
         }
         RequestLogDO logDO = buildLog(context, "SUCCESS", null, null);
-        if (usage != null) {
-            logDO.setPromptTokens(usage.getInputTokens());
-            logDO.setCompletionTokens(usage.getOutputTokens());
-            logDO.setTotalTokens(usage.getTotalTokens());
-        }
+        applyUsage(logDO, usage);
         emit(logDO);
     }
 
@@ -159,6 +151,7 @@ public class RequestStatsCollector {
             stat.setSuccessCount("SUCCESS".equals(record.getStatus()) ? 1 : 0);
             stat.setErrorCount("ERROR".equals(record.getStatus()) ? 1 : 0);
             stat.setPromptTokens((long) nullToZero(record.getPromptTokens()));
+            stat.setCachedInputTokens((long) nullToZero(record.getCachedInputTokens()));
             stat.setCompletionTokens((long) nullToZero(record.getCompletionTokens()));
             stat.setTotalTokens((long) nullToZero(record.getTotalTokens()));
             stat.setTotalDurationMs((long) nullToZero(record.getDurationMs()));
@@ -166,6 +159,7 @@ public class RequestStatsCollector {
             double cost = ModelPriceTable.estimateCost(
                     record.getTargetModel() != null ? record.getTargetModel() : record.getAliasModel(),
                     nullToZero(record.getPromptTokens()),
+                    nullToZero(record.getCachedInputTokens()),
                     nullToZero(record.getCompletionTokens())
             );
             stat.setEstimatedCost(BigDecimal.valueOf(cost));
@@ -193,6 +187,16 @@ public class RequestStatsCollector {
         logDO.setSourceIp(context.getSourceIp());
         logDO.setCreateTime(LocalDateTime.now());
         return logDO;
+    }
+
+    private void applyUsage(RequestLogDO logDO, UnifiedUsage usage) {
+        if (usage == null) {
+            return;
+        }
+        logDO.setPromptTokens(usage.getInputTokens());
+        logDO.setCachedInputTokens(usage.getCachedInputTokens());
+        logDO.setCompletionTokens(usage.getOutputTokens());
+        logDO.setTotalTokens(usage.getTotalTokens());
     }
 
     private String resolveErrorCode(Throwable ex) {

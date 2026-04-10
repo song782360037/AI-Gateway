@@ -3,11 +3,13 @@ package com.code.aigateway.admin.service;
 import com.code.aigateway.admin.mapper.RequestLogMapper;
 import com.code.aigateway.admin.mapper.RequestStatHourlyMapper;
 import com.code.aigateway.admin.model.rsp.DashboardOverviewRsp;
+import com.code.aigateway.admin.model.rsp.ModelUsageRankRsp;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -70,5 +72,19 @@ class DashboardServiceImplTest {
         assertEquals(100D, response.getRequests().getCurrent());
         // 环比：(100 - 80) / 80 * 100 = 25.0%
         assertEquals(25.0, response.getRequests().getChangePercent(), 0.1);
+    }
+
+    @Test
+    void getModelUsageRank_withCachedInputTokens_usesDiscountedCost() {
+        Mockito.when(dashboardCacheService.getModelRank("today")).thenReturn(null);
+        // aliasModel, callCount, tokenCount, promptSum, cachedInputSum, completionSum
+        Mockito.when(requestLogMapper.aggregateByModel(Mockito.any(), Mockito.eq(10)))
+                .thenReturn(List.of(new RequestLogMapper.ModelAggregation("gpt-4o", 3L, 150_000L, 100_000L, 40_000L, 50_000L)));
+
+        List<ModelUsageRankRsp> result = dashboardService.getModelUsageRank("today");
+
+        assertEquals(1, result.size());
+        assertEquals("gpt-4o", result.getFirst().getModelName());
+        assertEquals(0.66, result.getFirst().getCost(), 0.000001);
     }
 }

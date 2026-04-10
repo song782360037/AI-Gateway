@@ -104,6 +104,7 @@ public class DashboardServiceImpl implements IDashboardService {
             double cost = ModelPriceTable.estimateCost(
                     item.aliasModel(),
                     safeToInt(item.promptSum()),
+                    safeToInt(item.cachedInputSum()),
                     safeToInt(item.completionSum())
             );
             rsp.setCost(round(cost));
@@ -181,10 +182,6 @@ public class DashboardServiceImpl implements IDashboardService {
 
     private BigDecimal safeBigDecimal(BigDecimal value) {
         return value != null ? value : BigDecimal.ZERO;
-    }
-
-    private double safeDouble(Double value) {
-        return value != null ? value : 0D;
     }
 
     private int safeToInt(long value) {

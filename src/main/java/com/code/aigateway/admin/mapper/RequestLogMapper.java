@@ -22,6 +22,7 @@ public interface RequestLogMapper {
             @Result(property = "providerType", column = "provider_type"),
             @Result(property = "isStream", column = "is_stream"),
             @Result(property = "promptTokens", column = "prompt_tokens"),
+            @Result(property = "cachedInputTokens", column = "cached_input_tokens"),
             @Result(property = "completionTokens", column = "completion_tokens"),
             @Result(property = "totalTokens", column = "total_tokens"),
             @Result(property = "durationMs", column = "duration_ms"),
@@ -33,7 +34,7 @@ public interface RequestLogMapper {
     })
     @Select("""
             SELECT id, request_id, alias_model, target_model, provider_code, provider_type,
-                   is_stream, prompt_tokens, completion_tokens, total_tokens, duration_ms,
+                   is_stream, prompt_tokens, cached_input_tokens, completion_tokens, total_tokens, duration_ms,
                    status, error_code, error_message, source_ip, create_time
             FROM request_log
             WHERE id = #{id}
@@ -46,11 +47,11 @@ public interface RequestLogMapper {
     @Insert("""
             INSERT INTO request_log (
                 request_id, alias_model, target_model, provider_code, provider_type,
-                is_stream, prompt_tokens, completion_tokens, total_tokens, duration_ms,
+                is_stream, prompt_tokens, cached_input_tokens, completion_tokens, total_tokens, duration_ms,
                 status, error_code, error_message, source_ip, create_time
             ) VALUES (
                 #{requestId}, #{aliasModel}, #{targetModel}, #{providerCode}, #{providerType},
-                #{isStream}, #{promptTokens}, #{completionTokens}, #{totalTokens}, #{durationMs},
+                #{isStream}, #{promptTokens}, #{cachedInputTokens}, #{completionTokens}, #{totalTokens}, #{durationMs},
                 #{status}, #{errorCode}, #{errorMessage}, #{sourceIp}, #{createTime}
             )
             """)
@@ -76,7 +77,7 @@ public interface RequestLogMapper {
     @Select("""
             <script>
             SELECT id, request_id, alias_model, target_model, provider_code, provider_type,
-                   is_stream, prompt_tokens, completion_tokens, total_tokens, duration_ms,
+                   is_stream, prompt_tokens, cached_input_tokens, completion_tokens, total_tokens, duration_ms,
                    status, error_code, error_message, source_ip, create_time
             FROM request_log
             WHERE 1=1
@@ -145,6 +146,7 @@ public interface RequestLogMapper {
                    COUNT(1) AS callCount,
                    COALESCE(SUM(total_tokens), 0) AS tokenCount,
                    COALESCE(SUM(prompt_tokens), 0) AS promptSum,
+                   COALESCE(SUM(cached_input_tokens), 0) AS cachedInputSum,
                    COALESCE(SUM(completion_tokens), 0) AS completionSum
             FROM request_log
             WHERE status = 'SUCCESS'
@@ -167,6 +169,7 @@ public interface RequestLogMapper {
             long callCount,
             long tokenCount,
             long promptSum,
+            long cachedInputSum,
             long completionSum
     ) {}
 }

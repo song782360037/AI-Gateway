@@ -22,6 +22,7 @@ public interface RequestStatHourlyMapper {
             @Result(property = "successCount", column = "success_count"),
             @Result(property = "errorCount", column = "error_count"),
             @Result(property = "promptTokens", column = "prompt_tokens"),
+            @Result(property = "cachedInputTokens", column = "cached_input_tokens"),
             @Result(property = "completionTokens", column = "completion_tokens"),
             @Result(property = "totalTokens", column = "total_tokens"),
             @Result(property = "totalDurationMs", column = "total_duration_ms"),
@@ -37,23 +38,24 @@ public interface RequestStatHourlyMapper {
             INSERT INTO request_stat_hourly (
                 stat_time, alias_model, provider_code,
                 request_count, success_count, error_count,
-                prompt_tokens, completion_tokens, total_tokens,
+                prompt_tokens, cached_input_tokens, completion_tokens, total_tokens,
                 total_duration_ms, estimated_cost
             ) VALUES (
                 #{statTime}, #{aliasModel}, #{providerCode},
                 #{requestCount}, #{successCount}, #{errorCount},
-                #{promptTokens}, #{completionTokens}, #{totalTokens},
+                #{promptTokens}, #{cachedInputTokens}, #{completionTokens}, #{totalTokens},
                 #{totalDurationMs}, #{estimatedCost}
             )
             ON DUPLICATE KEY UPDATE
-                request_count     = request_count + VALUES(request_count),
-                success_count     = success_count + VALUES(success_count),
-                error_count       = error_count + VALUES(error_count),
-                prompt_tokens     = prompt_tokens + VALUES(prompt_tokens),
-                completion_tokens = completion_tokens + VALUES(completion_tokens),
-                total_tokens      = total_tokens + VALUES(total_tokens),
-                total_duration_ms = total_duration_ms + VALUES(total_duration_ms),
-                estimated_cost    = estimated_cost + VALUES(estimated_cost)
+                request_count       = request_count + VALUES(request_count),
+                success_count       = success_count + VALUES(success_count),
+                error_count         = error_count + VALUES(error_count),
+                prompt_tokens       = prompt_tokens + VALUES(prompt_tokens),
+                cached_input_tokens = cached_input_tokens + VALUES(cached_input_tokens),
+                completion_tokens   = completion_tokens + VALUES(completion_tokens),
+                total_tokens        = total_tokens + VALUES(total_tokens),
+                total_duration_ms   = total_duration_ms + VALUES(total_duration_ms),
+                estimated_cost      = estimated_cost + VALUES(estimated_cost)
             """)
     int upsert(RequestStatHourlyDO record);
 

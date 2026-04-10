@@ -29,4 +29,16 @@ class ModelPriceTableTest {
         double cost = ModelPriceTable.estimateCost("unknown-model", 100_000, 50_000);
         assertEquals(0.25, cost, 0.000001);
     }
+
+    @Test
+    void estimateCost_withCachedInputTokens_appliesDiscountedInputPrice() {
+        double cost = ModelPriceTable.estimateCost("gpt-4o", 100_000, 40_000, 50_000);
+        assertEquals(0.66, cost, 0.000001);
+    }
+
+    @Test
+    void estimateCost_withCachedInputTokensGreaterThanInput_clampsRegularInputToZero() {
+        double cost = ModelPriceTable.estimateCost("gpt-4o", 10_000, 20_000, 0);
+        assertEquals(0.0025, cost, 0.000001);
+    }
 }
