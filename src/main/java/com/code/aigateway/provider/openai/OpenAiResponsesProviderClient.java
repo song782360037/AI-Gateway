@@ -88,6 +88,13 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
         ProviderRuntimeConfig config = resolveRuntimeConfig(request);
         Map<String, Object> requestBody = buildRequestBody(request, false);
 
+        // 诊断：记录发送到上游的请求体摘要
+        List<?> inputItems = (List<?>) requestBody.get("input");
+        log.info("[OpenAI Responses] 发送非流式请求, provider={}, model={}, inputSize={}, bodyKeys={}",
+                config.providerName(), request.getModel(),
+                inputItems != null ? inputItems.size() : "null",
+                requestBody.keySet());
+
         Mono<JsonNode> responseMono = buildWebClient(config, extractCorrelationId(request))
                 .post()
                 .uri(RESPONSES_PATH)
@@ -112,6 +119,14 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
     public Flux<UnifiedStreamEvent> streamChat(UnifiedRequest request) {
         ProviderRuntimeConfig config = resolveRuntimeConfig(request);
         Map<String, Object> requestBody = buildRequestBody(request, true);
+
+        // 诊断：记录发送到上游的请求体摘要
+        List<?> inputItems = (List<?>) requestBody.get("input");
+        log.info("[OpenAI Responses] 发送流式请求, provider={}, model={}, inputSize={}, bodyKeys={}",
+                config.providerName(), request.getModel(),
+                inputItems != null ? inputItems.size() : "null",
+                requestBody.keySet());
+
         AtomicBoolean firstTokenReceived = new AtomicBoolean(false);
         StreamState state = new StreamState();
 
@@ -150,7 +165,15 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
         }
 
         // messages → input
-        body.put("input", buildInput(request));
+        List<Object> inputItems = buildInput(request);
+        body.put("input", inputItems);
+
+        // 调试日志：记录发送到上游的 input 大小和 messages 状态
+        if (inputItems.isEmpty()) {
+            log.warn("[OpenAI Responses] 构建请求体时 input 为空, messages={}, systemPrompt={}",
+                    request.getMessages() != null ? request.getMessages().size() : "null",
+                    request.getSystemPrompt() != null ? "present" : "null");
+        }
 
         // 生成配置
         if (request.getGenerationConfig() != null) {
@@ -210,18 +233,12 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
         List<Object> input = new ArrayList<>();
         for (UnifiedMessage msg : request.getMessages()) {
             switch (msg.getRole()) {
-                case "user" -> input.add(Map.of(
-                        "role", "user",
-                        "content", extractTextContent(msg)
-                ));
+                case "user" -> input.add(buildMessageInputItem("user", extractTextContent(msg)));
                 case "assistant" -> {
                     // 如果有 toolCalls，先输出 assistant 文本内容
                     String text = extractTextContent(msg);
                     if (text != null && !text.isEmpty()) {
-                        input.add(Map.of(
-                                "role", "assistant",
-                                "content", text
-                        ));
+                        input.add(buildMessageInputItem("assistant", text));
                     }
                     // tool_calls → function_call 条目
                     if (msg.getToolCalls() != null) {
@@ -251,6 +268,24 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
     }
 
     /**
+     * 构建标准 Responses API message input item。
+     * <p>
+     * 为兼容严格上游实现，显式输出 type=message，content 使用 input_text 数组格式，
+     * 而不是仅发送 {role, content} 的简化写法。
+     * </p>
+     */
+    private Map<String, Object> buildMessageInputItem(String role, String text) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("type", "message");
+        item.put("role", role);
+        item.put("content", List.of(Map.of(
+                "type", "input_text",
+                "text", text != null ? text : ""
+        )));
+        return item;
+    }
+
+    /**
      * 将统一模型中的工具调用 ID 映射为 Responses 请求内稳定、显式管理的 call_id。
      * <p>
      * 不再依赖原始 ID 的前缀语义，而是在单次请求内为每个原始 ID 建立一条稳定映射，
@@ -267,27 +302,30 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
     }
 
     /**
-     * 构建工具定义（Responses API 格式）
+     * 构建工具定义（Responses API 扁平格式）
+     * <p>
+     * Responses API 使用扁平结构：{type, name, description, parameters, strict}
+     * 不同于 Chat Completions 的嵌套格式：{type, function: {name, ...}}
+     * </p>
      */
     private List<Map<String, Object>> buildTools(List<UnifiedTool> tools) {
         List<Map<String, Object>> result = new ArrayList<>();
         for (UnifiedTool tool : tools) {
-            Map<String, Object> function = new LinkedHashMap<>();
-            function.put("name", tool.getName());
+            if (tool.getName() == null || tool.getName().isBlank()) {
+                continue;
+            }
+            Map<String, Object> toolDef = new LinkedHashMap<>();
+            toolDef.put("type", tool.getType() != null ? tool.getType() : "function");
+            toolDef.put("name", tool.getName());
             if (tool.getDescription() != null) {
-                function.put("description", tool.getDescription());
+                toolDef.put("description", tool.getDescription());
             }
             if (tool.getInputSchema() != null) {
-                function.put("parameters", tool.getInputSchema());
+                toolDef.put("parameters", tool.getInputSchema());
             }
             if (tool.getStrict() != null) {
-                function.put("strict", tool.getStrict());
+                toolDef.put("strict", tool.getStrict());
             }
-
-            Map<String, Object> toolDef = new LinkedHashMap<>();
-            toolDef.put("type", "function");
-            toolDef.put("name", tool.getName());
-            toolDef.put("function", function);
             result.add(toolDef);
         }
         return result;

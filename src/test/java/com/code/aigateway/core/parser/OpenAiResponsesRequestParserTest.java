@@ -117,4 +117,95 @@ class OpenAiResponsesRequestParserTest {
         tool.setFunction(function);
         return tool;
     }
+
+    /** 扁平格式的工具定义（Responses API 推荐格式） */
+    private OpenAiResponsesRequest.ToolDef flatFunctionTool(String name) {
+        OpenAiResponsesRequest.ToolDef tool = new OpenAiResponsesRequest.ToolDef();
+        tool.setType("function");
+        tool.setName(name);
+        tool.setDescription("扁平工具");
+        tool.setParameters(Map.of("type", "object"));
+        return tool;
+    }
+
+    @Test
+    void parse_flatToolDef_mapsToUnifiedTool() {
+        OpenAiResponsesRequest request = new OpenAiResponsesRequest();
+        request.setModel("gpt-4o");
+        request.setInput(List.of(message("user", "调用工具")));
+
+        // 使用扁平格式的工具定义（无 function 嵌套）
+        request.setTools(List.of(flatFunctionTool("get_weather")));
+
+        UnifiedRequest unifiedRequest = parser.parse(request);
+
+        assertNotNull(unifiedRequest.getTools());
+        assertEquals(1, unifiedRequest.getTools().size());
+        assertEquals("get_weather", unifiedRequest.getTools().get(0).getName());
+        assertEquals("扁平工具", unifiedRequest.getTools().get(0).getDescription());
+        assertEquals(Map.of("type", "object"), unifiedRequest.getTools().get(0).getInputSchema());
+    }
+
+    @Test
+    void parse_nestedToolDef_mapsToUnifiedTool() {
+        OpenAiResponsesRequest request = new OpenAiResponsesRequest();
+        request.setModel("gpt-4o");
+        request.setInput(List.of(message("user", "调用工具")));
+
+        // 使用嵌套格式的工具定义（Chat Completions 兼容）
+        request.setTools(List.of(functionTool("get_weather")));
+
+        UnifiedRequest unifiedRequest = parser.parse(request);
+
+        assertNotNull(unifiedRequest.getTools());
+        assertEquals(1, unifiedRequest.getTools().size());
+        assertEquals("get_weather", unifiedRequest.getTools().get(0).getName());
+        assertEquals("测试工具", unifiedRequest.getTools().get(0).getDescription());
+    }
+
+    @Test
+    void parse_mixedToolDef_prefersNestedFunction() {
+        OpenAiResponsesRequest request = new OpenAiResponsesRequest();
+        request.setModel("gpt-4o");
+        request.setInput(List.of(message("user", "调用工具")));
+
+        // 同时设置扁平字段和嵌套 function，嵌套优先
+        OpenAiResponsesRequest.ToolDef tool = new OpenAiResponsesRequest.ToolDef();
+        tool.setType("function");
+        tool.setName("flat_name");
+        tool.setDescription("扁平描述");
+        OpenAiResponsesRequest.FunctionDef fn = new OpenAiResponsesRequest.FunctionDef();
+        fn.setName("nested_name");
+        fn.setDescription("嵌套描述");
+        fn.setParameters(Map.of("type", "object"));
+        tool.setFunction(fn);
+
+        request.setTools(List.of(tool));
+
+        UnifiedRequest unifiedRequest = parser.parse(request);
+
+        assertEquals(1, unifiedRequest.getTools().size());
+        // 嵌套 function 字段优先
+        assertEquals("nested_name", unifiedRequest.getTools().get(0).getName());
+        assertEquals("嵌套描述", unifiedRequest.getTools().get(0).getDescription());
+    }
+
+    @Test
+    void parse_toolDefWithBlankName_isSkipped() {
+        OpenAiResponsesRequest request = new OpenAiResponsesRequest();
+        request.setModel("gpt-4o");
+        request.setInput(List.of(message("user", "调用工具")));
+
+        // name 为空的工具应被跳过
+        OpenAiResponsesRequest.ToolDef tool = new OpenAiResponsesRequest.ToolDef();
+        tool.setType("function");
+        tool.setName("  ");
+        tool.setDescription("无名称工具");
+        request.setTools(List.of(tool));
+
+        UnifiedRequest unifiedRequest = parser.parse(request);
+
+        assertNotNull(unifiedRequest.getTools());
+        assertEquals(0, unifiedRequest.getTools().size());
+    }
 }

@@ -8,6 +8,7 @@ import com.code.aigateway.core.service.ChatGatewayService;
 import com.code.aigateway.core.stats.RequestStatsContext;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.ServerSentEvent;
@@ -24,6 +25,7 @@ import reactor.core.publisher.Mono;
  * 提供 OpenAI Responses API 格式的端点（POST /v1/responses）。
  * </p>
  */
+@Slf4j
 @RestController
 @RequiredArgsConstructor
 public class OpenAiResponsesController {
@@ -36,6 +38,14 @@ public class OpenAiResponsesController {
                                             ServerWebExchange exchange) {
         // 标记协议类型
         exchange.getAttributes().put(ProtocolResolver.PROTOCOL_ATTRIBUTE_KEY, ResponseProtocol.OPENAI_RESPONSES);
+
+        // 调试：记录原始请求的 input 状态
+        if (request.getInput() == null || request.getInput().isEmpty()) {
+            log.warn("[Responses Controller] 收到请求 input 为空, model={}, stream={}, tools={}, metadata={}",
+                    request.getModel(), request.getStream(),
+                    request.getTools() != null ? request.getTools().size() : "null",
+                    request.getMetadata() != null ? request.getMetadata().keySet() : "null");
+        }
 
         RequestStatsContext context = exchange.getAttribute(RequestStatsContext.ATTRIBUTE_KEY);
         if (context != null) {

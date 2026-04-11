@@ -110,6 +110,13 @@ public class OpenAiResponsesRequest implements StatsRequestInfo {
 
     /**
      * Responses API 工具定义
+     * <p>
+     * 兼容两种格式：
+     * <ul>
+     *   <li>扁平格式（推荐）：type + name + description + parameters 在顶层</li>
+     *   <li>嵌套格式（兼容 Chat Completions）：type + function.name/description/parameters</li>
+     * </ul>
+     * </p>
      */
     @Data
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -118,9 +125,21 @@ public class OpenAiResponsesRequest implements StatsRequestInfo {
         /** 工具类型：function */
         private String type;
 
-        /** 函数定义 */
+        /** 工具名称（扁平格式时使用） */
+        private String name;
+
+        /** 工具描述（扁平格式时使用） */
+        private String description;
+
+        /** 参数 JSON Schema（扁平格式时使用） */
+        private Map<String, Object> parameters;
+
+        /** 函数定义（嵌套格式时使用） */
         @Valid
         private FunctionDef function;
+
+        /** 是否启用严格模式 */
+        private Boolean strict;
     }
 
     /**

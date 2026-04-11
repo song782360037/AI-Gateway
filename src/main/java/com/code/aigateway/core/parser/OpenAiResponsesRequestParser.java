@@ -223,13 +223,27 @@ public class OpenAiResponsesRequestParser {
         }
         List<UnifiedTool> result = new ArrayList<>();
         for (OpenAiResponsesRequest.ToolDef tool : tools) {
-            if (tool.getFunction() == null) continue;
             UnifiedTool unifiedTool = new UnifiedTool();
-            unifiedTool.setName(tool.getFunction().getName());
-            unifiedTool.setDescription(tool.getFunction().getDescription());
-            unifiedTool.setType(tool.getType());
-            unifiedTool.setStrict(tool.getFunction().getStrict());
-            unifiedTool.setInputSchema(tool.getFunction().getParameters());
+            unifiedTool.setType(tool.getType() != null ? tool.getType() : "function");
+
+            // 兼容两种格式：优先使用嵌套的 function 对象，回退到扁平字段
+            if (tool.getFunction() != null) {
+                // 嵌套格式：{type, function: {name, description, parameters}}
+                unifiedTool.setName(tool.getFunction().getName());
+                unifiedTool.setDescription(tool.getFunction().getDescription());
+                unifiedTool.setInputSchema(tool.getFunction().getParameters());
+                unifiedTool.setStrict(tool.getFunction().getStrict());
+            } else {
+                // 扁平格式：{type, name, description, parameters}
+                unifiedTool.setName(tool.getName());
+                unifiedTool.setDescription(tool.getDescription());
+                unifiedTool.setInputSchema(tool.getParameters());
+                unifiedTool.setStrict(tool.getStrict());
+            }
+
+            if (unifiedTool.getName() == null || unifiedTool.getName().isBlank()) {
+                continue;
+            }
             result.add(unifiedTool);
         }
         return result;

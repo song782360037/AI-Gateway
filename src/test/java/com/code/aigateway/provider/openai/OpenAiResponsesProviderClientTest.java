@@ -41,6 +41,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -123,6 +124,10 @@ class OpenAiResponsesProviderClientTest {
         assertEquals("Bearer test-responses-key", authorizationHeader.get());
         assertTrue(requestBody.get().contains("\"instructions\""));
         assertTrue(requestBody.get().contains("\"input\""));
+        assertTrue(requestBody.get().contains("\"type\":\"message\""));
+        assertTrue(requestBody.get().contains("\"role\":\"user\""));
+        assertTrue(requestBody.get().contains("\"type\":\"input_text\""));
+        assertTrue(requestBody.get().contains("\"text\":\"你好\""));
     }
 
     @Test
@@ -238,6 +243,10 @@ class OpenAiResponsesProviderClientTest {
         JsonNode input = root.get("input");
         assertNotNull(input);
         assertEquals(3, input.size());
+        assertEquals("message", input.get(0).get("type").asText());
+        assertEquals("user", input.get(0).get("role").asText());
+        assertEquals("input_text", input.get(0).get("content").get(0).get("type").asText());
+        assertEquals("查天气", input.get(0).get("content").get(0).get("text").asText());
         assertEquals("function_call", input.get(1).get("type").asText());
         String responsesCallId = input.get(1).get("call_id").asText();
         assertEquals(responsesCallId, input.get(1).get("id").asText());
@@ -805,6 +814,59 @@ class OpenAiResponsesProviderClientTest {
         ctx.setProviderBaseUrl("http://127.0.0.1:" + httpServer.getAddress().getPort());
         request.setExecutionContext(ctx);
         return request;
+    }
+
+    /**
+     * 构建带工具定义的请求，验证发送到上游的工具定义格式为扁平结构
+     */
+    private UnifiedRequest buildRequestWithTools(boolean stream) {
+        UnifiedRequest request = buildBasicRequest(stream);
+
+        UnifiedTool tool = new UnifiedTool();
+        tool.setName("get_weather");
+        tool.setDescription("获取天气信息");
+        tool.setType("function");
+        tool.setInputSchema(Map.of("type", "object", "properties", Map.of("city", Map.of("type", "string"))));
+
+        request.setTools(List.of(tool));
+        return request;
+    }
+
+    @Test
+    void chat_tools_sendsFlatToolFormat() {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
+                    {
+                      "id": "resp_tools_001",
+                      "object": "response",
+                      "model": "gpt-4o",
+                      "status": "completed",
+                      "output": [
+                        {
+                          "type": "message",
+                          "role": "assistant",
+                          "content": [{"type": "output_text", "text": "好的"}]
+                        }
+                      ],
+                      "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+                    }
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        StepVerifier.create(providerClient.chat(buildRequestWithTools(false)))
+                .assertNext(response -> {
+                    assertEquals("stop", response.getFinishReason());
+                })
+                .verifyComplete();
+
+        String body = requestBody.get();
+        // 验证扁平格式：顶层有 name、description、parameters，没有嵌套的 function 对象
+        assertTrue(body.contains("\"name\":\"get_weather\""), "tools 应包含顶层 name");
+        assertTrue(body.contains("\"description\":\"获取天气信息\""), "tools 应包含顶层 description");
+        assertTrue(body.contains("\"parameters\""), "tools 应包含顶层 parameters");
+        assertFalse(body.contains("\"function\":"), "tools 不应包含嵌套的 function 对象");
     }
 
     @Test
