@@ -6,7 +6,6 @@ import com.code.aigateway.core.model.UnifiedResponse;
 import com.code.aigateway.core.model.UnifiedToolCall;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -81,12 +80,19 @@ public class OpenAiResponsesResponseEncoder {
         return OpenAiResponsesResponse.builder()
                 .id(source.getId())
                 .object("response")
-                .createdAt(Instant.now().getEpochSecond())
+                .createdAt(resolveCreated(source))
                 .model(source.getModel())
                 .status(status)
                 .output(outputItems)
                 .usage(usage)
                 .build();
+    }
+
+    /**
+     * 优先透传统一响应中的创建时间；若上游未提供，则回退为当前时间
+     */
+    private long resolveCreated(UnifiedResponse source) {
+        return source.getCreated() != null ? source.getCreated() : System.currentTimeMillis() / 1000;
     }
 
     private String mapStatus(String finishReason) {

@@ -5,7 +5,6 @@ import com.code.aigateway.core.model.UnifiedResponse;
 import com.code.aigateway.core.model.UnifiedToolCall;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
 import java.util.List;
 
 /**
@@ -60,7 +59,7 @@ public class OpenAiChatResponseEncoder implements ResponseEncoder<UnifiedRespons
         return OpenAiChatCompletionResponse.builder()
                 .id(source.getId())
                 .object("chat.completion")
-                .created(Instant.now().getEpochSecond())
+                .created(resolveCreated(source))
                 .model(source.getModel())
                 .choices(List.of(
                         OpenAiChatCompletionResponse.Choice.builder()
@@ -71,6 +70,13 @@ public class OpenAiChatResponseEncoder implements ResponseEncoder<UnifiedRespons
                 ))
                 .usage(usage)
                 .build();
+    }
+
+    /**
+     * 优先透传统一响应中的创建时间；若上游未提供，则回退为当前时间
+     */
+    private long resolveCreated(UnifiedResponse source) {
+        return source.getCreated() != null ? source.getCreated() : System.currentTimeMillis() / 1000;
     }
 
     /**

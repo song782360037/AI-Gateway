@@ -42,6 +42,7 @@ class OpenAiChatResponseEncoderTest {
         assertEquals("chat.completion", encoded.getObject());
         assertEquals(1, encoded.getChoices().size());
         assertEquals("你好世界", encoded.getChoices().getFirst().getMessage().getContent());
+        assertEquals(1700000000L, encoded.getCreated());
         assertNotNull(encoded.getChoices().getFirst().getMessage().getToolCalls());
         assertEquals(1, encoded.getChoices().getFirst().getMessage().getToolCalls().size());
         assertEquals("get_weather", encoded.getChoices().getFirst().getMessage().getToolCalls().getFirst().getFunction().getName());
@@ -126,6 +127,7 @@ class OpenAiChatResponseEncoderTest {
         UnifiedResponse response = new UnifiedResponse();
         response.setId("chatcmpl-test");
         response.setModel("gpt-4o");
+        response.setCreated(1700000000L);
         response.setFinishReason("stop");
         response.setUsage(new UnifiedUsage());
         response.setOutputs(outputs);

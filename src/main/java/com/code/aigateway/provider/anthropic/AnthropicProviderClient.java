@@ -386,6 +386,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
         response.setId(textOrNull(json.get("id")));
         response.setModel(textOrNull(json.get("model")));
         response.setProvider("anthropic");
+        response.setCreated(longOrNull(json.get("created_at")));
         response.setFinishReason(mapFinishReason(textOrNull(json.get("stop_reason"))));
         response.setUsage(parseAnthropicUsage(json.get("usage")));
         response.setOutputs(List.of(output));

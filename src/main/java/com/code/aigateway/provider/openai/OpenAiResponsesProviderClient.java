@@ -425,6 +425,7 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
         response.setId(textOrNull(json.get("id")));
         response.setModel(textOrNull(json.get("model")));
         response.setProvider("openai-responses");
+        response.setCreated(longOrNull(json.get("created_at")));
         response.setFinishReason(finishReason);
         response.setUsage(parseResponseUsage(json.get("usage")));
         response.setOutputs(List.of(output));

@@ -405,6 +405,16 @@ public abstract class AbstractProviderClient implements ProviderClient {
         return node.asText();
     }
 
+    /**
+     * 读取 JSON 节点长整型值，null/missing 返回 null
+     */
+    protected Long longOrNull(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return null;
+        }
+        return node.asLong();
+    }
+
     // ==================== 内部配置记录 ====================
 
     /**

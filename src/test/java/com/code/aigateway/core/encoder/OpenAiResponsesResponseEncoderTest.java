@@ -41,12 +41,14 @@ class OpenAiResponsesResponseEncoderTest {
         UnifiedResponse response = new UnifiedResponse();
         response.setId("resp_1");
         response.setModel("claude-sonnet");
+        response.setCreated(1800000000L);
         response.setFinishReason("tool_calls");
         response.setOutputs(List.of(output));
 
         OpenAiResponsesResponse encoded = encoder.encode(response);
 
         assertEquals("completed", encoded.getStatus());
+        assertEquals(1800000000L, encoded.getCreatedAt());
         assertNotNull(encoded.getOutput());
         assertEquals(3, encoded.getOutput().size());
 
@@ -102,10 +104,12 @@ class OpenAiResponsesResponseEncoderTest {
         UnifiedResponse response = new UnifiedResponse();
         response.setId("resp_2");
         response.setModel("claude-sonnet");
+        response.setCreated(1800000001L);
         response.setOutputs(List.of(firstOutput, secondOutput));
 
         OpenAiResponsesResponse encoded = encoder.encode(response);
 
+        assertEquals(1800000001L, encoded.getCreatedAt());
         assertEquals(3, encoded.getOutput().size());
         assertEquals("thinking-1", encoded.getOutput().get(0).getSummary().getFirst().getText());
         assertEquals("hello world", encoded.getOutput().get(1).getContent().getFirst().getText());

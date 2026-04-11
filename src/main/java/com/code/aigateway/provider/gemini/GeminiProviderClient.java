@@ -413,6 +413,7 @@ public class GeminiProviderClient extends AbstractProviderClient {
         response.setModel(textOrNull(fullJson.get("modelVersion")) != null
                 ? fullJson.get("modelVersion").asText() : requestModel);
         response.setProvider("gemini");
+        response.setCreated(null);
         response.setFinishReason(finishReason);
         response.setUsage(parseGeminiUsage(fullJson.get("usageMetadata")));
         response.setOutputs(List.of(output));

@@ -38,6 +38,11 @@ public class UnifiedResponse {
     private String finishReason;
 
     /**
+     * 响应创建时间（Unix 时间戳，秒）
+     */
+    private Long created;
+
+    /**
      * Token 使用统计
      */
     private UnifiedUsage usage;
