@@ -260,7 +260,7 @@ class OpenAiResponsesProtocolAdapterTest {
         item.setType("message");
         item.setRole("user");
         item.setContent(List.of(
-                Map.of("type", "input_text", "text", "你好"),
+                Map.of("type", "output_text", "text", "你好"),
                 Map.of("type", "text", "text", "世界")
         ));
 
@@ -283,7 +283,7 @@ class OpenAiResponsesProtocolAdapterTest {
         item.setType("message");
         item.setRole("user");
         item.setContent(List.of(
-                Map.of("type", "input_text", "text", "描述图片"),
+                Map.of("type", "output_text", "text", "描述图片"),
                 Map.of("type", "input_image", "image_url", "https://example.com/test.png", "detail", "high")
         ));
 

@@ -190,8 +190,8 @@ public class OpenAiResponsesRequestParser {
                     throw new GatewayException(ErrorCode.INVALID_REQUEST,
                             "content item type is required", itemParamPath + ".type");
                 }
-                if (!"input_text".equals(typeValue) && !"text".equals(typeValue)
-                        && !"input_image".equals(typeValue)) {
+                if (!"input_text".equals(typeValue) && !"output_text".equals(typeValue)
+                        && !"text".equals(typeValue) && !"input_image".equals(typeValue)) {
                     throw new GatewayException(ErrorCode.INVALID_REQUEST,
                             "unsupported content type: " + typeValue, itemParamPath + ".type");
                 }

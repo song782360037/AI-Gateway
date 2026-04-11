@@ -191,6 +191,24 @@ class OpenAiResponsesRequestParserTest {
     }
 
     @Test
+    void parse_messageContentWithOutputText_mapsToUnifiedTextPart() {
+        OpenAiResponsesRequest request = new OpenAiResponsesRequest();
+        request.setModel("gpt-4o");
+
+        OpenAiResponsesRequest.InputItem item = new OpenAiResponsesRequest.InputItem();
+        item.setType("message");
+        item.setRole("assistant");
+        item.setContent(List.of(Map.of("type", "output_text", "text", "兼容文本")));
+        request.setInput(List.of(item));
+
+        UnifiedRequest unifiedRequest = parser.parse(request);
+
+        assertEquals("assistant", unifiedRequest.getMessages().getFirst().getRole());
+        assertEquals("text", unifiedRequest.getMessages().getFirst().getParts().getFirst().getType());
+        assertEquals("兼容文本", unifiedRequest.getMessages().getFirst().getParts().getFirst().getText());
+    }
+
+    @Test
     void parse_toolDefWithBlankName_isSkipped() {
         OpenAiResponsesRequest request = new OpenAiResponsesRequest();
         request.setModel("gpt-4o");

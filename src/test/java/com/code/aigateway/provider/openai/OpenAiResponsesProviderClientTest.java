@@ -126,7 +126,7 @@ class OpenAiResponsesProviderClientTest {
         assertTrue(requestBody.get().contains("\"input\""));
         assertTrue(requestBody.get().contains("\"type\":\"message\""));
         assertTrue(requestBody.get().contains("\"role\":\"user\""));
-        assertTrue(requestBody.get().contains("\"type\":\"input_text\""));
+        assertTrue(requestBody.get().contains("\"type\":\"output_text\""));
         assertTrue(requestBody.get().contains("\"text\":\"你好\""));
     }
 
@@ -211,6 +211,40 @@ class OpenAiResponsesProviderClientTest {
     }
 
     @Test
+    void chat_functionCall_prefersCallIdOverId() {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
+                    {
+                      "id": "resp_fc_prefer_call_id",
+                      "object": "response",
+                      "model": "gpt-4o",
+                      "status": "completed",
+                      "output": [
+                        {
+                          "type": "function_call",
+                          "id": "legacy_id",
+                          "call_id": "fc_preferred",
+                          "name": "get_weather",
+                          "arguments": "{\\\"city\\\":\\\"Shanghai\\\"}"
+                        }
+                      ],
+                      "usage": {"input_tokens": 20, "output_tokens": 10, "total_tokens": 30}
+                    }
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        StepVerifier.create(providerClient.chat(buildBasicRequest(false)))
+                .assertNext(response -> {
+                    UnifiedToolCall tc = response.getOutputs().getFirst().getToolCalls().getFirst();
+                    // 应优先使用 call_id，确保与流式链路一致
+                    assertEquals("fc_preferred", tc.getId());
+                })
+                .verifyComplete();
+    }
+
+    @Test
     void chat_withToolHistory_reusesSameResponsesCallIdAcrossAssistantAndTool() throws Exception {
         startServer(exchange -> {
             captureRequest(exchange);
@@ -245,7 +279,7 @@ class OpenAiResponsesProviderClientTest {
         assertEquals(3, input.size());
         assertEquals("message", input.get(0).get("type").asText());
         assertEquals("user", input.get(0).get("role").asText());
-        assertEquals("input_text", input.get(0).get("content").get(0).get("type").asText());
+        assertEquals("output_text", input.get(0).get("content").get(0).get("type").asText());
         assertEquals("查天气", input.get(0).get("content").get(0).get("text").asText());
         assertEquals("function_call", input.get(1).get("type").asText());
         String responsesCallId = input.get(1).get("call_id").asText();

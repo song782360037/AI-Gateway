@@ -269,7 +269,7 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
     /**
      * 构建标准 Responses API message input item。
      * <p>
-     * 为兼容严格上游实现，显式输出 type=message，content 使用 input_text / input_image 数组格式。
+     * 为兼容严格上游实现，显式输出 type=message，content 使用 output_text / input_image 数组格式。
      * </p>
      */
     private Map<String, Object> buildMessageInputItem(String role, UnifiedMessage msg) {
@@ -278,14 +278,14 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
         item.put("role", role);
 
         if (msg.getParts() == null || msg.getParts().isEmpty()) {
-            item.put("content", List.of(Map.of("type", "input_text", "text", "")));
+            item.put("content", List.of(Map.of("type", "output_text", "text", "")));
             return item;
         }
 
         // 检查是否只有文本内容（快速路径）
         boolean hasOnlyText = msg.getParts().stream().allMatch(p -> "text".equals(p.getType()));
         if (hasOnlyText) {
-            item.put("content", List.of(Map.of("type", "input_text", "text", extractTextContent(msg))));
+            item.put("content", List.of(Map.of("type", "output_text", "text", extractTextContent(msg))));
             return item;
         }
 
@@ -295,7 +295,7 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
             if ("text".equals(part.getType())) {
                 String text = part.getText() != null ? part.getText() : "";
                 if (!text.isEmpty()) {
-                    contentList.add(Map.of("type", "input_text", "text", text));
+                    contentList.add(Map.of("type", "output_text", "text", text));
                 }
             } else if ("image".equals(part.getType())) {
                 contentList.add(buildResponsesImageContent(part));
@@ -303,7 +303,7 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
         }
 
         if (contentList.isEmpty()) {
-            contentList.add(Map.of("type", "input_text", "text", ""));
+            contentList.add(Map.of("type", "output_text", "text", ""));
         }
         item.put("content", contentList);
         return item;
@@ -447,7 +447,9 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
                     }
                 } else if ("function_call".equals(type)) {
                     UnifiedToolCall call = new UnifiedToolCall();
-                    call.setId(textOrNull(item.get("id")));
+                    // 优先使用 call_id（Responses API 标准字段），回退到 id
+                    String callId = textOrNull(item.get("call_id"));
+                    call.setId(callId != null ? callId : textOrNull(item.get("id")));
                     call.setType("function");
                     call.setToolName(item.path("name").asText());
                     call.setArgumentsJson(item.path("arguments").asText("{}"));
