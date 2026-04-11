@@ -1,7 +1,6 @@
 package com.code.aigateway.core.encoder;
 
 import com.code.aigateway.api.response.OpenAiResponsesResponse;
-import com.code.aigateway.core.model.UnifiedOutput;
 import com.code.aigateway.core.model.UnifiedPart;
 import com.code.aigateway.core.model.UnifiedResponse;
 import com.code.aigateway.core.model.UnifiedToolCall;
@@ -23,8 +22,9 @@ public class OpenAiResponsesResponseEncoder {
     public OpenAiResponsesResponse encode(UnifiedResponse source) {
         List<OpenAiResponsesResponse.OutputItem> outputItems = new ArrayList<>();
 
-        // 提取思考输出（reasoning 应在 text 之前，符合 OpenAI Responses API 顺序）
-        List<UnifiedPart> thinkingParts = extractThinkingParts(source);
+        // Responses 非流式 output content 只允许 output_text / refusal。
+        // Unified 中的 thinking 需要编码为独立的 reasoning output item，不能混入 message.content。
+        List<UnifiedPart> thinkingParts = source.collectThinkingParts();
         for (UnifiedPart thinkingPart : thinkingParts) {
             OpenAiResponsesResponse.ContentPart summaryPart = OpenAiResponsesResponse.ContentPart.builder()
                     .type("summary_text")
@@ -38,8 +38,8 @@ public class OpenAiResponsesResponseEncoder {
                     .build());
         }
 
-        // 提取文本输出
-        String text = extractText(source);
+        // 文本内容保持为 message + output_text，与 Responses API 非流式格式一致。
+        String text = source.collectText();
         if (!text.isEmpty()) {
             OpenAiResponsesResponse.ContentPart contentPart = OpenAiResponsesResponse.ContentPart.builder()
                     .type("output_text")
@@ -53,8 +53,8 @@ public class OpenAiResponsesResponseEncoder {
                     .build());
         }
 
-        // 提取工具调用输出
-        List<UnifiedToolCall> toolCalls = extractToolCalls(source);
+        // 工具调用输出单独编码为 function_call output item。
+        List<UnifiedToolCall> toolCalls = source.collectToolCalls();
         for (UnifiedToolCall toolCall : toolCalls) {
             outputItems.add(OpenAiResponsesResponse.OutputItem.builder()
                     .type("function_call")
@@ -87,44 +87,6 @@ public class OpenAiResponsesResponseEncoder {
                 .output(outputItems)
                 .usage(usage)
                 .build();
-    }
-
-    private String extractText(UnifiedResponse source) {
-        if (source.getOutputs() == null || source.getOutputs().isEmpty()) {
-            return "";
-        }
-        UnifiedOutput output = source.getOutputs().get(0);
-        if (output.getParts() == null) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder();
-        for (UnifiedPart part : output.getParts()) {
-            if ("text".equals(part.getType()) && part.getText() != null) {
-                sb.append(part.getText());
-            }
-        }
-        return sb.toString();
-    }
-
-    private List<UnifiedToolCall> extractToolCalls(UnifiedResponse source) {
-        if (source.getOutputs() == null || source.getOutputs().isEmpty()) {
-            return List.of();
-        }
-        UnifiedOutput output = source.getOutputs().get(0);
-        return output.getToolCalls() != null ? output.getToolCalls() : List.of();
-    }
-
-    private List<UnifiedPart> extractThinkingParts(UnifiedResponse source) {
-        if (source.getOutputs() == null || source.getOutputs().isEmpty()) {
-            return List.of();
-        }
-        UnifiedOutput output = source.getOutputs().get(0);
-        if (output.getParts() == null || output.getParts().isEmpty()) {
-            return List.of();
-        }
-        return output.getParts().stream()
-                .filter(part -> "thinking".equals(part.getType()) && part.getText() != null)
-                .toList();
     }
 
     private String mapStatus(String finishReason) {

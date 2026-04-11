@@ -20,6 +20,10 @@ import java.util.Map;
 @Data
 public class UnifiedPart {
 
+    public static final String TYPE_TEXT = "text";
+    public static final String TYPE_IMAGE = "image";
+    public static final String TYPE_THINKING = "thinking";
+
     /**
      * 内容类型
      * <p>

@@ -1,8 +1,6 @@
 package com.code.aigateway.core.encoder;
 
 import com.code.aigateway.api.response.GeminiGenerateContentResponse;
-import com.code.aigateway.core.model.UnifiedOutput;
-import com.code.aigateway.core.model.UnifiedPart;
 import com.code.aigateway.core.model.UnifiedResponse;
 import com.code.aigateway.core.model.UnifiedToolCall;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -67,7 +65,7 @@ public class GeminiResponseEncoder {
         List<Map<String, Object>> parts = new ArrayList<>();
 
         // 文本部分
-        String text = extractText(source);
+        String text = source.collectText();
         if (!text.isEmpty()) {
             Map<String, Object> textPart = new LinkedHashMap<>();
             textPart.put("text", text);
@@ -75,7 +73,7 @@ public class GeminiResponseEncoder {
         }
 
         // 工具调用部分
-        List<UnifiedToolCall> toolCalls = extractToolCalls(source);
+        List<UnifiedToolCall> toolCalls = source.collectToolCalls();
         for (UnifiedToolCall toolCall : toolCalls) {
             Map<String, Object> fcPart = new LinkedHashMap<>();
             Map<String, Object> functionCall = new LinkedHashMap<>();
@@ -94,29 +92,6 @@ public class GeminiResponseEncoder {
                 .content(content)
                 .finishReason(mapFinishReason(source.getFinishReason()))
                 .build();
-    }
-
-    private String extractText(UnifiedResponse source) {
-        if (source.getOutputs() == null || source.getOutputs().isEmpty()) {
-            return "";
-        }
-        UnifiedOutput output = source.getOutputs().get(0);
-        if (output.getParts() == null) return "";
-        StringBuilder sb = new StringBuilder();
-        for (UnifiedPart part : output.getParts()) {
-            if ("text".equals(part.getType()) && part.getText() != null) {
-                sb.append(part.getText());
-            }
-        }
-        return sb.toString();
-    }
-
-    private List<UnifiedToolCall> extractToolCalls(UnifiedResponse source) {
-        if (source.getOutputs() == null || source.getOutputs().isEmpty()) {
-            return List.of();
-        }
-        UnifiedOutput output = source.getOutputs().get(0);
-        return output.getToolCalls() != null ? output.getToolCalls() : List.of();
     }
 
     private String mapFinishReason(String finishReason) {

@@ -1,8 +1,6 @@
 package com.code.aigateway.core.encoder;
 
 import com.code.aigateway.api.response.OpenAiChatCompletionResponse;
-import com.code.aigateway.core.model.UnifiedOutput;
-import com.code.aigateway.core.model.UnifiedPart;
 import com.code.aigateway.core.model.UnifiedResponse;
 import com.code.aigateway.core.model.UnifiedToolCall;
 import org.springframework.stereotype.Component;
@@ -37,14 +35,9 @@ public class OpenAiChatResponseEncoder implements ResponseEncoder<UnifiedRespons
      */
     @Override
     public OpenAiChatCompletionResponse encode(UnifiedResponse source) {
-        // 提取输出内容和 tool_calls
-        String content = "";
-        List<OpenAiChatCompletionResponse.ToolCall> toolCalls = null;
-        if (source.getOutputs() != null && !source.getOutputs().isEmpty()) {
-            UnifiedOutput output = source.getOutputs().get(0);
-            content = extractText(output.getParts());
-            toolCalls = encodeToolCalls(output.getToolCalls());
-        }
+        // 聚合所有 output 的 text 和 tool_calls（跨 output 合并）
+        String content = source.collectText();
+        List<OpenAiChatCompletionResponse.ToolCall> toolCalls = encodeToolCalls(source.collectToolCalls());
 
         // 转换使用统计
         OpenAiChatCompletionResponse.Usage usage = null;
@@ -60,7 +53,7 @@ public class OpenAiChatResponseEncoder implements ResponseEncoder<UnifiedRespons
         OpenAiChatCompletionResponse.Message.MessageBuilder messageBuilder = OpenAiChatCompletionResponse.Message.builder()
                 .role("assistant")
                 .content(content);
-        if (toolCalls != null && !toolCalls.isEmpty()) {
+        if (!toolCalls.isEmpty()) {
             messageBuilder.toolCalls(toolCalls);
         }
 
@@ -81,34 +74,14 @@ public class OpenAiChatResponseEncoder implements ResponseEncoder<UnifiedRespons
     }
 
     /**
-     * 从内容部分列表中提取文本
-     *
-     * @param parts 内容部分列表
-     * @return 合并后的文本内容
-     */
-    private String extractText(List<UnifiedPart> parts) {
-        if (parts == null || parts.isEmpty()) {
-            return "";
-        }
-
-        StringBuilder sb = new StringBuilder();
-        for (UnifiedPart part : parts) {
-            if ("text".equals(part.getType()) && part.getText() != null) {
-                sb.append(part.getText());
-            }
-        }
-        return sb.toString();
-    }
-
-    /**
      * 将统一工具调用列表编码为 OpenAI 格式
      *
      * @param toolCalls 统一工具调用列表
-     * @return OpenAI 格式工具调用列表，无数据时返回 null
+     * @return OpenAI 格式工具调用列表
      */
     private List<OpenAiChatCompletionResponse.ToolCall> encodeToolCalls(List<UnifiedToolCall> toolCalls) {
         if (toolCalls == null || toolCalls.isEmpty()) {
-            return null;
+            return List.of();
         }
         return toolCalls.stream()
                 .map(tc -> OpenAiChatCompletionResponse.ToolCall.builder()

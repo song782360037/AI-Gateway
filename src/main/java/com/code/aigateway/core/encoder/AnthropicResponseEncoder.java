@@ -1,7 +1,6 @@
 package com.code.aigateway.core.encoder;
 
 import com.code.aigateway.api.response.AnthropicMessagesResponse;
-import com.code.aigateway.core.model.UnifiedOutput;
 import com.code.aigateway.core.model.UnifiedPart;
 import com.code.aigateway.core.model.UnifiedResponse;
 import com.code.aigateway.core.model.UnifiedToolCall;
@@ -32,7 +31,7 @@ public class AnthropicResponseEncoder {
         List<AnthropicMessagesResponse.ContentBlock> contentBlocks = new ArrayList<>();
 
         // 提取思考内容（Anthropic 协议要求 thinking 在 text 之前）
-        List<UnifiedPart> thinkingParts = extractThinkingParts(source);
+        List<UnifiedPart> thinkingParts = source.collectThinkingParts();
         for (UnifiedPart thinkingPart : thinkingParts) {
             AnthropicMessagesResponse.ContentBlock.ContentBlockBuilder builder = AnthropicMessagesResponse.ContentBlock.builder()
                     .type("thinking")
@@ -44,7 +43,7 @@ public class AnthropicResponseEncoder {
         }
 
         // 提取文本内容
-        String text = extractText(source);
+        String text = source.collectText();
         if (!text.isEmpty()) {
             contentBlocks.add(AnthropicMessagesResponse.ContentBlock.builder()
                     .type("text")
@@ -53,7 +52,7 @@ public class AnthropicResponseEncoder {
         }
 
         // 提取工具调用
-        List<UnifiedToolCall> toolCalls = extractToolCalls(source);
+        List<UnifiedToolCall> toolCalls = source.collectToolCalls();
         for (UnifiedToolCall toolCall : toolCalls) {
             contentBlocks.add(AnthropicMessagesResponse.ContentBlock.builder()
                     .type("tool_use")
@@ -85,42 +84,6 @@ public class AnthropicResponseEncoder {
                 .stopReason(stopReason)
                 .usage(usage)
                 .build();
-    }
-
-    private String extractText(UnifiedResponse source) {
-        if (source.getOutputs() == null || source.getOutputs().isEmpty()) {
-            return "";
-        }
-        UnifiedOutput output = source.getOutputs().get(0);
-        if (output.getParts() == null) return "";
-        StringBuilder sb = new StringBuilder();
-        for (UnifiedPart part : output.getParts()) {
-            if ("text".equals(part.getType()) && part.getText() != null) {
-                sb.append(part.getText());
-            }
-        }
-        return sb.toString();
-    }
-
-    private List<UnifiedToolCall> extractToolCalls(UnifiedResponse source) {
-        if (source.getOutputs() == null || source.getOutputs().isEmpty()) {
-            return List.of();
-        }
-        UnifiedOutput output = source.getOutputs().get(0);
-        return output.getToolCalls() != null ? output.getToolCalls() : List.of();
-    }
-
-    private List<UnifiedPart> extractThinkingParts(UnifiedResponse source) {
-        if (source.getOutputs() == null || source.getOutputs().isEmpty()) {
-            return List.of();
-        }
-        UnifiedOutput output = source.getOutputs().get(0);
-        if (output.getParts() == null || output.getParts().isEmpty()) {
-            return List.of();
-        }
-        return output.getParts().stream()
-                .filter(part -> "thinking".equals(part.getType()) && part.getText() != null)
-                .toList();
     }
 
     private String mapStopReason(String finishReason) {
