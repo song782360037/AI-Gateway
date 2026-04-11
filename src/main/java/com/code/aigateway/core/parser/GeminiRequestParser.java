@@ -90,14 +90,31 @@ public class GeminiRequestParser {
         for (GeminiGenerateContentRequest.Content content : contents) {
             if (content.getParts() == null) continue;
 
-            // 收集文本和 functionCall/functionResponse
+            // 收集文本、图片、functionCall/functionResponse
             StringBuilder textBuilder = new StringBuilder();
+            List<UnifiedPart> imageParts = new ArrayList<>();
             List<UnifiedToolCall> toolCalls = new ArrayList<>();
             List<GeminiGenerateContentRequest.FunctionResponse> functionResponses = new ArrayList<>();
 
             for (GeminiGenerateContentRequest.Part part : content.getParts()) {
                 if (part.getText() != null) {
                     textBuilder.append(part.getText());
+                }
+                // 解析内联图片（base64）
+                if (part.getInlineData() != null) {
+                    UnifiedPart imagePart = new UnifiedPart();
+                    imagePart.setType("image");
+                    imagePart.setMimeType(part.getInlineData().getMimeType());
+                    imagePart.setBase64Data(part.getInlineData().getData());
+                    imageParts.add(imagePart);
+                }
+                // 解析文件引用图片（URL）
+                if (part.getFileData() != null) {
+                    UnifiedPart imagePart = new UnifiedPart();
+                    imagePart.setType("image");
+                    imagePart.setMimeType(part.getFileData().getMimeType());
+                    imagePart.setUrl(part.getFileData().getFileUri());
+                    imageParts.add(imagePart);
                 }
                 if (part.getFunctionCall() != null) {
                     UnifiedToolCall toolCall = new UnifiedToolCall();
@@ -116,14 +133,19 @@ public class GeminiRequestParser {
             // 映射 role：model → assistant
             String role = "model".equals(content.getRole()) ? "assistant" : content.getRole();
 
-            // 添加文本消息
-            if (!textBuilder.isEmpty()) {
+            // 添加文本 + 图片消息（合并到同一条消息中）
+            if (!textBuilder.isEmpty() || !imageParts.isEmpty()) {
                 UnifiedMessage msg = new UnifiedMessage();
                 msg.setRole(role);
-                UnifiedPart part = new UnifiedPart();
-                part.setType("text");
-                part.setText(textBuilder.toString());
-                msg.setParts(List.of(part));
+                List<UnifiedPart> msgParts = new ArrayList<>();
+                if (!textBuilder.isEmpty()) {
+                    UnifiedPart textPart = new UnifiedPart();
+                    textPart.setType("text");
+                    textPart.setText(textBuilder.toString());
+                    msgParts.add(textPart);
+                }
+                msgParts.addAll(imageParts);
+                msg.setParts(msgParts);
                 messages.add(msg);
             }
 

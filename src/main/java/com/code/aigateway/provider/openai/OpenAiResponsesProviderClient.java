@@ -233,12 +233,11 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
         List<Object> input = new ArrayList<>();
         for (UnifiedMessage msg : request.getMessages()) {
             switch (msg.getRole()) {
-                case "user" -> input.add(buildMessageInputItem("user", extractTextContent(msg)));
+                case "user" -> input.add(buildMessageInputItem("user", msg));
                 case "assistant" -> {
-                    // 如果有 toolCalls，先输出 assistant 文本内容
-                    String text = extractTextContent(msg);
-                    if (text != null && !text.isEmpty()) {
-                        input.add(buildMessageInputItem("assistant", text));
+                    // 如果有 toolCalls，先输出 assistant 内容
+                    if (msg.getParts() != null && !msg.getParts().isEmpty()) {
+                        input.add(buildMessageInputItem("assistant", msg));
                     }
                     // tool_calls → function_call 条目
                     if (msg.getToolCalls() != null) {
@@ -270,19 +269,71 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
     /**
      * 构建标准 Responses API message input item。
      * <p>
-     * 为兼容严格上游实现，显式输出 type=message，content 使用 input_text 数组格式，
-     * 而不是仅发送 {role, content} 的简化写法。
+     * 为兼容严格上游实现，显式输出 type=message，content 使用 input_text / input_image 数组格式。
      * </p>
      */
-    private Map<String, Object> buildMessageInputItem(String role, String text) {
+    private Map<String, Object> buildMessageInputItem(String role, UnifiedMessage msg) {
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("type", "message");
         item.put("role", role);
-        item.put("content", List.of(Map.of(
-                "type", "input_text",
-                "text", text != null ? text : ""
-        )));
+
+        if (msg.getParts() == null || msg.getParts().isEmpty()) {
+            item.put("content", List.of(Map.of("type", "input_text", "text", "")));
+            return item;
+        }
+
+        // 检查是否只有文本内容（快速路径）
+        boolean hasOnlyText = msg.getParts().stream().allMatch(p -> "text".equals(p.getType()));
+        if (hasOnlyText) {
+            item.put("content", List.of(Map.of("type", "input_text", "text", extractTextContent(msg))));
+            return item;
+        }
+
+        // 包含图片等非文本内容，构建混合 content 数组
+        List<Map<String, Object>> contentList = new ArrayList<>();
+        for (UnifiedPart part : msg.getParts()) {
+            if ("text".equals(part.getType())) {
+                String text = part.getText() != null ? part.getText() : "";
+                if (!text.isEmpty()) {
+                    contentList.add(Map.of("type", "input_text", "text", text));
+                }
+            } else if ("image".equals(part.getType())) {
+                contentList.add(buildResponsesImageContent(part));
+            }
+        }
+
+        if (contentList.isEmpty()) {
+            contentList.add(Map.of("type", "input_text", "text", ""));
+        }
+        item.put("content", contentList);
         return item;
+    }
+
+    /**
+     * 构建 Responses API 图片 content 项
+     * <p>
+     * 格式：{type:"input_image", image_url:"https://..." | "data:image/...;base64,...", detail?"high"}
+     * </p>
+     */
+    private Map<String, Object> buildResponsesImageContent(UnifiedPart part) {
+        Map<String, Object> imageContent = new LinkedHashMap<>();
+        imageContent.put("type", "input_image");
+
+        // 构建 image_url
+        if (part.getUrl() != null && !part.getUrl().isBlank()) {
+            imageContent.put("image_url", part.getUrl());
+        } else if (part.getBase64Data() != null && !part.getBase64Data().isBlank()) {
+            String mimeType = part.getMimeType() != null ? part.getMimeType() : "image/png";
+            imageContent.put("image_url", "data:" + mimeType + ";base64," + part.getBase64Data());
+        } else {
+            throw new GatewayException(ErrorCode.INVALID_REQUEST, "image part is missing image_url or base64 data");
+        }
+
+        // detail 参数（可选）
+        if (part.getAttributes() != null && part.getAttributes().get("detail") != null) {
+            imageContent.put("detail", part.getAttributes().get("detail"));
+        }
+        return imageContent;
     }
 
     /**

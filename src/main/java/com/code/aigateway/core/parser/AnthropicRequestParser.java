@@ -203,6 +203,9 @@ public class AnthropicRequestParser {
                     part.setText(text);
                     parts.add(part);
                 }
+            } else if ("image".equals(type)) {
+                // Anthropic 图片格式：{type:"image", source:{type:"base64"|"url", ...}}
+                parts.add(parseAnthropicImage(block));
             } else if ("tool_result".equals(type)) {
                 UnifiedMessage toolMsg = new UnifiedMessage();
                 toolMsg.setRole("tool");
@@ -351,5 +354,42 @@ public class AnthropicRequestParser {
             return sb.isEmpty() ? null : sb.toString();
         }
         return null;
+    }
+
+    /**
+     * 解析 Anthropic 图片内容块
+     * <p>
+     * 支持两种 source 类型：
+     * <ul>
+     *   <li>base64: {type:"image", source:{type:"base64", media_type:"image/jpeg", data:"..."}}</li>
+     *   <li>url: {type:"image", source:{type:"url", url:"https://..."}}</li>
+     * </ul>
+     * </p>
+     */
+    private UnifiedPart parseAnthropicImage(Map<String, Object> block) {
+        UnifiedPart part = new UnifiedPart();
+        part.setType("image");
+
+        Object sourceObj = block.get("source");
+        if (!(sourceObj instanceof Map<?, ?> source)) {
+            return part;
+        }
+
+        String sourceType = (String) source.get("type");
+        if ("base64".equals(sourceType)) {
+            // base64 编码图片
+            if (source.get("media_type") instanceof String mediaType) {
+                part.setMimeType(mediaType);
+            }
+            if (source.get("data") instanceof String data) {
+                part.setBase64Data(data);
+            }
+        } else if ("url".equals(sourceType)) {
+            // URL 引用图片
+            if (source.get("url") instanceof String url) {
+                part.setUrl(url);
+            }
+        }
+        return part;
     }
 }

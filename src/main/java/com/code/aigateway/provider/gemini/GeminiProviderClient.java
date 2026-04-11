@@ -267,6 +267,7 @@ public class GeminiProviderClient extends AbstractProviderClient {
 
     private Map<String, Object> buildImagePart(UnifiedPart part) {
         if (part.getBase64Data() != null && !part.getBase64Data().isBlank()) {
+            // base64 内联图片 → inlineData
             String mimeType = part.getMimeType() == null ? "image/png" : part.getMimeType();
             return Map.of(
                     "inlineData", Map.of(
@@ -275,8 +276,15 @@ public class GeminiProviderClient extends AbstractProviderClient {
                     )
             );
         }
+        // URL 图片 → fileData（Gemini 使用 fileUri 引用外部文件）
         if (part.getUrl() != null && !part.getUrl().isBlank()) {
-            return Map.of("text", "[image: " + part.getUrl() + "]");
+            String mimeType = part.getMimeType() == null ? "image/png" : part.getMimeType();
+            return Map.of(
+                    "fileData", Map.of(
+                            "mimeType", mimeType,
+                            "fileUri", part.getUrl()
+                    )
+            );
         }
         return Map.of("text", "");
     }

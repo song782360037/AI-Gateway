@@ -190,9 +190,15 @@ public class OpenAiResponsesRequestParser {
                     throw new GatewayException(ErrorCode.INVALID_REQUEST,
                             "content item type is required", itemParamPath + ".type");
                 }
-                if (!"input_text".equals(typeValue) && !"text".equals(typeValue)) {
+                if (!"input_text".equals(typeValue) && !"text".equals(typeValue)
+                        && !"input_image".equals(typeValue)) {
                     throw new GatewayException(ErrorCode.INVALID_REQUEST,
                             "unsupported content type: " + typeValue, itemParamPath + ".type");
+                }
+                // Responses API 图片格式：{type:"input_image", image_url:"...", detail?"high"}
+                if ("input_image".equals(typeValue)) {
+                    parts.add(parseInputImage(map, itemParamPath));
+                    continue;
                 }
                 Object text = map.get("text");
                 if (!(text instanceof String textValue)) {
@@ -313,5 +319,44 @@ public class OpenAiResponsesRequestParser {
                     "tool_choice.name must match one of tools", "tool_choice.name");
         }
         return toolChoice;
+    }
+
+    /**
+     * 解析 Responses API 图片内容
+     * <p>
+     * 格式：{type:"input_image", image_url:"https://..." | "data:image/...;base64,...", detail?"high"}
+     * </p>
+     */
+    private UnifiedPart parseInputImage(Map<?, ?> map, String paramPath) {
+        UnifiedPart part = new UnifiedPart();
+        part.setType("image");
+
+        Object imageUrlObj = map.get("image_url");
+        if (imageUrlObj instanceof String url && !url.isBlank()) {
+            if (url.startsWith("data:")) {
+                // data URL 格式：data:image/png;base64,xxxxx
+                int commaIdx = url.indexOf(',');
+                int semiIdx = url.indexOf(';');
+                if (commaIdx > 0 && semiIdx > 0 && semiIdx < commaIdx) {
+                    String mimeType = url.substring(5, semiIdx);
+                    part.setMimeType(mimeType);
+                    part.setBase64Data(url.substring(commaIdx + 1));
+                } else {
+                    // 无法解析的 data URL，保留原值
+                    part.setUrl(url);
+                }
+            } else {
+                part.setUrl(url);
+            }
+        }
+
+        // detail 参数（可选）
+        Object detail = map.get("detail");
+        if (detail instanceof String detailValue) {
+            Map<String, Object> attributes = new LinkedHashMap<>();
+            attributes.put("detail", detailValue);
+            part.setAttributes(attributes);
+        }
+        return part;
     }
 }

@@ -12,6 +12,7 @@ import com.code.aigateway.core.model.StreamContext;
 import com.code.aigateway.core.model.UnifiedRequest;
 import com.code.aigateway.core.model.UnifiedResponse;
 import com.code.aigateway.core.model.UnifiedStreamEvent;
+import com.code.aigateway.core.model.UnifiedPart;
 import com.code.aigateway.core.parser.OpenAiResponsesRequestParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -277,11 +278,61 @@ class OpenAiResponsesProtocolAdapterTest {
     }
 
     @Test
+    void parse_inputImageContent_mapsToUnifiedImage() {
+        OpenAiResponsesRequest.InputItem item = new OpenAiResponsesRequest.InputItem();
+        item.setType("message");
+        item.setRole("user");
+        item.setContent(List.of(
+                Map.of("type", "input_text", "text", "描述图片"),
+                Map.of("type", "input_image", "image_url", "https://example.com/test.png", "detail", "high")
+        ));
+
+        OpenAiResponsesRequest request = new OpenAiResponsesRequest();
+        request.setModel("gpt-4o");
+        request.setInput(List.of(item));
+
+        OpenAiResponsesRequestParser realParser = new OpenAiResponsesRequestParser();
+        UnifiedRequest unifiedRequest = realParser.parse(request);
+
+        assertEquals(1, unifiedRequest.getMessages().size());
+        List<UnifiedPart> parts = unifiedRequest.getMessages().getFirst().getParts();
+        assertEquals(2, parts.size());
+        assertEquals("text", parts.get(0).getType());
+        assertEquals("描述图片", parts.get(0).getText());
+        assertEquals("image", parts.get(1).getType());
+        assertEquals("https://example.com/test.png", parts.get(1).getUrl());
+        assertEquals("high", parts.get(1).getAttributes().get("detail"));
+    }
+
+    @Test
+    void parse_inputImageBase64Content_mapsToUnifiedImage() {
+        OpenAiResponsesRequest.InputItem item = new OpenAiResponsesRequest.InputItem();
+        item.setType("message");
+        item.setRole("user");
+        item.setContent(List.of(
+                Map.of("type", "input_image", "image_url", "data:image/png;base64,QUJDRA==")
+        ));
+
+        OpenAiResponsesRequest request = new OpenAiResponsesRequest();
+        request.setModel("gpt-4o");
+        request.setInput(List.of(item));
+
+        OpenAiResponsesRequestParser realParser = new OpenAiResponsesRequestParser();
+        UnifiedRequest unifiedRequest = realParser.parse(request);
+
+        List<UnifiedPart> parts = unifiedRequest.getMessages().getFirst().getParts();
+        assertEquals(1, parts.size());
+        assertEquals("image", parts.get(0).getType());
+        assertEquals("image/png", parts.get(0).getMimeType());
+        assertEquals("QUJDRA==", parts.get(0).getBase64Data());
+    }
+
+    @Test
     void parse_arrayContentWithUnsupportedType_throwsInvalidRequest() {
         OpenAiResponsesRequest.InputItem item = new OpenAiResponsesRequest.InputItem();
         item.setType("message");
         item.setRole("user");
-        item.setContent(List.of(Map.of("type", "input_image", "image_url", "https://example.com/test.png")));
+        item.setContent(List.of(Map.of("type", "input_file", "file_data", "dGVzdA==")));
 
         OpenAiResponsesRequest request = new OpenAiResponsesRequest();
         request.setModel("gpt-4o");

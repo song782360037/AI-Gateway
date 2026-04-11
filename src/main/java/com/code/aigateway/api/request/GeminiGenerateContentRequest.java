@@ -66,6 +66,29 @@ public class GeminiGenerateContentRequest implements StatsRequestInfo {
         private FunctionCall functionCall;
         @JsonProperty("function_response")
         private FunctionResponse functionResponse;
+        /** 内联二进制数据（图片 base64） */
+        @JsonProperty("inlineData")
+        private InlineData inlineData;
+        /** 文件引用（图片 URL） */
+        @JsonProperty("fileData")
+        private FileData fileData;
+    }
+
+    /** Gemini inlineData：base64 编码的多模态数据 */
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class InlineData {
+        private String mimeType;
+        private String data;
+    }
+
+    /** Gemini fileData：通过 URI 引用的文件 */
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class FileData {
+        private String mimeType;
+        @JsonProperty("fileUri")
+        private String fileUri;
     }
 
     @Data

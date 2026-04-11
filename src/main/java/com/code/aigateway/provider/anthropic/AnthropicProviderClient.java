@@ -251,7 +251,59 @@ public class AnthropicProviderClient extends AbstractProviderClient {
     }
 
     private Map<String, Object> buildUserMessage(UnifiedMessage msg) {
-        return Map.of("role", "user", "content", extractTextContent(msg));
+        if (msg.getParts() == null || msg.getParts().isEmpty()) {
+            return Map.of("role", "user", "content", "");
+        }
+
+        // 检查是否只有文本内容（走快速路径）
+        boolean hasOnlyText = msg.getParts().stream().allMatch(p -> "text".equals(p.getType()));
+        if (hasOnlyText) {
+            return Map.of("role", "user", "content", extractTextContent(msg));
+        }
+
+        // 包含图片等非文本内容，构建 content 数组
+        List<Object> content = new ArrayList<>();
+        for (UnifiedPart part : msg.getParts()) {
+            if ("text".equals(part.getType())) {
+                String text = part.getText() != null ? part.getText() : "";
+                if (!text.isEmpty()) {
+                    content.add(Map.of("type", "text", "text", text));
+                }
+            } else if ("image".equals(part.getType())) {
+                content.add(buildAnthropicImageBlock(part));
+            }
+        }
+
+        // 单个文本块简化为字符串
+        if (content.size() == 1 && content.getFirst() instanceof Map<?, ?> map
+                && "text".equals(map.get("type"))) {
+            return Map.of("role", "user", "content", map.get("text"));
+        }
+        return Map.of("role", "user", "content", content);
+    }
+
+    /**
+     * 构建 Anthropic 图片 content block
+     * <p>
+     * 格式：{type:"image", source:{type:"base64", media_type:"image/jpeg", data:"..."}}
+     * 或：  {type:"image", source:{type:"url", url:"https://..."}}
+     * </p>
+     */
+    private Map<String, Object> buildAnthropicImageBlock(UnifiedPart part) {
+        Map<String, Object> source = new LinkedHashMap<>();
+        if (part.getBase64Data() != null && !part.getBase64Data().isBlank()) {
+            // base64 编码图片
+            source.put("type", "base64");
+            source.put("media_type", part.getMimeType() != null ? part.getMimeType() : "image/png");
+            source.put("data", part.getBase64Data());
+        } else if (part.getUrl() != null && !part.getUrl().isBlank()) {
+            // URL 引用图片
+            source.put("type", "url");
+            source.put("url", part.getUrl());
+        } else {
+            throw new GatewayException(ErrorCode.INVALID_REQUEST, "image part is missing base64 data or url");
+        }
+        return Map.of("type", "image", "source", source);
     }
 
     /**
