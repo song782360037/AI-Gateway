@@ -71,22 +71,21 @@ public class GatewayProperties {
     private CircuitBreakerProperties circuitBreaker;
 
     /**
+     * WebClient HTTP 传输层配置（连接池、超时等）
+     */
+    private HttpClientProperties httpClient;
+
+    /**
      * 认证配置类
      * <p>
-     * 用于配置网关的 API Key 认证
+     * API Key 认证基于数据库 api_key_config 表，SHA-256 哈希校验。
+     * 此配置仅控制认证开关，不支持 YAML 静态配置 API Key。
      * </p>
      */
     @Data
     public static class AuthProperties {
-        /**
-         * 是否启用认证，默认启用
-         */
+        /** 是否启用认证，默认启用 */
         private boolean enabled = true;
-
-        /**
-         * 允许访问的 API Key 列表
-         */
-        private List<String> apiKeys;
     }
 
     /**
@@ -238,5 +237,24 @@ public class GatewayProperties {
         private int permittedNumberOfCallsInHalfOpenState = 5;
         /** 触发熔断计算的最小调用次数 */
         private int minimumNumberOfCalls = 5;
+    }
+
+    /**
+     * WebClient 连接池与 HTTP 传输层配置
+     */
+    @Data
+    public static class HttpClientProperties {
+        /** 连接池最大连接数，默认 500 */
+        private int maxConnections = 500;
+        /** 连接池等待获取连接的超时时间（毫秒），默认 30000ms */
+        private long pendingAcquireTimeoutMs = 30000;
+        /** 连接最大空闲时间（毫秒），默认 120000ms (2 min) */
+        private long maxIdleTimeMs = 120000;
+        /** 连接最大存活时间（毫秒），默认 1800000ms (30 min) */
+        private long maxLifeTimeMs = 1800000;
+        /** TCP 连接超时（毫秒），默认 10000ms */
+        private int connectTimeoutMs = 10000;
+        /** HTTP 响应超时（毫秒），默认 0（不限制，由 per-request timeout 控制） */
+        private long responseTimeoutMs = 0;
     }
 }

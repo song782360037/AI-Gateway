@@ -27,6 +27,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.BodyInserters;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Duration;
@@ -68,12 +69,12 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
 
     private final ReasoningSemanticMapper reasoningSemanticMapper;
 
-    public OpenAiResponsesProviderClient(WebClient.Builder webClientBuilder,
+    public OpenAiResponsesProviderClient(ReactorClientHttpConnector httpConnector,
                                          ObjectMapper objectMapper,
                                          GatewayProperties gatewayProperties,
                                          CircuitBreakerManager circuitBreakerManager,
                                          ReasoningSemanticMapper reasoningSemanticMapper) {
-        super(webClientBuilder, objectMapper, gatewayProperties, circuitBreakerManager);
+        super(httpConnector, objectMapper, gatewayProperties, circuitBreakerManager);
         this.reasoningSemanticMapper = reasoningSemanticMapper;
     }
 

@@ -285,6 +285,9 @@ public class AnthropicProtocolAdapter implements ProtocolAdapter {
             case INVALID_REQUEST, MODEL_NOT_FOUND, CAPABILITY_NOT_SUPPORTED -> "invalid_request_error";
             case AUTH_FAILED -> "authentication_error";
             case PROVIDER_RATE_LIMIT -> "rate_limit_error";
+            case PROVIDER_AUTH_ERROR -> "authentication_error";
+            case PROVIDER_BAD_REQUEST -> "invalid_request_error";
+            case PROVIDER_RESOURCE_NOT_FOUND -> "not_found_error";
             default -> "api_error";
         };
     }

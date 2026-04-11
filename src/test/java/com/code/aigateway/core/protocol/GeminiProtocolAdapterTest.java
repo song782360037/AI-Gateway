@@ -241,4 +241,19 @@ class GeminiProtocolAdapterTest {
     void mapErrorType_providerServerError() {
         assertEquals("INTERNAL", adapter.mapErrorType(ErrorCode.PROVIDER_SERVER_ERROR));
     }
+
+    @Test
+    void mapErrorType_providerAuthError() {
+        assertEquals("UNAUTHENTICATED", adapter.mapErrorType(ErrorCode.PROVIDER_AUTH_ERROR));
+    }
+
+    @Test
+    void mapErrorType_providerBadRequest() {
+        assertEquals("INVALID_ARGUMENT", adapter.mapErrorType(ErrorCode.PROVIDER_BAD_REQUEST));
+    }
+
+    @Test
+    void mapErrorType_providerResourceNotFound() {
+        assertEquals("NOT_FOUND", adapter.mapErrorType(ErrorCode.PROVIDER_RESOURCE_NOT_FOUND));
+    }
 }

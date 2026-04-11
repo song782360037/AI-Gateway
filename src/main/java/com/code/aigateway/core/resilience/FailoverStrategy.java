@@ -78,6 +78,10 @@ public class FailoverStrategy {
                             }
                         })
                         .onErrorResume(ex -> {
+                            // 客户端侧错误（认证失败、参数错误、资源不存在）直接透传，不继续尝试其他候选
+                            if (shouldSkipFailover(ex)) {
+                                return Mono.error(ex);
+                            }
                             log.warn("[故障转移] 候选 #{} 失败: provider={}, error={}, correlationId={}",
                                     index, candidate.getProviderName(), ex.getMessage(), correlationId);
                             candidateErrors.add(new CandidateError(
@@ -125,6 +129,10 @@ public class FailoverStrategy {
                 }
                 return callFunction.apply(candidate)
                         .onErrorResume(ex -> {
+                            // 客户端侧错误直接透传，不继续尝试其他候选
+                            if (shouldSkipFailover(ex)) {
+                                return Flux.error(ex);
+                            }
                             log.warn("[故障转移-流式] 候选 #{} 失败: provider={}, model={}, error={}, correlationId={}",
                                     index, candidate.getProviderName(), candidate.getTargetModel(),
                                     ex.getMessage(), correlationId);
@@ -138,6 +146,19 @@ public class FailoverStrategy {
 
         return chain.switchIfEmpty(Flux.error(() ->
                 buildAllFailedException(candidateErrors, correlationId)));
+    }
+
+    /**
+     * 判断错误是否不应触发故障转移（客户端侧错误，换 Provider 也会失败）
+     */
+    private boolean shouldSkipFailover(Throwable ex) {
+        if (ex instanceof GatewayException gwEx) {
+            ErrorCode code = gwEx.getErrorCode();
+            return code == ErrorCode.PROVIDER_AUTH_ERROR
+                    || code == ErrorCode.PROVIDER_BAD_REQUEST
+                    || code == ErrorCode.PROVIDER_RESOURCE_NOT_FOUND;
+        }
+        return false;
     }
 
     /**

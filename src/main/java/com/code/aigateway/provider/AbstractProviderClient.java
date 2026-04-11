@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.reactive.function.client.ClientResponse;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import reactor.core.publisher.Mono;
@@ -35,16 +36,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 public abstract class AbstractProviderClient implements ProviderClient {
 
-    protected final WebClient.Builder webClientBuilder;
+    protected final ReactorClientHttpConnector httpConnector;
     protected final ObjectMapper objectMapper;
     protected final GatewayProperties gatewayProperties;
     protected final CircuitBreakerManager circuitBreakerManager;
 
-    protected AbstractProviderClient(WebClient.Builder webClientBuilder,
+    protected AbstractProviderClient(ReactorClientHttpConnector httpConnector,
                                      ObjectMapper objectMapper,
                                      GatewayProperties gatewayProperties,
                                      CircuitBreakerManager circuitBreakerManager) {
-        this.webClientBuilder = webClientBuilder;
+        this.httpConnector = httpConnector;
         this.objectMapper = objectMapper;
         this.gatewayProperties = gatewayProperties;
         this.circuitBreakerManager = circuitBreakerManager;
@@ -111,7 +112,8 @@ public abstract class AbstractProviderClient implements ProviderClient {
      * @param correlationId 请求链路追踪 ID，透传至下游 Provider
      */
     protected WebClient buildWebClient(ProviderRuntimeConfig config, String correlationId) {
-        WebClient.Builder builder = webClientBuilder
+        WebClient.Builder builder = WebClient.builder()
+                .clientConnector(httpConnector)
                 .baseUrl(config.baseUrl())
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + config.apiKey());
         if (correlationId != null && !correlationId.isBlank()) {
@@ -232,9 +234,16 @@ public abstract class AbstractProviderClient implements ProviderClient {
                             errorMessage.isBlank() ? "N/A" : errorMessage,
                             truncateForLog(body, 500));
 
+                    // 细粒度错误映射：区分认证、参数、资源、限流、服务端等错误
                     ErrorCode errorCode;
                     if (statusCode.value() == 429) {
                         errorCode = ErrorCode.PROVIDER_RATE_LIMIT;
+                    } else if (statusCode.value() == 401 || statusCode.value() == 403) {
+                        errorCode = ErrorCode.PROVIDER_AUTH_ERROR;
+                    } else if (statusCode.value() == 400 || statusCode.value() == 422) {
+                        errorCode = ErrorCode.PROVIDER_BAD_REQUEST;
+                    } else if (statusCode.value() == 404) {
+                        errorCode = ErrorCode.PROVIDER_RESOURCE_NOT_FOUND;
                     } else if (statusCode.is5xxServerError()) {
                         errorCode = ErrorCode.PROVIDER_SERVER_ERROR;
                     } else {

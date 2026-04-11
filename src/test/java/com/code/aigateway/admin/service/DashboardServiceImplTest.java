@@ -79,7 +79,7 @@ class DashboardServiceImplTest {
         Mockito.when(dashboardCacheService.getModelRank("today")).thenReturn(null);
         // aliasModel, callCount, tokenCount, promptSum, cachedInputSum, completionSum
         Mockito.when(requestLogMapper.aggregateByModel(Mockito.any(), Mockito.eq(10)))
-                .thenReturn(List.of(new RequestLogMapper.ModelAggregation("gpt-4o", 3L, 150_000L, 100_000L, 40_000L, 50_000L)));
+                .thenReturn(List.of(new RequestLogMapper.ModelAggregation("gpt-4o", "gpt-4o", 3L, 150_000L, 100_000L, 40_000L, 50_000L)));
 
         List<ModelUsageRankRsp> result = dashboardService.getModelUsageRank("today");
 

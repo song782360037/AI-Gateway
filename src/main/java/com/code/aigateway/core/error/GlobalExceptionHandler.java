@@ -178,6 +178,7 @@ public class GlobalExceptionHandler {
             case RATE_LIMITED -> HttpStatus.TOO_MANY_REQUESTS;
             case PROVIDER_RATE_LIMIT -> HttpStatus.TOO_MANY_REQUESTS;
             case PROVIDER_CIRCUIT_OPEN -> HttpStatus.SERVICE_UNAVAILABLE;
+            case PROVIDER_AUTH_ERROR, PROVIDER_BAD_REQUEST, PROVIDER_RESOURCE_NOT_FOUND -> HttpStatus.BAD_GATEWAY;
             case PROVIDER_NOT_FOUND, PROVIDER_DISABLED, PROVIDER_ERROR, STREAM_PARSE_ERROR -> HttpStatus.BAD_GATEWAY;
             case PROVIDER_TIMEOUT -> HttpStatus.GATEWAY_TIMEOUT;
             default -> HttpStatus.INTERNAL_SERVER_ERROR;

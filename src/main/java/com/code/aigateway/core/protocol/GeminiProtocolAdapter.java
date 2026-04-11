@@ -135,6 +135,9 @@ public class GeminiProtocolAdapter implements ProtocolAdapter {
             case INVALID_REQUEST, MODEL_NOT_FOUND, CAPABILITY_NOT_SUPPORTED -> "INVALID_ARGUMENT";
             case AUTH_FAILED -> "UNAUTHENTICATED";
             case PROVIDER_RATE_LIMIT -> "RESOURCE_EXHAUSTED";
+            case PROVIDER_AUTH_ERROR -> "UNAUTHENTICATED";
+            case PROVIDER_BAD_REQUEST -> "INVALID_ARGUMENT";
+            case PROVIDER_RESOURCE_NOT_FOUND -> "NOT_FOUND";
             default -> "INTERNAL";
         };
     }

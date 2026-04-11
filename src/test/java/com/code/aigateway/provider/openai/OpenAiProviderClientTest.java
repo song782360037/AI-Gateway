@@ -10,19 +10,19 @@ import com.code.aigateway.core.model.UnifiedRequest;
 import com.code.aigateway.core.model.UnifiedResponse;
 import com.code.aigateway.core.model.UnifiedStreamEvent;
 import com.code.aigateway.core.capability.ReasoningSemanticMapper;
-import com.code.aigateway.core.resilience.CircuitBreakerManager;
+
+import com.code.aigateway.provider.util.ProviderTestUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.resilience4j.circuitbreaker.CircuitBreaker;
-import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
+
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.test.StepVerifier;
 
@@ -449,7 +449,7 @@ class OpenAiProviderClientTest {
                 .expectErrorSatisfies(error -> {
                     assertTrue(error instanceof GatewayException);
                     GatewayException ex = (GatewayException) error;
-                    assertEquals(ErrorCode.PROVIDER_ERROR, ex.getErrorCode());
+                    assertEquals(ErrorCode.PROVIDER_BAD_REQUEST, ex.getErrorCode());
                 })
                 .verify(Duration.ofSeconds(5));
 
@@ -576,7 +576,7 @@ class OpenAiProviderClientTest {
                 .expectErrorSatisfies(error -> {
                     assertTrue(error instanceof GatewayException);
                     GatewayException ex = (GatewayException) error;
-                    assertEquals(ErrorCode.PROVIDER_ERROR, ex.getErrorCode());
+                    assertEquals(ErrorCode.PROVIDER_BAD_REQUEST, ex.getErrorCode());
                 })
                 .verify(Duration.ofSeconds(5));
 
@@ -631,19 +631,6 @@ class OpenAiProviderClientTest {
         assertEquals(1, requestCount.get());
     }
 
-    /** 创建一个永不熔断的 CircuitBreaker 实例 */
-    private CircuitBreakerManager mockCircuitBreakerManager() {
-        CircuitBreaker noopCb = CircuitBreaker.of("test",
-                CircuitBreakerConfig.custom()
-                        .slidingWindowSize(1)
-                        .failureRateThreshold(100)
-                        .minimumNumberOfCalls(9999)
-                        .build());
-        CircuitBreakerManager cbManager = Mockito.mock(CircuitBreakerManager.class);
-        Mockito.when(cbManager.getOrCreate(Mockito.anyString(), Mockito.anyString())).thenReturn(noopCb);
-        return cbManager;
-    }
-
     private OpenAiProviderClient newProviderClient(int timeoutSeconds) {
         return newProviderClientWithRetry(timeoutSeconds, 0, 1000, 30000);
     }
@@ -667,7 +654,7 @@ class OpenAiProviderClientTest {
         providerProperties.setTimeoutSeconds(timeoutSeconds);
         gatewayProperties.setProviders(Map.of("openai", providerProperties));
         return new OpenAiProviderClient(
-                WebClient.builder(), objectMapper, gatewayProperties, mockCircuitBreakerManager(), new ReasoningSemanticMapper());
+                new ReactorClientHttpConnector(), objectMapper, gatewayProperties, ProviderTestUtil.noopCircuitBreakerManager(), new ReasoningSemanticMapper());
     }
 
     private UnifiedRequest buildRequest(boolean stream) {

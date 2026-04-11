@@ -24,6 +24,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.BodyInserters;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Duration;
@@ -60,11 +61,11 @@ import reactor.core.publisher.Mono;
 @Slf4j
 public class GeminiProviderClient extends AbstractProviderClient {
 
-    public GeminiProviderClient(WebClient.Builder webClientBuilder,
+    public GeminiProviderClient(ReactorClientHttpConnector httpConnector,
                                 ObjectMapper objectMapper,
                                 GatewayProperties gatewayProperties,
                                 CircuitBreakerManager circuitBreakerManager) {
-        super(webClientBuilder, objectMapper, gatewayProperties, circuitBreakerManager);
+        super(httpConnector, objectMapper, gatewayProperties, circuitBreakerManager);
     }
 
     @Override
@@ -78,7 +79,8 @@ public class GeminiProviderClient extends AbstractProviderClient {
      */
     @Override
     protected WebClient buildWebClient(ProviderRuntimeConfig config, String correlationId) {
-        WebClient.Builder builder = webClientBuilder
+        WebClient.Builder builder = WebClient.builder()
+                .clientConnector(httpConnector)
                 .baseUrl(config.baseUrl());
         if (correlationId != null && !correlationId.isBlank()) {
             builder.defaultHeader("X-Correlation-Id", correlationId);

@@ -28,6 +28,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.BodyInserters;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Duration;
@@ -60,12 +61,12 @@ public class AnthropicProviderClient extends AbstractProviderClient {
 
     private final ReasoningSemanticMapper reasoningSemanticMapper;
 
-    public AnthropicProviderClient(WebClient.Builder webClientBuilder,
+    public AnthropicProviderClient(ReactorClientHttpConnector httpConnector,
                                    ObjectMapper objectMapper,
                                    GatewayProperties gatewayProperties,
                                    CircuitBreakerManager circuitBreakerManager,
                                    ReasoningSemanticMapper reasoningSemanticMapper) {
-        super(webClientBuilder, objectMapper, gatewayProperties, circuitBreakerManager);
+        super(httpConnector, objectMapper, gatewayProperties, circuitBreakerManager);
         this.reasoningSemanticMapper = reasoningSemanticMapper;
     }
 
@@ -77,7 +78,8 @@ public class AnthropicProviderClient extends AbstractProviderClient {
     @Override
     protected WebClient buildWebClient(ProviderRuntimeConfig config, String correlationId) {
         // Anthropic 使用 x-api-key header 而非 Bearer Token
-        WebClient.Builder builder = webClientBuilder
+        WebClient.Builder builder = WebClient.builder()
+                .clientConnector(httpConnector)
                 .baseUrl(config.baseUrl())
                 .defaultHeader("x-api-key", config.apiKey())
                 .defaultHeader("anthropic-version", resolveApiVersion())

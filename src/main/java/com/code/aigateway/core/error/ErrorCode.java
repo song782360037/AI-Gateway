@@ -61,7 +61,22 @@ public enum ErrorCode {
     PROVIDER_CIRCUIT_OPEN,
 
     /**
-     * 提供商错误
+     * 提供商认证/授权失败（401/403），不可重试，不触发 failover
+     */
+    PROVIDER_AUTH_ERROR,
+
+    /**
+     * 提供商请求格式错误（400/422），不可重试，不触发 failover
+     */
+    PROVIDER_BAD_REQUEST,
+
+    /**
+     * 提供商资源未找到（404），不可重试，不触发 failover
+     */
+    PROVIDER_RESOURCE_NOT_FOUND,
+
+    /**
+     * 提供商错误（其他 4xx）
      */
     PROVIDER_ERROR,
 

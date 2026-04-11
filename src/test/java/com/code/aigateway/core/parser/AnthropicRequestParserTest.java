@@ -24,15 +24,16 @@ class AnthropicRequestParserTest {
         request.setMessages(List.of(message("user", "你好")));
 
         AnthropicMessagesRequest.Thinking thinking = new AnthropicMessagesRequest.Thinking();
-        thinking.setType("enabled");
+        thinking.setType("adaptive");
         thinking.setBudgetTokens(2048);
         request.setThinking(thinking);
 
         UnifiedRequest unifiedRequest = parser.parse(request);
 
         assertNotNull(unifiedRequest.getGenerationConfig());
-        assertEquals(Boolean.TRUE, unifiedRequest.getGenerationConfig().getThinkingEnabled());
-        assertEquals(2048, unifiedRequest.getGenerationConfig().getThinkingBudgetTokens());
+        assertNotNull(unifiedRequest.getGenerationConfig().getReasoning());
+        assertEquals(Boolean.TRUE, unifiedRequest.getGenerationConfig().getReasoning().getEnabled());
+        assertEquals(2048, unifiedRequest.getGenerationConfig().getReasoning().getBudgetTokens());
     }
 
     @Test

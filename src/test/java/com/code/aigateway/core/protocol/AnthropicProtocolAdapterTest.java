@@ -273,4 +273,19 @@ class AnthropicProtocolAdapterTest {
     void mapErrorType_providerTimeout() {
         assertEquals("api_error", adapter.mapErrorType(ErrorCode.PROVIDER_TIMEOUT));
     }
+
+    @Test
+    void mapErrorType_providerAuthError() {
+        assertEquals("authentication_error", adapter.mapErrorType(ErrorCode.PROVIDER_AUTH_ERROR));
+    }
+
+    @Test
+    void mapErrorType_providerBadRequest() {
+        assertEquals("invalid_request_error", adapter.mapErrorType(ErrorCode.PROVIDER_BAD_REQUEST));
+    }
+
+    @Test
+    void mapErrorType_providerResourceNotFound() {
+        assertEquals("not_found_error", adapter.mapErrorType(ErrorCode.PROVIDER_RESOURCE_NOT_FOUND));
+    }
 }

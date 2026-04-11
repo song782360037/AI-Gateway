@@ -13,20 +13,20 @@ import com.code.aigateway.core.model.UnifiedStreamEvent;
 import com.code.aigateway.core.model.UnifiedTool;
 import com.code.aigateway.core.model.UnifiedToolCall;
 import com.code.aigateway.core.model.UnifiedToolChoice;
-import com.code.aigateway.core.resilience.CircuitBreakerManager;
+
 import com.code.aigateway.provider.ProviderType;
+import com.code.aigateway.provider.util.ProviderTestUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.resilience4j.circuitbreaker.CircuitBreaker;
-import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
+
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.test.StepVerifier;
 
@@ -489,24 +489,11 @@ class AnthropicProviderClientTest {
         // 不需要启动 server，直接构造 client
         GatewayProperties props = new GatewayProperties();
         AnthropicProviderClient client = new AnthropicProviderClient(
-                WebClient.builder(), objectMapper, props, mockCircuitBreakerManager(), new ReasoningSemanticMapper());
+                new ReactorClientHttpConnector(), objectMapper, props, ProviderTestUtil.noopCircuitBreakerManager(), new ReasoningSemanticMapper());
         assertEquals(ProviderType.ANTHROPIC, client.getProviderType());
     }
 
     // ==================== 辅助方法 ====================
-
-    /** 创建一个永不熔断的 CircuitBreaker 实例 */
-    private CircuitBreakerManager mockCircuitBreakerManager() {
-        CircuitBreaker noopCb = CircuitBreaker.of("test",
-                CircuitBreakerConfig.custom()
-                        .slidingWindowSize(1)
-                        .failureRateThreshold(100)
-                        .minimumNumberOfCalls(9999)
-                        .build());
-        CircuitBreakerManager cbManager = Mockito.mock(CircuitBreakerManager.class);
-        Mockito.when(cbManager.getOrCreate(Mockito.anyString(), Mockito.anyString())).thenReturn(noopCb);
-        return cbManager;
-    }
 
     private AnthropicProviderClient newProviderClient(int timeoutSeconds) {
         GatewayProperties props = new GatewayProperties();
@@ -517,7 +504,7 @@ class AnthropicProviderClientTest {
         providerProps.setTimeoutSeconds(timeoutSeconds);
         props.setProviders(Map.of("anthropic", providerProps));
         return new AnthropicProviderClient(
-                WebClient.builder(), objectMapper, props, mockCircuitBreakerManager(), new ReasoningSemanticMapper());
+                new ReactorClientHttpConnector(), objectMapper, props, ProviderTestUtil.noopCircuitBreakerManager(), new ReasoningSemanticMapper());
     }
 
     private UnifiedRequest buildBasicRequest(boolean stream) {
