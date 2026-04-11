@@ -48,7 +48,7 @@ import reactor.core.publisher.Mono;
  * 关键差异：
  * <ul>
  *   <li>流式响应是 JSON 流而非 SSE</li>
- *   <li>API key 在 URL query 参数而非 header</li>
+ *   <li>API key 通过 x-goog-api-key 请求头传递</li>
  *   <li>assistant 角色在 Gemini 中叫 "model"</li>
  *   <li>functionCall.args 是 Object 而非 JSON string</li>
  *   <li>端点含模型名 /models/{model}:generateContent</li>
@@ -74,14 +74,14 @@ public class GeminiProviderClient extends AbstractProviderClient {
     }
 
     /**
-     * Gemini 不使用 Bearer Token 认证，API key 在 URL 参数中传入。
-     * 因此 WebClient 不设置 Authorization header。
+     * Gemini 使用 x-goog-api-key 请求头认证，不使用 Bearer Token。
      */
     @Override
     protected WebClient buildWebClient(ProviderRuntimeConfig config, String correlationId) {
         WebClient.Builder builder = WebClient.builder()
                 .clientConnector(httpConnector)
-                .baseUrl(config.baseUrl());
+                .baseUrl(config.baseUrl())
+                .defaultHeader("x-goog-api-key", config.apiKey());
         if (correlationId != null && !correlationId.isBlank()) {
             builder.defaultHeader("X-Correlation-Id", correlationId);
         }
@@ -92,7 +92,7 @@ public class GeminiProviderClient extends AbstractProviderClient {
     public Mono<UnifiedResponse> chat(UnifiedRequest request) {
         ProviderRuntimeConfig config = resolveRuntimeConfig(request);
         Map<String, Object> requestBody = buildRequestBody(request);
-        String uri = buildUri(request.getModel(), config.apiKey(), false);
+        String uri = buildUri(request.getModel(), false);
 
         Mono<JsonNode> responseMono = buildWebClient(config, extractCorrelationId(request))
                 .post()
@@ -117,7 +117,7 @@ public class GeminiProviderClient extends AbstractProviderClient {
     public Flux<UnifiedStreamEvent> streamChat(UnifiedRequest request) {
         ProviderRuntimeConfig config = resolveRuntimeConfig(request);
         Map<String, Object> requestBody = buildRequestBody(request);
-        String uri = buildUri(request.getModel(), config.apiKey(), true);
+        String uri = buildUri(request.getModel(), true);
         AtomicBoolean firstTokenReceived = new AtomicBoolean(false);
 
         // Gemini 流式通过 ?alt=sse 返回 SSE 格式数据
@@ -146,11 +146,11 @@ public class GeminiProviderClient extends AbstractProviderClient {
     // ==================== 请求构建 ====================
 
     /**
-     * 构建 Gemini API URI（含 model 和 API key）
+     * 构建 Gemini API URI（仅含 model 和 action，API key 通过请求头传递）
      */
-    private String buildUri(String model, String apiKey, boolean stream) {
-        String action = stream ? ":streamGenerateContent?alt=sse&key=" : ":generateContent?key=";
-        return "/v1beta/models/" + model + action + apiKey;
+    private String buildUri(String model, boolean stream) {
+        String action = stream ? ":streamGenerateContent?alt=sse" : ":generateContent";
+        return "/v1beta/models/" + model + action;
     }
 
     private Map<String, Object> buildRequestBody(UnifiedRequest request) {

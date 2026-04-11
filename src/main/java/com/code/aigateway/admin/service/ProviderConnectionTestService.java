@@ -25,7 +25,7 @@ import java.util.concurrent.TimeoutException;
  * <ul>
  *   <li>OpenAI / OpenAI Responses — GET /v1/models（零消耗，验证连通性 + 认证）</li>
  *   <li>Anthropic — POST /v1/messages（最小化请求，max_tokens=1）</li>
- *   <li>Gemini — GET /v1beta/models?key=xxx（零消耗，验证连通性 + 认证）</li>
+ *   <li>Gemini — GET /v1beta/models（x-goog-api-key 请求头，零消耗，验证连通性 + 认证）</li>
  * </ul>
  * </p>
  */
@@ -142,8 +142,8 @@ public class ProviderConnectionTestService {
     }
 
     /**
-     * Gemini 测试：GET /v1beta/models?key=xxx
-     * <p>仅验证连通性和认证，不消耗 token。</p>
+     * Gemini 测试：GET /v1beta/models
+     * <p>仅验证连通性和认证，不消耗 token。使用 x-goog-api-key 请求头传递凭证，避免 key 暴露在 URL 中。</p>
      */
     private Mono<ConnectionTestResult> testGemini(String baseUrl, String apiKey) {
         long startMs = System.currentTimeMillis();
@@ -151,7 +151,8 @@ public class ProviderConnectionTestService {
         return webClientBuilder.baseUrl(baseUrl)
                 .build()
                 .get()
-                .uri("/v1beta/models?key=" + apiKey)
+                .uri("/v1beta/models")
+                .header("x-goog-api-key", apiKey)
                 .accept(MediaType.APPLICATION_JSON)
                 .retrieve()
                 .toBodilessEntity()

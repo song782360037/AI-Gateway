@@ -44,7 +44,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>finishReason 映射（STOP/MAX_TOKENS/FUNCTION_CALL 等）</li>
  *   <li>消息角色映射（assistant->model, tool->user+functionResponse）</li>
  *   <li>工具定义构建（functionDeclarations）</li>
- *   <li>URI 构建（含 model 和 API key）</li>
+ *   <li>URI 构建（含 model，API key 通过请求头传递）</li>
  *   <li>重试与超时行为</li>
  * </ul>
  */
@@ -56,6 +56,7 @@ class GeminiProviderClientTest {
     private AtomicReference<String> requestPath;
     private AtomicReference<String> requestQuery;
     private AtomicReference<String> authorizationHeader;
+    private AtomicReference<String> googApiKeyHeader;
     private AtomicReference<String> requestBody;
 
     @BeforeEach
@@ -63,6 +64,7 @@ class GeminiProviderClientTest {
         requestPath = new AtomicReference<>();
         requestQuery = new AtomicReference<>();
         authorizationHeader = new AtomicReference<>();
+        googApiKeyHeader = new AtomicReference<>();
         requestBody = new AtomicReference<>();
     }
 
@@ -122,10 +124,12 @@ class GeminiProviderClientTest {
                 })
                 .verifyComplete();
 
-        // 验证请求 URI 包含 model 和 API key
+        // 验证请求 URI 包含 model
         assertTrue(requestPath.get().startsWith("/v1beta/models/gemini-2.0-flash"));
         assertTrue(requestPath.get().contains(":generateContent"));
-        assertTrue(requestQuery.get().contains("key=test-gemini-key"));
+        // API key 通过 x-goog-api-key 请求头传递，不在 URL 中
+        assertEquals("test-gemini-key", googApiKeyHeader.get());
+        assertNull(requestQuery.get());
         // Gemini 不使用 Authorization header
         assertNull(authorizationHeader.get());
     }
@@ -241,9 +245,10 @@ class GeminiProviderClientTest {
                 })
                 .verifyComplete();
 
-        // 验证流式 URI 使用 streamGenerateContent
+        // 验证流式 URI 使用 streamGenerateContent，API key 在请求头中
         assertTrue(requestPath.get().contains(":streamGenerateContent"));
-        assertTrue(requestQuery.get().contains("key=test-gemini-key"));
+        assertEquals("alt=sse", requestQuery.get());
+        assertEquals("test-gemini-key", googApiKeyHeader.get());
     }
 
     @Test
@@ -663,9 +668,10 @@ class GeminiProviderClientTest {
                 .assertNext(response -> assertNotNull(response))
                 .verifyComplete();
 
-        // 验证 URI 格式: /v1beta/models/{model}:generateContent?key={apiKey}
+        // 验证 URI 格式: /v1beta/models/{model}:generateContent，API key 通过请求头传递
         assertEquals("/v1beta/models/gemini-2.0-flash:generateContent", requestPath.get());
-        assertEquals("key=test-gemini-key", requestQuery.get());
+        assertNull(requestQuery.get());
+        assertEquals("test-gemini-key", googApiKeyHeader.get());
     }
 
     @Test
@@ -682,10 +688,10 @@ class GeminiProviderClientTest {
                 .expectNextCount(2) // text_delta + done
                 .verifyComplete();
 
-        // 流式 URI: /v1beta/models/{model}:streamGenerateContent?alt=sse&key={apiKey}
+        // 流式 URI: /v1beta/models/{model}:streamGenerateContent?alt=sse，API key 通过请求头传递
         assertTrue(requestPath.get().contains(":streamGenerateContent"));
-        assertTrue(requestQuery.get().contains("alt=sse"));
-        assertTrue(requestQuery.get().contains("key=test-gemini-key"));
+        assertEquals("alt=sse", requestQuery.get());
+        assertEquals("test-gemini-key", googApiKeyHeader.get());
     }
 
     // ==================== 9. 请求体结构验证 ====================
@@ -1035,6 +1041,7 @@ class GeminiProviderClientTest {
         requestPath.set(exchange.getRequestURI().getPath());
         requestQuery.set(exchange.getRequestURI().getQuery());
         authorizationHeader.set(exchange.getRequestHeaders().getFirst(HttpHeaders.AUTHORIZATION));
+        googApiKeyHeader.set(exchange.getRequestHeaders().getFirst("x-goog-api-key"));
         requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
     }
 
