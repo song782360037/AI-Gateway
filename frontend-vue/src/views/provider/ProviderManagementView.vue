@@ -94,15 +94,15 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="providerCode" label="提供商" min-width="140" />
-        <el-table-column label="类型" min-width="80">
+        <el-table-column prop="providerCode" label="提供商" min-width="140" align="center" />
+        <el-table-column label="类型" min-width="80" align="center">
           <template #default="{ row }">
             <el-tag size="small" :type="providerTagType(row.providerType)">
               {{ providerLabel(row.providerType) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="状态" min-width="50">
+        <el-table-column label="状态" min-width="50" align="center">
           <template #default="{ row }">
             <el-tag
               :class="row.enabled ? 'status-chip status-chip--success' : 'status-chip status-chip--muted'"
@@ -113,8 +113,8 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="priority" label="优先级" min-width="80" />
-        <el-table-column label="支持协议" min-width="160">
+        <el-table-column prop="priority" label="优先级" min-width="80" align="center" />
+        <el-table-column label="支持协议" min-width="160" align="center">
           <template #default="{ row }">
             <template v-if="row.supportedProtocols && row.supportedProtocols.length > 0">
               <el-tag
@@ -130,7 +130,7 @@
             <el-tag v-else size="small" type="success">全部</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" fixed="right" width="260">
+        <el-table-column label="操作" fixed="right" width="260" align="center">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openEditProvider(row)">编辑</el-button>
             <el-button

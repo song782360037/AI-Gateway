@@ -8,14 +8,14 @@
           <!-- 棱镜分流图标：请求 → 棱镜 → 多路输出 -->
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
             <!-- 输入信号线 -->
-            <path d="M0 9H5" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+            <path d="M0 9H5" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
             <!-- 棱镜三角形（半透明填充 + 描边） -->
-            <path d="M6 3L14 9L6 15Z" fill="white" fill-opacity="0.18"/>
+            <path d="M6 3L14 9L6 15Z" fill="white" fill-opacity="0.3"/>
             <path d="M6 3L14 9L6 15Z" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
             <!-- 输出分流线（上/中/下三路，递减透明度） -->
             <path d="M14 9L18 4.5" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.9"/>
-            <path d="M14 9H18" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.55"/>
-            <path d="M14 9L18 13.5" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.3"/>
+            <path d="M14 9H18" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+            <path d="M14 9L18 13.5" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.35"/>
           </svg>
         </div>
         <div class="sidebar-logo__text">
@@ -156,7 +156,7 @@ async function handleLogout() {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: linear-gradient(135deg, rgba(67, 97, 238, 0.15), rgba(6, 182, 212, 0.10));
+  background: linear-gradient(135deg, rgba(67, 97, 238, 0.12), rgba(6, 182, 212, 0.08));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -164,14 +164,14 @@ async function handleLogout() {
 }
 
 .sidebar-user__avatar .el-icon {
-  color: var(--color-primary-light);
+  color: var(--color-primary);
   font-size: 14px;
 }
 
 .sidebar-user__name {
   font-size: 13px;
   font-weight: 450;
-  color: #94a3b8;
+  color: var(--text-regular);
 }
 
 .sidebar-logout {

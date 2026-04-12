@@ -67,13 +67,13 @@
 
       <!-- 数据表格 -->
       <el-table v-loading="loading" :data="page.list" stripe element-loading-text="正在加载...">
-        <el-table-column label="请求时间" min-width="170">
+        <el-table-column label="请求时间" min-width="170" align="center">
           <template #default="{ row }">{{ formatTime(row.createTime) }}</template>
         </el-table-column>
-        <el-table-column prop="aliasModel" label="模型别名" min-width="140" show-overflow-tooltip />
-        <el-table-column prop="targetModel" label="目标模型" min-width="140" show-overflow-tooltip />
-        <el-table-column prop="providerCode" label="通道" min-width="100" show-overflow-tooltip />
-        <el-table-column label="协议" min-width="80">
+        <el-table-column prop="aliasModel" label="模型别名" min-width="140" show-overflow-tooltip align="center" />
+        <el-table-column prop="targetModel" label="目标模型" min-width="140" show-overflow-tooltip align="center" />
+        <el-table-column prop="providerCode" label="通道" min-width="100" show-overflow-tooltip align="center" />
+        <el-table-column label="协议" min-width="80" align="center">
           <template #default="{ row }">
             <el-tag size="small" :type="providerTagType(row.providerType)">
               {{ providerLabel(row.providerType) }}
@@ -86,7 +86,7 @@
             <el-tag v-else type="info" size="small">否</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="Token 用量" min-width="190">
+        <el-table-column label="Token 用量" min-width="190" align="center">
           <template #default="{ row }">
             <span v-if="row.totalTokens != null" class="token-usage">
               <span class="token-total">{{ row.totalTokens.toLocaleString() }}</span>
@@ -100,7 +100,7 @@
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
-        <el-table-column label="耗时" min-width="90" align="right">
+        <el-table-column label="耗时" min-width="90" align="center">
           <template #default="{ row }">
             <span v-if="row.durationMs != null">{{ formatDuration(row.durationMs) }}</span>
             <span v-else class="text-muted">-</span>
@@ -113,19 +113,19 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="errorCode" label="错误码" min-width="100" show-overflow-tooltip>
+        <el-table-column prop="errorCode" label="错误码" min-width="100" show-overflow-tooltip align="center">
           <template #default="{ row }">
             <span v-if="row.errorCode">{{ row.errorCode }}</span>
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="errorMessage" label="错误详情" min-width="150" show-overflow-tooltip>
+        <el-table-column prop="errorMessage" label="错误详情" min-width="150" show-overflow-tooltip align="center">
           <template #default="{ row }">
             <span v-if="row.errorMessage" class="error-detail">{{ row.errorMessage }}</span>
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="sourceIp" label="来源 IP" min-width="100" show-overflow-tooltip>
+        <el-table-column prop="sourceIp" label="来源 IP" min-width="100" show-overflow-tooltip align="center">
           <template #default="{ row }">
             <span v-if="row.sourceIp">{{ row.sourceIp }}</span>
             <span v-else class="text-muted">-</span>

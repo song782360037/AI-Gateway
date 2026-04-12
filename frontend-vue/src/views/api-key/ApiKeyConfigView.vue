@@ -26,31 +26,31 @@
       </el-form>
 
       <el-table v-loading="loading" :data="page.list" stripe element-loading-text="正在加载...">
-        <el-table-column prop="keyPrefix" label="前缀" min-width="100" />
-        <el-table-column prop="name" label="名称" min-width="160" />
-        <el-table-column label="状态" min-width="80">
+        <el-table-column prop="keyPrefix" label="前缀" min-width="100" align="center" />
+        <el-table-column prop="name" label="名称" min-width="160" align="center" />
+        <el-table-column label="状态" min-width="80" align="center">
           <template #default="{ row }">
             <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'" size="small">
               {{ row.status === 'ACTIVE' ? '启用' : '禁用' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="每日限额" min-width="100">
+        <el-table-column label="每日限额" min-width="100" align="center">
           <template #default="{ row }">{{ row.dailyLimit ?? '不限' }}</template>
         </el-table-column>
-        <el-table-column label="RPM 限流" min-width="90">
+        <el-table-column label="RPM 限流" min-width="90" align="center">
           <template #default="{ row }">{{ row.rpmLimit ?? '默认' }}</template>
         </el-table-column>
-        <el-table-column label="累计限额" min-width="100">
+        <el-table-column label="累计限额" min-width="100" align="center">
           <template #default="{ row }">{{ row.totalLimit ?? '不限' }}</template>
         </el-table-column>
-        <el-table-column prop="usedCount" label="已使用" min-width="90">
+        <el-table-column prop="usedCount" label="已使用" min-width="90" align="center">
           <template #default="{ row }">{{ row.usedCount?.toLocaleString() ?? 0 }}</template>
         </el-table-column>
-        <el-table-column label="过期时间" min-width="160">
+        <el-table-column label="过期时间" min-width="160" align="center">
           <template #default="{ row }">{{ row.expireTime ?? '永不过期' }}</template>
         </el-table-column>
-        <el-table-column label="操作" fixed="right" width="140">
+        <el-table-column label="操作" fixed="right" width="140" align="center">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
             <el-button link type="danger" size="small" @click="removeItem(row.id)">删除</el-button>
