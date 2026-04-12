@@ -126,7 +126,7 @@ class OpenAiResponsesProviderClientTest {
         assertTrue(requestBody.get().contains("\"input\""));
         assertTrue(requestBody.get().contains("\"type\":\"message\""));
         assertTrue(requestBody.get().contains("\"role\":\"user\""));
-        assertTrue(requestBody.get().contains("\"type\":\"output_text\""));
+        assertTrue(requestBody.get().contains("\"type\":\"input_text\""));
         assertTrue(requestBody.get().contains("\"text\":\"你好\""));
     }
 
@@ -279,7 +279,7 @@ class OpenAiResponsesProviderClientTest {
         assertEquals(3, input.size());
         assertEquals("message", input.get(0).get("type").asText());
         assertEquals("user", input.get(0).get("role").asText());
-        assertEquals("output_text", input.get(0).get("content").get(0).get("type").asText());
+        assertEquals("input_text", input.get(0).get("content").get(0).get("type").asText());
         assertEquals("查天气", input.get(0).get("content").get(0).get("text").asText());
         assertEquals("function_call", input.get(1).get("type").asText());
         String responsesCallId = input.get(1).get("call_id").asText();
