@@ -6,14 +6,15 @@ import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.model.UnifiedRequest;
 import com.code.aigateway.core.model.UnifiedUsage;
 import com.code.aigateway.core.resilience.CircuitBreakerManager;
+import com.code.aigateway.core.stats.RequestStatsContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
-import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import reactor.core.publisher.Mono;
@@ -127,17 +128,23 @@ public abstract class AbstractProviderClient implements ProviderClient {
     /**
      * 构建指数退避重试策略（非流式请求）
      */
-    protected Retry buildRetrySpec(ProviderRuntimeConfig config) {
+    protected Retry buildRetrySpec(ProviderRuntimeConfig config, RequestStatsContext statsContext) {
         return Retry.backoff(config.maxRetries(), Duration.ofMillis(config.initialIntervalMs()))
                 .maxBackoff(Duration.ofMillis(config.maxIntervalMs()))
                 .filter(this::isRetryableError)
-                .doBeforeRetry(signal -> log.warn(
-                        "[Provider重试] 提供商: {}, 第{}次重试(共{}次), 失败原因: {}",
-                        config.providerName(),
-                        signal.totalRetries() + 1,
-                        config.maxRetries(),
-                        signal.failure().getMessage()
-                ));
+                .doBeforeRetry(signal -> {
+                    if (statsContext != null) {
+                        statsContext.incrementRetryCount();
+                        statsContext.setTerminalStage("UPSTREAM");
+                    }
+                    log.warn(
+                            "[Provider重试] 提供商: {}, 第{}次重试(共{}次), 失败原因: {}",
+                            config.providerName(),
+                            signal.totalRetries() + 1,
+                            config.maxRetries(),
+                            signal.failure().getMessage()
+                    );
+                });
     }
 
     /**
@@ -146,17 +153,25 @@ public abstract class AbstractProviderClient implements ProviderClient {
      * 首个 token 到达后不再重试，避免向客户端重复输出。
      * </p>
      */
-    protected Retry buildStreamRetrySpec(ProviderRuntimeConfig config, AtomicBoolean firstTokenReceived) {
+    protected Retry buildStreamRetrySpec(ProviderRuntimeConfig config,
+                                         AtomicBoolean firstTokenReceived,
+                                         RequestStatsContext statsContext) {
         return Retry.backoff(config.maxRetries(), Duration.ofMillis(config.initialIntervalMs()))
                 .maxBackoff(Duration.ofMillis(config.maxIntervalMs()))
                 .filter(error -> !firstTokenReceived.get() && isRetryableError(error))
-                .doBeforeRetry(signal -> log.warn(
-                        "[Provider流式重试] 提供商: {}, 第{}次重试(共{}次), 首 token 前失败, 原因: {}",
-                        config.providerName(),
-                        signal.totalRetries() + 1,
-                        config.maxRetries(),
-                        signal.failure().getMessage()
-                ));
+                .doBeforeRetry(signal -> {
+                    if (statsContext != null) {
+                        statsContext.incrementRetryCount();
+                        statsContext.setTerminalStage("STREAMING");
+                    }
+                    log.warn(
+                            "[Provider流式重试] 提供商: {}, 第{}次重试(共{}次), 首 token 前失败, 原因: {}",
+                            config.providerName(),
+                            signal.totalRetries() + 1,
+                            config.maxRetries(),
+                            signal.failure().getMessage()
+                    );
+                });
     }
 
     // ==================== 错误处理 ====================
@@ -228,11 +243,10 @@ public abstract class AbstractProviderClient implements ProviderClient {
                     String errorType = extractErrorType(body);
 
                     // 记录上游完整错误上下文，便于排查
-                    log.warn("[上游错误] 提供商: {}, HTTP状态: {}, 错误类型: {}, 错误描述: {}, 原始响应: {}",
+                    log.warn("[上游错误] 提供商: {}, HTTP状态: {}, 错误类型: {}, 错误描述: {}",
                             config.providerName(), statusCode.value(),
                             errorType.isBlank() ? "N/A" : errorType,
-                            errorMessage.isBlank() ? "N/A" : errorMessage,
-                            truncateForLog(body, 500));
+                            errorMessage.isBlank() ? "N/A" : truncateForLog(errorMessage, 200));
 
                     // 细粒度错误映射：区分认证、参数、资源、限流、服务端等错误
                     ErrorCode errorCode;

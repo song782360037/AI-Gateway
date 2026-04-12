@@ -18,10 +18,13 @@ public class RequestLogQueryReq {
     /** 结束时间 */
     private LocalDateTime endTime;
 
-    /** 提供商类型，如 OPENAI、ANTHROPIC、GEMINI */
+    /** 提供商类型，如 OPENAI、OPENAI_RESPONSES、ANTHROPIC、GEMINI */
     private String providerType;
 
-    /** 请求状态：SUCCESS / ERROR */
+    /** 提供商编码 */
+    private String providerCode;
+
+    /** 请求状态：SUCCESS / ERROR / CANCELLED / REJECTED */
     private String status;
 
     /** 模型别名（模糊匹配） */
@@ -29,6 +32,15 @@ public class RequestLogQueryReq {
 
     /** 请求唯一标识 */
     private String requestId;
+
+    /** 是否流式请求 */
+    private Boolean isStream;
+
+    /** 是否发生重试 */
+    private Boolean hasRetry;
+
+    /** 是否发生 Failover */
+    private Boolean hasFailover;
 
     /** 页码，从 1 开始 */
     @Min(1)

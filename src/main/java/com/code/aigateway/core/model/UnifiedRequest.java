@@ -1,5 +1,6 @@
 package com.code.aigateway.core.model;
 
+import com.code.aigateway.core.stats.RequestStatsContext;
 import lombok.Data;
 
 import java.util.List;
@@ -76,6 +77,15 @@ public class UnifiedRequest {
      * 元数据（扩展字段）
      */
     private Map<String, Object> metadata;
+
+    /**
+     * 请求统计上下文
+     * <p>
+     * 用于在 provider 调用链中透传重试等链路摘要信息，
+     * 避免修改 ProviderClient 接口签名。
+     * </p>
+     */
+    private RequestStatsContext statsContext;
 
     /**
      * Provider 运行时上下文

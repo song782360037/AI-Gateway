@@ -30,6 +30,9 @@ public class RequestStatsContextFilter implements WebFilter {
         RequestStatsContext context = new RequestStatsContext();
         context.setStartTimeMs(System.currentTimeMillis());
         context.setSourceIp(resolveSourceIp(exchange.getRequest()));
+        context.setRequestPath(path);
+        context.setHttpMethod(exchange.getRequest().getMethod() != null
+                ? exchange.getRequest().getMethod().name() : null);
         // 读取 CorrelationIdWebFilter 设置的链路追踪 ID
         context.setCorrelationId(exchange.getAttribute(CorrelationIdWebFilter.CORRELATION_ID_ATTR));
         exchange.getAttributes().put(RequestStatsContext.ATTRIBUTE_KEY, context);

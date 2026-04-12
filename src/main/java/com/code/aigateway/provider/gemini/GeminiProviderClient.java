@@ -105,7 +105,7 @@ public class GeminiProviderClient extends AbstractProviderClient {
                 .timeout(Duration.ofSeconds(config.timeoutSeconds()));
 
         if (config.maxRetries() > 0) {
-            responseMono = responseMono.retryWhen(buildRetrySpec(config));
+            responseMono = responseMono.retryWhen(buildRetrySpec(config, request.getStatsContext()));
         }
 
         return withCircuitBreaker(config.providerName(), request.getModel(), responseMono)
@@ -134,7 +134,7 @@ public class GeminiProviderClient extends AbstractProviderClient {
         if (config.maxRetries() > 0) {
             sseFlux = sseFlux
                     .doOnNext(event -> firstTokenReceived.set(true))
-                    .retryWhen(buildStreamRetrySpec(config, firstTokenReceived));
+                    .retryWhen(buildStreamRetrySpec(config, firstTokenReceived, request.getStatsContext()));
         }
 
         return withCircuitBreakerFlux(config.providerName(), request.getModel(), sseFlux)

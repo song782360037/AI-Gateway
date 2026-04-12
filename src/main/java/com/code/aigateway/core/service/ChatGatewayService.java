@@ -1,10 +1,10 @@
 package com.code.aigateway.core.service;
 
 import com.code.aigateway.core.capability.CapabilityChecker;
+import com.code.aigateway.core.model.StreamContext;
 import com.code.aigateway.core.model.UnifiedRequest;
 import com.code.aigateway.core.model.UnifiedStreamEvent;
 import com.code.aigateway.core.model.UnifiedUsage;
-import com.code.aigateway.core.model.StreamContext;
 import com.code.aigateway.core.protocol.ProtocolAdapter;
 import com.code.aigateway.core.resilience.FailoverStrategy;
 import com.code.aigateway.core.router.ModelRouter;
@@ -21,6 +21,7 @@ import reactor.core.publisher.Mono;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -64,13 +65,13 @@ public class ChatGatewayService {
         String correlationId = context != null ? context.getCorrelationId() : null;
 
         return failoverStrategy.executeWithFailover(candidates, routeResult -> {
-            applyRouteContext(unifiedRequest, routeResult, correlationId);
+            applyRouteContext(unifiedRequest, routeResult, correlationId, context);
             if (context != null) {
-                context.setRouteResult(routeResult);
+                applyFinalRouteContext(context, routeResult);
             }
             ProviderClient client = providerClientFactory.getClient(routeResult.getProviderType());
             return client.chat(unifiedRequest);
-        }, correlationId)
+        }, correlationId, context)
                 .doOnNext(response -> requestStatsCollector.collectSuccess(context, response.getUsage()))
                 .doOnError(ex -> requestStatsCollector.collectError(context, ex))
                 .map(adapter::encodeResponse);
@@ -87,6 +88,7 @@ public class ChatGatewayService {
         String responseId = "chatcmpl-" + UUID.randomUUID();
         long created = Instant.now().getEpochSecond();
         AtomicReference<UnifiedUsage> finalUsageRef = new AtomicReference<>();
+        AtomicBoolean terminalEventSeen = new AtomicBoolean(false);
 
         // StreamContext 必须在流链外创建，确保 firstContentSent 标志跨事件共享
         String streamModel = context != null && context.getRouteResult() != null
@@ -100,19 +102,23 @@ public class ChatGatewayService {
                     adapter.initialStreamEvents(streamCtx),
                     // 主事件流：每个 UnifiedStreamEvent 可能产生 0~N 个 SSE 事件
                     failoverStrategy.executeStreamWithFailover(candidates, routeResult -> {
-                        applyRouteContext(unifiedRequest, routeResult, correlationId);
+                        applyRouteContext(unifiedRequest, routeResult, correlationId, context);
                         if (context != null) {
-                            context.setRouteResult(routeResult);
+                            applyFinalRouteContext(context, routeResult);
                         }
                         // failover 后同步更新 StreamContext 中的实际模型名
                         streamCtx.setModel(routeResult.getTargetModel());
                         ProviderClient client = providerClientFactory.getClient(routeResult.getProviderType());
                         return client.streamChat(unifiedRequest);
-                    }, correlationId)
+                    }, correlationId, context)
                             .doOnNext(event -> {
-                                // "done" 事件携带 finish_reason 和可能的 usage
-                                // "usage_only" 事件来自 OpenAI 的 usage-only chunk（choices:[]）
-                                if (("done".equals(event.getType()) || "usage_only".equals(event.getType()))
+                                // 记录 provider 已输出终止事件，避免正常结束后因连接关闭被误判为取消。
+                                if (isTerminalStreamEvent(event)) {
+                                    terminalEventSeen.set(true);
+                                }
+                                // "done" 事件携带 finish_reason 和可能的 usage。
+                                // "usage_only" 事件来自 OpenAI 的 usage-only chunk（choices:[]）。
+                                if ((isTerminalStreamEvent(event) || "usage_only".equals(event.getType()))
                                         && event.getUsage() != null) {
                                     finalUsageRef.set(event.getUsage());
                                 }
@@ -132,7 +138,7 @@ public class ChatGatewayService {
                     }
                 })
                 .doOnCancel(() -> {
-                    if (streamErrorRef.get() == null) {
+                    if (streamErrorRef.get() == null && !terminalEventSeen.get()) {
                         requestStatsCollector.collectStreamCancelled(context, finalUsageRef.get());
                     }
                 });
@@ -143,12 +149,17 @@ public class ChatGatewayService {
      */
     private List<RouteResult> resolveCandidates(UnifiedRequest unifiedRequest, RequestStatsContext context) {
         List<RouteResult> candidates = modelRouter.routeAll(unifiedRequest);
+        if (context != null) {
+            context.setCandidateCount(candidates.size());
+            context.setTerminalStage("ROUTING");
+        }
 
         // 对首选候选做能力校验
         if (!candidates.isEmpty()) {
             capabilityChecker.validate(unifiedRequest, candidates.get(0));
             if (context != null) {
                 context.setRouteResult(candidates.get(0));
+                applyFinalRouteContext(context, candidates.get(0));
             }
         }
 
@@ -158,10 +169,28 @@ public class ChatGatewayService {
     /**
      * 将路由信息写入统一请求的执行上下文
      */
-    private void applyRouteContext(UnifiedRequest unifiedRequest, RouteResult routeResult, String correlationId) {
+    private void applyRouteContext(UnifiedRequest unifiedRequest, RouteResult routeResult, String correlationId, RequestStatsContext context) {
         unifiedRequest.setProvider(routeResult.getProviderType().name().toLowerCase());
         unifiedRequest.setModel(routeResult.getTargetModel());
+        unifiedRequest.setStatsContext(context);
         unifiedRequest.setExecutionContext(buildExecutionContext(routeResult, correlationId));
+    }
+
+    /**
+     * 将最终命中的路由摘要写入统计上下文，供日志与详情页复用。
+     */
+    private void applyFinalRouteContext(RequestStatsContext context, RouteResult routeResult) {
+        context.setRouteResult(routeResult);
+        context.setFinalProviderCode(routeResult.getProviderName());
+        context.setFinalProviderType(routeResult.getProviderType().name());
+        context.setFinalTargetModel(routeResult.getTargetModel());
+    }
+
+    /**
+     * 判断是否为 provider 的正常终止事件。
+     */
+    private boolean isTerminalStreamEvent(UnifiedStreamEvent event) {
+        return "done".equals(event.getType());
     }
 
     private UnifiedRequest.ProviderExecutionContext buildExecutionContext(RouteResult routeResult, String correlationId) {

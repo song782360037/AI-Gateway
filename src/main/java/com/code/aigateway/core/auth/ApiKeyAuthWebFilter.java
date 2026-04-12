@@ -10,6 +10,8 @@ import com.code.aigateway.core.model.ResponseProtocol;
 import com.code.aigateway.core.protocol.ProtocolResolver;
 import com.code.aigateway.core.ratelimit.RateLimitResult;
 import com.code.aigateway.core.ratelimit.RateLimitService;
+import com.code.aigateway.core.stats.RequestStatsCollector;
+import com.code.aigateway.core.stats.RequestStatsContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -58,6 +60,7 @@ public class ApiKeyAuthWebFilter implements WebFilter {
     private final ApiKeyConfigMapper apiKeyConfigMapper;
     private final ObjectMapper objectMapper;
     private final RateLimitService rateLimitService;
+    private final RequestStatsCollector requestStatsCollector;
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
@@ -67,14 +70,25 @@ public class ApiKeyAuthWebFilter implements WebFilter {
             return chain.filter(exchange);
         }
 
+        RequestStatsContext context = exchange.getAttribute(RequestStatsContext.ATTRIBUTE_KEY);
+        if (context != null) {
+            context.setTerminalStage("AUTH");
+        }
+
         // auth.enabled = false 时直接放行
         if (!isAuthEnabled()) {
+            if (context != null) {
+                context.setAuthStatus("DISABLED");
+            }
             return chain.filter(exchange);
         }
 
         // 提取 API Key
         String rawKey = extractApiKey(exchange);
         if (rawKey == null) {
+            if (context != null) {
+                context.setAuthStatus("FAILED");
+            }
             return writeAuthError(exchange, path, "Missing API key");
         }
 
@@ -85,15 +99,28 @@ public class ApiKeyAuthWebFilter implements WebFilter {
                 .flatMap(optConfig -> {
                     ApiKeyConfigDO config = optConfig.orElse(null);
                     if (config == null) {
+                        if (context != null) {
+                            context.setAuthStatus("FAILED");
+                        }
                         return writeAuthError(exchange, path, "Invalid API key");
+                    }
+                    if (context != null) {
+                        context.setApiKeyConfigId(config.getId());
+                        context.setApiKeyPrefix(config.getKeyPrefix());
                     }
                     String validationError = validateConfig(config);
                     if (validationError != null) {
+                        if (context != null) {
+                            context.setAuthStatus("FAILED");
+                        }
                         return writeAuthError(exchange, path, validationError);
+                    }
+                    if (context != null) {
+                        context.setAuthStatus("PASSED");
                     }
 
                     // 鉴权通过，检查限流
-                    return checkRateLimitAndContinue(exchange, chain, path, config);
+                    return checkRateLimitAndContinue(exchange, chain, path, config, context);
                 });
     }
 
@@ -101,11 +128,14 @@ public class ApiKeyAuthWebFilter implements WebFilter {
      * 限流检查 + 通过后继续过滤器链
      */
     private Mono<Void> checkRateLimitAndContinue(ServerWebExchange exchange, WebFilterChain chain,
-                                                  String path, ApiKeyConfigDO config) {
+                                                  String path, ApiKeyConfigDO config, RequestStatsContext context) {
         GatewayProperties.RateLimitProperties rlProps = gatewayProperties.getRateLimit();
 
         // 限流未启用或 Redis 不可用时直接放行
         if (rlProps == null || !rlProps.isEnabled()) {
+            if (context != null) {
+                context.setRateLimitTriggered(Boolean.FALSE);
+            }
             return incrementAndContinue(exchange, chain, config);
         }
 
@@ -124,9 +154,17 @@ public class ApiKeyAuthWebFilter implements WebFilter {
                     if (!result.allowed()) {
                         log.warn("[API Key限流] keyPrefix={}, 已超限 limit={}, remaining={}",
                                 config.getKeyPrefix(), result.limit(), result.remaining());
+                        if (context != null) {
+                            context.setRateLimitTriggered(Boolean.TRUE);
+                            context.setRateLimitReason("limit=" + result.limit() + ", remaining=" + result.remaining());
+                            context.setTerminalStage("RATE_LIMIT");
+                        }
                         return writeRateLimitError(exchange, path, result);
                     }
 
+                    if (context != null) {
+                        context.setRateLimitTriggered(Boolean.FALSE);
+                    }
                     return incrementAndContinue(exchange, chain, config);
                 });
     }
@@ -184,8 +222,13 @@ public class ApiKeyAuthWebFilter implements WebFilter {
         response.getHeaders().set(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
 
         ResponseProtocol protocol = ProtocolResolver.fromPath(path);
+        RequestStatsContext context = exchange.getAttribute(RequestStatsContext.ATTRIBUTE_KEY);
+        if (context != null) {
+            context.setResponseProtocol(protocol);
+        }
         byte[] bytes = toJsonBytes(buildProtocolError(protocol, message));
-        return response.writeWith(Mono.just(response.bufferFactory().wrap(bytes)));
+        return response.writeWith(Mono.just(response.bufferFactory().wrap(bytes)))
+                .doOnSuccess(unused -> requestStatsCollector.collectRejected(context, "AUTH_FAILED", message));
     }
 
     /** 返回 429 Too Many Requests，携带限流状态信息 */
@@ -196,9 +239,15 @@ public class ApiKeyAuthWebFilter implements WebFilter {
         response.getHeaders().set(HttpHeaders.RETRY_AFTER, String.valueOf(result.resetAtEpochSeconds()));
 
         ResponseProtocol protocol = ProtocolResolver.fromPath(path);
+        RequestStatsContext context = exchange.getAttribute(RequestStatsContext.ATTRIBUTE_KEY);
+        if (context != null) {
+            context.setResponseProtocol(protocol);
+        }
         Object errorBody = buildRateLimitError(protocol, result);
         byte[] bytes = toJsonBytes(errorBody);
-        return response.writeWith(Mono.just(response.bufferFactory().wrap(bytes)));
+        return response.writeWith(Mono.just(response.bufferFactory().wrap(bytes)))
+                .doOnSuccess(unused -> requestStatsCollector.collectRejected(context, "RATE_LIMITED",
+                        "Rate limit exceeded. Limit: " + result.limit() + ", remaining: " + result.remaining()));
     }
 
     /** 按协议构建限流错误响应 */

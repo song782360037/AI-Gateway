@@ -4,6 +4,7 @@ import com.code.aigateway.admin.mapper.ApiKeyConfigMapper;
 import com.code.aigateway.admin.model.dataobject.ApiKeyConfigDO;
 import com.code.aigateway.config.GatewayProperties;
 import com.code.aigateway.core.ratelimit.RateLimitService;
+import com.code.aigateway.core.stats.RequestStatsCollector;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -65,7 +66,7 @@ class ApiKeyAuthWebFilterTest {
         when(filterChain.filter(any())).thenReturn(Mono.empty());
 
         filter = new ApiKeyAuthWebFilter(gatewayProperties, apiKeyConfigMapper, objectMapper,
-                Mockito.mock(RateLimitService.class));
+                Mockito.mock(RateLimitService.class), Mockito.mock(RequestStatsCollector.class));
     }
 
     @AfterEach

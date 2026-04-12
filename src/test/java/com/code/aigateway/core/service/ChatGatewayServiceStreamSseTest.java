@@ -4,14 +4,15 @@ import com.code.aigateway.api.request.OpenAiChatCompletionRequest;
 import com.code.aigateway.core.capability.CapabilityChecker;
 import com.code.aigateway.core.model.UnifiedStreamEvent;
 import com.code.aigateway.core.protocol.OpenAiChatProtocolAdapter;
+import com.code.aigateway.core.resilience.FailoverStrategy;
 import com.code.aigateway.core.router.ModelRouter;
 import com.code.aigateway.core.router.RouteResult;
+import com.code.aigateway.core.stats.RequestStatsCollector;
+import com.code.aigateway.core.stats.RequestStatsContext;
+import com.code.aigateway.core.stats.StatsRequestInfo;
 import com.code.aigateway.provider.ProviderClient;
 import com.code.aigateway.provider.ProviderClientFactory;
 import com.code.aigateway.provider.ProviderType;
-import com.code.aigateway.core.resilience.FailoverStrategy;
-import com.code.aigateway.core.stats.RequestStatsCollector;
-import com.code.aigateway.core.stats.RequestStatsContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.http.codec.ServerSentEvent;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Sinks;
 import reactor.test.StepVerifier;
 
 import java.util.List;
@@ -36,6 +38,7 @@ class ChatGatewayServiceStreamSseTest {
     private CapabilityChecker capabilityChecker;
     private ProviderClientFactory providerClientFactory;
     private ProviderClient providerClient;
+    private RequestStatsCollector requestStatsCollector;
     private ChatGatewayService chatGatewayService;
     private FailoverStrategy failoverStrategy;
 
@@ -51,11 +54,12 @@ class ChatGatewayServiceStreamSseTest {
         capabilityChecker = Mockito.mock(CapabilityChecker.class);
         providerClientFactory = Mockito.mock(ProviderClientFactory.class);
         providerClient = Mockito.mock(ProviderClient.class);
+        requestStatsCollector = Mockito.mock(RequestStatsCollector.class);
 
         // 让 failover 直接执行传入的 function，跳过真实故障转移逻辑
         failoverStrategy = Mockito.mock(FailoverStrategy.class);
         Mockito.when(failoverStrategy.executeStreamWithFailover(
-                Mockito.anyList(), Mockito.any(), Mockito.any()))
+                Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenAnswer(invocation -> {
                     @SuppressWarnings("unchecked")
                     Function<RouteResult, Flux<UnifiedStreamEvent>> fn = invocation.getArgument(1);
@@ -65,7 +69,7 @@ class ChatGatewayServiceStreamSseTest {
 
         chatGatewayService = new ChatGatewayService(
                 modelRouter, capabilityChecker, providerClientFactory,
-                Mockito.mock(RequestStatsCollector.class), failoverStrategy);
+                requestStatsCollector, failoverStrategy);
 
         Mockito.when(providerClientFactory.getClient(ProviderType.OPENAI)).thenReturn(providerClient);
     }
@@ -73,13 +77,7 @@ class ChatGatewayServiceStreamSseTest {
     @Test
     void streamChat_textDeltaAndDone_encodeOpenAiChunkContract() {
         OpenAiChatCompletionRequest request = buildRequest();
-        RouteResult routeResult = RouteResult.builder()
-                .providerType(ProviderType.OPENAI)
-                .targetModel("gpt-5.4")
-                .providerName("openai")
-                .providerBaseUrl("http://provider.test")
-                .providerTimeoutSeconds(30)
-                .build();
+        RouteResult routeResult = buildRouteResult();
 
         UnifiedStreamEvent textEvent = new UnifiedStreamEvent();
         textEvent.setType("text_delta");
@@ -92,9 +90,7 @@ class ChatGatewayServiceStreamSseTest {
         Mockito.when(modelRouter.routeAll(Mockito.any())).thenReturn(List.of(routeResult));
         Mockito.when(providerClient.streamChat(Mockito.any())).thenReturn(Flux.just(textEvent, doneEvent));
 
-        // 传入非 null context，resolveCandidates 会自动设置 routeResult，使 SSE chunk 携带正确的 model
-        Flux<ServerSentEvent<String>> flux = chatGatewayService.streamChat(request, protocolAdapter, new RequestStatsContext())
-                .map(e -> (ServerSentEvent<String>) e);
+        Flux<ServerSentEvent<String>> flux = streamChat(request, new RequestStatsContext());
 
         StepVerifier.create(flux)
                 .assertNext(first -> assertTextChunk(first, "你好", "gpt-5.4"))
@@ -106,13 +102,7 @@ class ChatGatewayServiceStreamSseTest {
     @Test
     void streamChat_doneWithoutFinishReason_defaultsToStopAndAppendsDoneMarker() {
         OpenAiChatCompletionRequest request = buildRequest();
-        RouteResult routeResult = RouteResult.builder()
-                .providerType(ProviderType.OPENAI)
-                .targetModel("gpt-5.4")
-                .providerName("openai")
-                .providerBaseUrl("http://provider.test")
-                .providerTimeoutSeconds(30)
-                .build();
+        RouteResult routeResult = buildRouteResult();
 
         UnifiedStreamEvent doneEvent = new UnifiedStreamEvent();
         doneEvent.setType("done");
@@ -120,8 +110,7 @@ class ChatGatewayServiceStreamSseTest {
         Mockito.when(modelRouter.routeAll(Mockito.any())).thenReturn(List.of(routeResult));
         Mockito.when(providerClient.streamChat(Mockito.any())).thenReturn(Flux.just(doneEvent));
 
-        Flux<ServerSentEvent<String>> flux = chatGatewayService.streamChat(request, protocolAdapter, new RequestStatsContext())
-                .map(e -> (ServerSentEvent<String>) e);
+        Flux<ServerSentEvent<String>> flux = streamChat(request, new RequestStatsContext());
 
         StepVerifier.create(flux)
                 .assertNext(event -> {
@@ -135,13 +124,7 @@ class ChatGatewayServiceStreamSseTest {
     @Test
     void streamChat_textDeltaWithSpecialCharacters_escapesJsonAndRemainsParsable() {
         OpenAiChatCompletionRequest request = buildRequest();
-        RouteResult routeResult = RouteResult.builder()
-                .providerType(ProviderType.OPENAI)
-                .targetModel("gpt-5.4")
-                .providerName("openai")
-                .providerBaseUrl("http://provider.test")
-                .providerTimeoutSeconds(30)
-                .build();
+        RouteResult routeResult = buildRouteResult();
 
         UnifiedStreamEvent textEvent = new UnifiedStreamEvent();
         textEvent.setType("text_delta");
@@ -154,8 +137,7 @@ class ChatGatewayServiceStreamSseTest {
         Mockito.when(modelRouter.routeAll(Mockito.any())).thenReturn(List.of(routeResult));
         Mockito.when(providerClient.streamChat(Mockito.any())).thenReturn(Flux.just(textEvent, doneEvent));
 
-        Flux<ServerSentEvent<String>> flux = chatGatewayService.streamChat(request, protocolAdapter, new RequestStatsContext())
-                .map(e -> (ServerSentEvent<String>) e);
+        Flux<ServerSentEvent<String>> flux = streamChat(request, new RequestStatsContext());
 
         StepVerifier.create(flux)
                 .assertNext(event -> {
@@ -169,20 +151,14 @@ class ChatGatewayServiceStreamSseTest {
     @Test
     void streamChat_providerFailsBeforeFirstChunk_returnsStructuredErrorAndDoneMarker() {
         OpenAiChatCompletionRequest request = buildRequest();
-        RouteResult routeResult = RouteResult.builder()
-                .providerType(ProviderType.OPENAI)
-                .targetModel("gpt-5.4")
-                .providerName("openai")
-                .providerBaseUrl("http://provider.test")
-                .providerTimeoutSeconds(30)
-                .build();
+        RouteResult routeResult = buildRouteResult();
 
         Mockito.when(modelRouter.routeAll(Mockito.any())).thenReturn(List.of(routeResult));
         Mockito.when(providerClient.streamChat(Mockito.any()))
                 .thenReturn(Flux.error(new RuntimeException("upstream exploded")));
 
-        Flux<ServerSentEvent<String>> flux = chatGatewayService.streamChat(request, protocolAdapter, new RequestStatsContext())
-                .map(e -> (ServerSentEvent<String>) e);
+        RequestStatsContext context = buildStatsContext(request);
+        Flux<ServerSentEvent<String>> flux = streamChat(request, context);
 
         StepVerifier.create(flux)
                 .assertNext(event -> {
@@ -192,18 +168,16 @@ class ChatGatewayServiceStreamSseTest {
                 })
                 .assertNext(last -> assertEquals("[DONE]", last.data()))
                 .verifyComplete();
+
+        Mockito.verify(requestStatsCollector).collectError(Mockito.eq(context), Mockito.any(RuntimeException.class));
+        Mockito.verify(requestStatsCollector, Mockito.never()).collectStreamSuccess(Mockito.any(), Mockito.any());
+        Mockito.verify(requestStatsCollector, Mockito.never()).collectStreamCancelled(Mockito.any(), Mockito.any());
     }
 
     @Test
     void streamChat_providerFailsAfterTextDelta_returnsStructuredErrorAndDoneMarker() {
         OpenAiChatCompletionRequest request = buildRequest();
-        RouteResult routeResult = RouteResult.builder()
-                .providerType(ProviderType.OPENAI)
-                .targetModel("gpt-5.4")
-                .providerName("openai")
-                .providerBaseUrl("http://provider.test")
-                .providerTimeoutSeconds(30)
-                .build();
+        RouteResult routeResult = buildRouteResult();
 
         UnifiedStreamEvent textEvent = new UnifiedStreamEvent();
         textEvent.setType("text_delta");
@@ -213,8 +187,8 @@ class ChatGatewayServiceStreamSseTest {
         Mockito.when(providerClient.streamChat(Mockito.any()))
                 .thenReturn(Flux.just(textEvent).concatWith(Flux.error(new RuntimeException("stream interrupted"))));
 
-        Flux<ServerSentEvent<String>> flux = chatGatewayService.streamChat(request, protocolAdapter, new RequestStatsContext())
-                .map(e -> (ServerSentEvent<String>) e);
+        RequestStatsContext context = buildStatsContext(request);
+        Flux<ServerSentEvent<String>> flux = streamChat(request, context);
 
         StepVerifier.create(flux)
                 .assertNext(first -> assertTextChunk(first, "你好", "gpt-5.4"))
@@ -225,6 +199,84 @@ class ChatGatewayServiceStreamSseTest {
                 })
                 .assertNext(last -> assertEquals("[DONE]", last.data()))
                 .verifyComplete();
+
+        Mockito.verify(requestStatsCollector).collectError(Mockito.eq(context), Mockito.any(RuntimeException.class));
+        Mockito.verify(requestStatsCollector, Mockito.never()).collectStreamSuccess(Mockito.any(), Mockito.any());
+        Mockito.verify(requestStatsCollector, Mockito.never()).collectStreamCancelled(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void streamChat_doneThenCancel_doesNotRecordCancelled() {
+        OpenAiChatCompletionRequest request = buildRequest();
+        RouteResult routeResult = buildRouteResult();
+
+        UnifiedStreamEvent doneEvent = new UnifiedStreamEvent();
+        doneEvent.setType("done");
+        doneEvent.setFinishReason("stop");
+
+        Sinks.Many<UnifiedStreamEvent> sink = Sinks.many().multicast().onBackpressureBuffer();
+        sink.tryEmitNext(doneEvent);
+
+        Mockito.when(modelRouter.routeAll(Mockito.any())).thenReturn(List.of(routeResult));
+        Mockito.when(providerClient.streamChat(Mockito.any())).thenReturn(sink.asFlux());
+
+        RequestStatsContext context = buildStatsContext(request);
+        Flux<ServerSentEvent<String>> flux = streamChat(request, context);
+
+        StepVerifier.create(flux)
+                .assertNext(this::assertDoneChunk)
+                .thenCancel()
+                .verify();
+
+        Mockito.verify(requestStatsCollector, Mockito.never()).collectStreamCancelled(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void streamChat_cancelBeforeTerminalEvent_recordsCancelled() {
+        OpenAiChatCompletionRequest request = buildRequest();
+        RouteResult routeResult = buildRouteResult();
+
+        UnifiedStreamEvent textEvent = new UnifiedStreamEvent();
+        textEvent.setType("text_delta");
+        textEvent.setTextDelta("你好");
+
+        Sinks.Many<UnifiedStreamEvent> sink = Sinks.many().multicast().onBackpressureBuffer();
+        sink.tryEmitNext(textEvent);
+
+        Mockito.when(modelRouter.routeAll(Mockito.any())).thenReturn(List.of(routeResult));
+        Mockito.when(providerClient.streamChat(Mockito.any())).thenReturn(sink.asFlux());
+
+        RequestStatsContext context = buildStatsContext(request);
+        Flux<ServerSentEvent<String>> flux = streamChat(request, context);
+
+        StepVerifier.create(flux)
+                .assertNext(first -> assertTextChunk(first, "你好", "gpt-5.4"))
+                .thenCancel()
+                .verify();
+
+        Mockito.verify(requestStatsCollector).collectStreamCancelled(Mockito.eq(context), Mockito.isNull());
+        Mockito.verify(requestStatsCollector, Mockito.never()).collectStreamSuccess(Mockito.any(), Mockito.any());
+    }
+
+    private Flux<ServerSentEvent<String>> streamChat(OpenAiChatCompletionRequest request, RequestStatsContext context) {
+        return chatGatewayService.streamChat(request, protocolAdapter, context)
+                .map(e -> (ServerSentEvent<String>) e);
+    }
+
+    private RouteResult buildRouteResult() {
+        return RouteResult.builder()
+                .providerType(ProviderType.OPENAI)
+                .targetModel("gpt-5.4")
+                .providerName("openai")
+                .providerBaseUrl("http://provider.test")
+                .providerTimeoutSeconds(30)
+                .build();
+    }
+
+    private RequestStatsContext buildStatsContext(OpenAiChatCompletionRequest request) {
+        RequestStatsContext context = new RequestStatsContext();
+        context.setRequestInfo(new OpenAiStatsRequestInfo(request));
+        return context;
     }
 
     private void assertTextChunk(ServerSentEvent<String> event, String expectedContent, String expectedModel) {
@@ -268,5 +320,17 @@ class ChatGatewayServiceStreamSseTest {
         message.setContent("你好");
         request.setMessages(List.of(message));
         return request;
+    }
+
+    private record OpenAiStatsRequestInfo(OpenAiChatCompletionRequest request) implements StatsRequestInfo {
+        @Override
+        public String getModel() {
+            return request.getModel();
+        }
+
+        @Override
+        public Boolean isStream() {
+            return request.getStream();
+        }
     }
 }

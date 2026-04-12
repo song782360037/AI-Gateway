@@ -6,3 +6,8 @@ import type { RequestLogQueryReq, RequestLogRsp } from '../types/request-log'
 export function fetchRequestLogPage(data: RequestLogQueryReq) {
   return request.post<RequestLogQueryReq, PageResult<RequestLogRsp>>('/admin/request-log/list', data)
 }
+
+/** 查询请求日志详情 */
+export function fetchRequestLogDetail(requestId: string) {
+  return request.get<never, RequestLogRsp>(`/admin/request-log/${requestId}`)
+}

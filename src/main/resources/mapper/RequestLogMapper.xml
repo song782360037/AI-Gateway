@@ -13,6 +13,9 @@
         <if test="req.providerType != null and req.providerType != ''">
             AND provider_type = #{req.providerType}
         </if>
+        <if test="req.providerCode != null and req.providerCode != ''">
+            AND provider_code = #{req.providerCode}
+        </if>
         <if test="req.status != null and req.status != ''">
             AND status = #{req.status}
         </if>
@@ -22,12 +25,34 @@
         <if test="req.requestId != null and req.requestId != ''">
             AND request_id = #{req.requestId}
         </if>
+        <if test="req.isStream != null">
+            AND is_stream = #{req.isStream}
+        </if>
+        <choose>
+            <when test="req.hasRetry != null and req.hasRetry">
+                AND retry_count &gt; 0
+            </when>
+            <when test="req.hasRetry != null and !req.hasRetry">
+                AND (retry_count IS NULL OR retry_count = 0)
+            </when>
+        </choose>
+        <choose>
+            <when test="req.hasFailover != null and req.hasFailover">
+                AND failover_count &gt; 0
+            </when>
+            <when test="req.hasFailover != null and !req.hasFailover">
+                AND (failover_count IS NULL OR failover_count = 0)
+            </when>
+        </choose>
     </sql>
 
     <!-- 分页查询请求日志 -->
     <select id="selectPage" resultType="com.code.aigateway.admin.model.dataobject.RequestLogDO">
         SELECT id, request_id, alias_model, target_model, provider_code, provider_type,
-               is_stream, prompt_tokens, completion_tokens, total_tokens, duration_ms,
+               response_protocol, request_path, http_method, api_key_prefix,
+               candidate_count, attempt_count, failover_count, retry_count, circuit_open_skipped_count,
+               rate_limit_triggered, upstream_http_status, upstream_error_type, terminal_stage,
+               is_stream, prompt_tokens, cached_input_tokens, completion_tokens, total_tokens, duration_ms,
                status, error_code, error_message, source_ip, create_time
         FROM request_log
         WHERE 1=1

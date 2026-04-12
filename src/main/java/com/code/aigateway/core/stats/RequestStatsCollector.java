@@ -4,6 +4,7 @@ import com.code.aigateway.admin.mapper.RequestLogMapper;
 import com.code.aigateway.admin.mapper.RequestStatHourlyMapper;
 import com.code.aigateway.admin.model.dataobject.RequestLogDO;
 import com.code.aigateway.admin.model.dataobject.RequestStatHourlyDO;
+import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.model.UnifiedUsage;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -100,6 +101,9 @@ public class RequestStatsCollector {
         if (context == null || context.getRequestInfo() == null || !context.tryMarkCollected()) {
             return;
         }
+        if (context.getTerminalStage() == null) {
+            context.setTerminalStage("STREAMING");
+        }
         RequestLogDO logDO = buildLog(context, "CANCELLED", "STREAM_CANCELLED", "Client disconnected");
         applyUsage(logDO, usage);
         log.info("[流式取消] requestId={}, model={}, provider={}, duration={}ms",
@@ -119,12 +123,24 @@ public class RequestStatsCollector {
         }
         String errorCode = resolveErrorCode(ex);
         String errorMessage = resolveErrorMessage(ex);
+        applyErrorContext(context, ex);
         RequestLogDO logDO = buildLog(context, "ERROR", errorCode, errorMessage);
         log.warn("[请求失败] requestId={}, model={}, provider={}, errorCode={}, error={}",
                 logDO.getRequestId(),
                 context.getRequestInfo().getModel(),
                 context.getRouteResult() != null ? context.getRouteResult().getProviderName() : "N/A",
                 errorCode, errorMessage);
+        emit(logDO);
+    }
+
+    /**
+     * 记录前置拒绝请求（如认证失败、限流拒绝）。
+     */
+    public void collectRejected(RequestStatsContext context, String errorCode, String errorMessage) {
+        if (context == null || !context.tryMarkCollected()) {
+            return;
+        }
+        RequestLogDO logDO = buildLog(context, "REJECTED", errorCode, errorMessage);
         emit(logDO);
     }
 
@@ -169,7 +185,7 @@ public class RequestStatsCollector {
             stat.setProviderCode(record.getProviderCode() != null ? record.getProviderCode() : "unknown");
             stat.setRequestCount(1);
             stat.setSuccessCount("SUCCESS".equals(record.getStatus()) ? 1 : 0);
-            stat.setErrorCount("ERROR".equals(record.getStatus()) ? 1 : 0);
+            stat.setErrorCount(("ERROR".equals(record.getStatus()) || "REJECTED".equals(record.getStatus())) ? 1 : 0);
             stat.setCancelCount("CANCELLED".equals(record.getStatus()) ? 1 : 0);
             stat.setPromptTokens((long) nullToZero(record.getPromptTokens()));
             stat.setCachedInputTokens((long) nullToZero(record.getCachedInputTokens()));
@@ -196,11 +212,24 @@ public class RequestStatsCollector {
         // 优先使用 correlationId 作为 requestId，便于链路追踪
         logDO.setRequestId(context.getCorrelationId() != null
                 ? context.getCorrelationId() : UUID.randomUUID().toString());
-        logDO.setAliasModel(context.getRequestInfo().getModel());
-        logDO.setTargetModel(context.getRouteResult() != null ? context.getRouteResult().getTargetModel() : null);
-        logDO.setProviderCode(context.getRouteResult() != null ? context.getRouteResult().getProviderName() : null);
-        logDO.setProviderType(context.getRouteResult() != null ? context.getRouteResult().getProviderType().name() : null);
-        logDO.setIsStream(Boolean.TRUE.equals(context.getRequestInfo().isStream()));
+        logDO.setAliasModel(context.getRequestInfo() != null ? context.getRequestInfo().getModel() : null);
+        logDO.setTargetModel(resolveTargetModel(context));
+        logDO.setProviderCode(resolveProviderCode(context));
+        logDO.setProviderType(resolveProviderType(context));
+        logDO.setResponseProtocol(context.getResponseProtocol() != null ? context.getResponseProtocol().name() : null);
+        logDO.setRequestPath(context.getRequestPath());
+        logDO.setHttpMethod(context.getHttpMethod());
+        logDO.setApiKeyPrefix(context.getApiKeyPrefix());
+        logDO.setCandidateCount(context.getCandidateCount());
+        logDO.setAttemptCount(context.getAttemptCount());
+        logDO.setFailoverCount(context.getFailoverCount());
+        logDO.setRetryCount(context.getRetryCount());
+        logDO.setCircuitOpenSkippedCount(context.getCircuitOpenSkippedCount());
+        logDO.setRateLimitTriggered(context.getRateLimitTriggered());
+        logDO.setUpstreamHttpStatus(context.getUpstreamHttpStatus());
+        logDO.setUpstreamErrorType(context.getUpstreamErrorType());
+        logDO.setTerminalStage(context.getTerminalStage());
+        logDO.setIsStream(context.getRequestInfo() != null && Boolean.TRUE.equals(context.getRequestInfo().isStream()));
         logDO.setDurationMs((int) context.elapsedMs());
         logDO.setStatus(status);
         logDO.setErrorCode(errorCode);
@@ -220,6 +249,16 @@ public class RequestStatsCollector {
         logDO.setTotalTokens(usage.getTotalTokens());
     }
 
+    private void applyErrorContext(RequestStatsContext context, Throwable ex) {
+        if (context.getTerminalStage() == null) {
+            context.setTerminalStage("UPSTREAM");
+        }
+        if (ex instanceof GatewayException ge) {
+            context.setUpstreamHttpStatus(ge.getUpstreamHttpStatus());
+            context.setUpstreamErrorType(ge.getUpstreamErrorType());
+        }
+    }
+
     private String resolveErrorCode(Throwable ex) {
         if (ex instanceof com.code.aigateway.core.error.GatewayException ge) {
             return ge.getErrorCode().name();
@@ -237,21 +276,49 @@ public class RequestStatsCollector {
                 sb.append("HTTP ").append(ge.getUpstreamHttpStatus());
             }
             if (ge.getUpstreamErrorType() != null && !ge.getUpstreamErrorType().isBlank()) {
-                if (!sb.isEmpty()) sb.append(" | ");
+                if (!sb.isEmpty()) {
+                    sb.append(" | ");
+                }
                 sb.append(ge.getUpstreamErrorType());
             }
             if (ge.getMessage() != null && !ge.getMessage().isBlank()) {
-                if (!sb.isEmpty()) sb.append(" | ");
-                // 截断过长消息，避免超出数据库字段长度
-                String msg = ge.getMessage();
-                sb.append(msg.length() > 400 ? msg.substring(0, 400) + "..." : msg);
+                if (!sb.isEmpty()) {
+                    sb.append(" | ");
+                }
+                String message = ge.getMessage();
+                sb.append(message.length() > 100 ? message.substring(0, 100) + "..." : message);
             }
-            return sb.isEmpty() ? null : sb.toString();
+            if (sb.isEmpty()) {
+                sb.append(ge.getErrorCode().name());
+            }
+            return sb.toString();
         }
-        // 非网关异常也截断，避免超出数据库字段长度
         String msg = ex.getMessage();
-        if (msg == null) return null;
-        return msg.length() > 400 ? msg.substring(0, 400) + "..." : msg;
+        if (msg == null || msg.isBlank()) {
+            return null;
+        }
+        return msg.length() > 200 ? msg.substring(0, 200) + "..." : msg;
+    }
+
+    private String resolveTargetModel(RequestStatsContext context) {
+        if (context.getFinalTargetModel() != null) {
+            return context.getFinalTargetModel();
+        }
+        return context.getRouteResult() != null ? context.getRouteResult().getTargetModel() : null;
+    }
+
+    private String resolveProviderCode(RequestStatsContext context) {
+        if (context.getFinalProviderCode() != null) {
+            return context.getFinalProviderCode();
+        }
+        return context.getRouteResult() != null ? context.getRouteResult().getProviderName() : null;
+    }
+
+    private String resolveProviderType(RequestStatsContext context) {
+        if (context.getFinalProviderType() != null) {
+            return context.getFinalProviderType();
+        }
+        return context.getRouteResult() != null ? context.getRouteResult().getProviderType().name() : null;
     }
 
     private int nullToZero(Integer value) {

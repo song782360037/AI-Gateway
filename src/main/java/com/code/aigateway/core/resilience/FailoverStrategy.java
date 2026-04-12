@@ -3,6 +3,7 @@ package com.code.aigateway.core.resilience;
 import com.code.aigateway.core.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.router.RouteResult;
+import com.code.aigateway.core.stats.RequestStatsContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -42,12 +43,23 @@ public class FailoverStrategy {
     public <T> Mono<T> executeWithFailover(List<RouteResult> candidates,
                                            Function<RouteResult, Mono<T>> callFunction,
                                            String correlationId) {
+        return executeWithFailover(candidates, callFunction, correlationId, null);
+    }
+
+    public <T> Mono<T> executeWithFailover(List<RouteResult> candidates,
+                                           Function<RouteResult, Mono<T>> callFunction,
+                                           String correlationId,
+                                           RequestStatsContext context) {
         if (candidates == null || candidates.isEmpty()) {
+            markTerminalStage(context, "ROUTING");
             return Mono.error(new GatewayException(ErrorCode.PROVIDER_NOT_FOUND, "no route candidates available"));
         }
 
         // 单候选直接调用，无故障转移
         if (candidates.size() == 1) {
+            if (context != null) {
+                context.incrementAttemptCount();
+            }
             return callFunction.apply(candidates.get(0));
         }
 
@@ -60,12 +72,19 @@ public class FailoverStrategy {
             RouteResult candidate = candidates.get(i);
             final int index = i;
             chain = chain.switchIfEmpty(Mono.defer(() -> {
+                if (context != null) {
+                    context.incrementAttemptCount();
+                }
                 // 按 provider+model 维度检查熔断状态
                 if (circuitBreakerManager.isCircuitOpen(candidate.getProviderName(), candidate.getTargetModel())) {
                     log.warn("[故障转移] provider={}, model={} 熔断已打开，跳过, correlationId={}",
                             candidate.getProviderName(), candidate.getTargetModel(), correlationId);
                     candidateErrors.add(new CandidateError(
                             candidate.getProviderName(), candidate.getTargetModel(), "circuit-open"));
+                    if (context != null) {
+                        context.incrementCircuitOpenSkippedCount();
+                        markTerminalStage(context, "FAILOVER");
+                    }
                     return Mono.empty();
                 }
                 log.debug("[故障转移] 尝试候选 #{}: provider={}, model={}, correlationId={}",
@@ -80,6 +99,7 @@ public class FailoverStrategy {
                         .onErrorResume(ex -> {
                             // 客户端侧错误（认证失败、参数错误、资源不存在）直接透传，不继续尝试其他候选
                             if (shouldSkipFailover(ex)) {
+                                markTerminalStage(context, "UPSTREAM");
                                 return Mono.error(ex);
                             }
                             log.warn("[故障转移] 候选 #{} 失败: provider={}, error={}, correlationId={}",
@@ -87,13 +107,17 @@ public class FailoverStrategy {
                             candidateErrors.add(new CandidateError(
                                     candidate.getProviderName(), candidate.getTargetModel(),
                                     extractErrorMessage(ex)));
+                            if (context != null) {
+                                context.incrementFailoverCount();
+                                markTerminalStage(context, "FAILOVER");
+                            }
                             return Mono.empty();
                         });
             }));
         }
 
         return chain.switchIfEmpty(Mono.error(() ->
-                buildAllFailedException(candidateErrors, correlationId)));
+                buildAllFailedException(candidateErrors, correlationId, context)));
     }
 
     /**
@@ -102,11 +126,25 @@ public class FailoverStrategy {
     public <T> Flux<T> executeStreamWithFailover(List<RouteResult> candidates,
                                                  Function<RouteResult, Flux<T>> callFunction,
                                                  String correlationId) {
+        return executeStreamWithFailover(candidates, callFunction, correlationId, null);
+    }
+
+    /**
+     * 流式请求故障转移（仅首 token 前可转移）
+     */
+    public <T> Flux<T> executeStreamWithFailover(List<RouteResult> candidates,
+                                                 Function<RouteResult, Flux<T>> callFunction,
+                                                 String correlationId,
+                                                 RequestStatsContext context) {
         if (candidates == null || candidates.isEmpty()) {
+            markTerminalStage(context, "ROUTING");
             return Flux.error(new GatewayException(ErrorCode.PROVIDER_NOT_FOUND, "no route candidates available"));
         }
 
         if (candidates.size() == 1) {
+            if (context != null) {
+                context.incrementAttemptCount();
+            }
             return callFunction.apply(candidates.get(0));
         }
 
@@ -119,18 +157,26 @@ public class FailoverStrategy {
             RouteResult candidate = candidates.get(i);
             final int index = i;
             chain = chain.switchIfEmpty(Flux.defer(() -> {
+                if (context != null) {
+                    context.incrementAttemptCount();
+                }
                 // 按 provider+model 维度检查熔断状态
                 if (circuitBreakerManager.isCircuitOpen(candidate.getProviderName(), candidate.getTargetModel())) {
                     log.warn("[故障转移-流式] provider={}, model={} 熔断已打开，跳过, correlationId={}",
                             candidate.getProviderName(), candidate.getTargetModel(), correlationId);
                     candidateErrors.add(new CandidateError(
                             candidate.getProviderName(), candidate.getTargetModel(), "circuit-open"));
+                    if (context != null) {
+                        context.incrementCircuitOpenSkippedCount();
+                        markTerminalStage(context, "FAILOVER");
+                    }
                     return Flux.empty();
                 }
                 return callFunction.apply(candidate)
                         .onErrorResume(ex -> {
                             // 客户端侧错误直接透传，不继续尝试其他候选
                             if (shouldSkipFailover(ex)) {
+                                markTerminalStage(context, "UPSTREAM");
                                 return Flux.error(ex);
                             }
                             log.warn("[故障转移-流式] 候选 #{} 失败: provider={}, model={}, error={}, correlationId={}",
@@ -139,13 +185,17 @@ public class FailoverStrategy {
                             candidateErrors.add(new CandidateError(
                                     candidate.getProviderName(), candidate.getTargetModel(),
                                     extractErrorMessage(ex)));
+                            if (context != null) {
+                                context.incrementFailoverCount();
+                                markTerminalStage(context, "FAILOVER");
+                            }
                             return Flux.empty();
                         });
             }));
         }
 
         return chain.switchIfEmpty(Flux.error(() ->
-                buildAllFailedException(candidateErrors, correlationId)));
+                buildAllFailedException(candidateErrors, correlationId, context)));
     }
 
     /**
@@ -186,7 +236,10 @@ public class FailoverStrategy {
     /**
      * 构建所有候选都失败时的聚合异常，保留每个候选的真实错误原因
      */
-    private GatewayException buildAllFailedException(List<CandidateError> candidateErrors, String correlationId) {
+    private GatewayException buildAllFailedException(List<CandidateError> candidateErrors,
+                                                     String correlationId,
+                                                     RequestStatsContext context) {
+        markTerminalStage(context, "FAILOVER");
         if (candidateErrors.isEmpty()) {
             return new GatewayException(ErrorCode.PROVIDER_CIRCUIT_OPEN,
                     "all providers are circuit-open or unavailable");
@@ -200,5 +253,11 @@ public class FailoverStrategy {
         log.error("[故障转移] 所有候选均失败, correlationId={}, 详情: {}", correlationId, details);
 
         return new GatewayException(ErrorCode.PROVIDER_CIRCUIT_OPEN, message);
+    }
+
+    private void markTerminalStage(RequestStatsContext context, String terminalStage) {
+        if (context != null) {
+            context.setTerminalStage(terminalStage);
+        }
     }
 }

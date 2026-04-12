@@ -8,6 +8,8 @@ import com.code.aigateway.common.result.R;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,6 +34,16 @@ public class RequestLogController {
     @PostMapping("/list")
     public Mono<R<PageResult<RequestLogRsp>>> list(@Valid @RequestBody RequestLogQueryReq req) {
         return Mono.fromCallable(() -> requestLogService.list(req))
+                .subscribeOn(Schedulers.boundedElastic())
+                .map(R::ok);
+    }
+
+    /**
+     * 查询单条请求日志详情。
+     */
+    @GetMapping("/{requestId}")
+    public Mono<R<RequestLogRsp>> detail(@PathVariable String requestId) {
+        return Mono.fromCallable(() -> requestLogService.getDetail(requestId))
                 .subscribeOn(Schedulers.boundedElastic())
                 .map(R::ok);
     }

@@ -3,6 +3,7 @@ package com.code.aigateway.core.resilience;
 import com.code.aigateway.core.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.router.RouteResult;
+import com.code.aigateway.core.stats.RequestStatsContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Flux;
@@ -33,22 +34,20 @@ class FailoverStrategyTest {
         failoverStrategy = new FailoverStrategy(circuitBreakerManager);
     }
 
-    // ==================== shouldSkipFailover — 非流式 ====================
-
     @Test
     void executeWithFailover_authError_skipsRemaining() {
         List<RouteResult> candidates = List.of(
                 routeResult("provider-a", "model-x"),
                 routeResult("provider-b", "model-y")
         );
-
-        // 第一个候选抛出认证错误，不应继续尝试第二个
+        RequestStatsContext context = new RequestStatsContext();
         GatewayException authError = new GatewayException(ErrorCode.PROVIDER_AUTH_ERROR, "auth failed");
 
         Mono<String> result = failoverStrategy.executeWithFailover(
                 candidates,
                 candidate -> Mono.error(authError),
-                "test-correlation-id"
+                "test-correlation-id",
+                context
         );
 
         StepVerifier.create(result)
@@ -57,6 +56,9 @@ class FailoverStrategyTest {
                     assertEquals(ErrorCode.PROVIDER_AUTH_ERROR, ((GatewayException) error).getErrorCode());
                 })
                 .verify(Duration.ofSeconds(5));
+        assertEquals(1, context.getAttemptCount());
+        assertEquals(0, context.getFailoverCount());
+        assertEquals("UPSTREAM", context.getTerminalStage());
     }
 
     @Test
@@ -65,13 +67,14 @@ class FailoverStrategyTest {
                 routeResult("provider-a", "model-x"),
                 routeResult("provider-b", "model-y")
         );
-
+        RequestStatsContext context = new RequestStatsContext();
         GatewayException badRequest = new GatewayException(ErrorCode.PROVIDER_BAD_REQUEST, "bad request");
 
         Mono<String> result = failoverStrategy.executeWithFailover(
                 candidates,
                 candidate -> Mono.error(badRequest),
-                "test-correlation-id"
+                "test-correlation-id",
+                context
         );
 
         StepVerifier.create(result)
@@ -80,6 +83,9 @@ class FailoverStrategyTest {
                     assertEquals(ErrorCode.PROVIDER_BAD_REQUEST, ((GatewayException) error).getErrorCode());
                 })
                 .verify(Duration.ofSeconds(5));
+        assertEquals(1, context.getAttemptCount());
+        assertEquals(0, context.getFailoverCount());
+        assertEquals("UPSTREAM", context.getTerminalStage());
     }
 
     @Test
@@ -88,13 +94,14 @@ class FailoverStrategyTest {
                 routeResult("provider-a", "model-x"),
                 routeResult("provider-b", "model-y")
         );
-
+        RequestStatsContext context = new RequestStatsContext();
         GatewayException notFound = new GatewayException(ErrorCode.PROVIDER_RESOURCE_NOT_FOUND, "not found");
 
         Mono<String> result = failoverStrategy.executeWithFailover(
                 candidates,
                 candidate -> Mono.error(notFound),
-                "test-correlation-id"
+                "test-correlation-id",
+                context
         );
 
         StepVerifier.create(result)
@@ -103,6 +110,9 @@ class FailoverStrategyTest {
                     assertEquals(ErrorCode.PROVIDER_RESOURCE_NOT_FOUND, ((GatewayException) error).getErrorCode());
                 })
                 .verify(Duration.ofSeconds(5));
+        assertEquals(1, context.getAttemptCount());
+        assertEquals(0, context.getFailoverCount());
+        assertEquals("UPSTREAM", context.getTerminalStage());
     }
 
     @Test
@@ -111,8 +121,7 @@ class FailoverStrategyTest {
                 routeResult("provider-a", "model-x"),
                 routeResult("provider-b", "model-y")
         );
-
-        // 服务端错误应触发故障转移到第二个候选
+        RequestStatsContext context = new RequestStatsContext();
         GatewayException serverError = new GatewayException(ErrorCode.PROVIDER_SERVER_ERROR, "server error");
 
         Mono<String> result = failoverStrategy.executeWithFailover(
@@ -123,12 +132,16 @@ class FailoverStrategyTest {
                     }
                     return Mono.just("success-from-b");
                 },
-                "test-correlation-id"
+                "test-correlation-id",
+                context
         );
 
         StepVerifier.create(result)
                 .expectNext("success-from-b")
                 .verifyComplete();
+        assertEquals(2, context.getAttemptCount());
+        assertEquals(1, context.getFailoverCount());
+        assertEquals("FAILOVER", context.getTerminalStage());
     }
 
     @Test
@@ -137,7 +150,7 @@ class FailoverStrategyTest {
                 routeResult("provider-a", "model-x"),
                 routeResult("provider-b", "model-y")
         );
-
+        RequestStatsContext context = new RequestStatsContext();
         GatewayException rateLimit = new GatewayException(ErrorCode.PROVIDER_RATE_LIMIT, "rate limited");
 
         Mono<String> result = failoverStrategy.executeWithFailover(
@@ -148,12 +161,16 @@ class FailoverStrategyTest {
                     }
                     return Mono.just("success-from-b");
                 },
-                "test-correlation-id"
+                "test-correlation-id",
+                context
         );
 
         StepVerifier.create(result)
                 .expectNext("success-from-b")
                 .verifyComplete();
+        assertEquals(2, context.getAttemptCount());
+        assertEquals(1, context.getFailoverCount());
+        assertEquals("FAILOVER", context.getTerminalStage());
     }
 
     @Test
@@ -162,7 +179,7 @@ class FailoverStrategyTest {
                 routeResult("provider-a", "model-x"),
                 routeResult("provider-b", "model-y")
         );
-
+        RequestStatsContext context = new RequestStatsContext();
         RuntimeException runtimeEx = new RuntimeException("connection reset");
 
         Mono<String> result = failoverStrategy.executeWithFailover(
@@ -173,15 +190,17 @@ class FailoverStrategyTest {
                     }
                     return Mono.just("success-from-b");
                 },
-                "test-correlation-id"
+                "test-correlation-id",
+                context
         );
 
         StepVerifier.create(result)
                 .expectNext("success-from-b")
                 .verifyComplete();
+        assertEquals(2, context.getAttemptCount());
+        assertEquals(1, context.getFailoverCount());
+        assertEquals("FAILOVER", context.getTerminalStage());
     }
-
-    // ==================== shouldSkipFailover — 流式 ====================
 
     @Test
     void executeStreamWithFailover_authError_skipsRemaining() {
@@ -189,13 +208,14 @@ class FailoverStrategyTest {
                 routeResult("provider-a", "model-x"),
                 routeResult("provider-b", "model-y")
         );
-
+        RequestStatsContext context = new RequestStatsContext();
         GatewayException authError = new GatewayException(ErrorCode.PROVIDER_AUTH_ERROR, "auth failed");
 
         Flux<String> result = failoverStrategy.executeStreamWithFailover(
                 candidates,
                 candidate -> Flux.error(authError),
-                "test-correlation-id"
+                "test-correlation-id",
+                context
         );
 
         StepVerifier.create(result)
@@ -204,6 +224,9 @@ class FailoverStrategyTest {
                     assertEquals(ErrorCode.PROVIDER_AUTH_ERROR, ((GatewayException) error).getErrorCode());
                 })
                 .verify(Duration.ofSeconds(5));
+        assertEquals(1, context.getAttemptCount());
+        assertEquals(0, context.getFailoverCount());
+        assertEquals("UPSTREAM", context.getTerminalStage());
     }
 
     @Test
@@ -212,7 +235,7 @@ class FailoverStrategyTest {
                 routeResult("provider-a", "model-x"),
                 routeResult("provider-b", "model-y")
         );
-
+        RequestStatsContext context = new RequestStatsContext();
         GatewayException serverError = new GatewayException(ErrorCode.PROVIDER_SERVER_ERROR, "server error");
 
         Flux<String> result = failoverStrategy.executeStreamWithFailover(
@@ -223,22 +246,26 @@ class FailoverStrategyTest {
                     }
                     return Flux.just("token-1", "token-2");
                 },
-                "test-correlation-id"
+                "test-correlation-id",
+                context
         );
 
         StepVerifier.create(result)
                 .expectNext("token-1", "token-2")
                 .verifyComplete();
+        assertEquals(2, context.getAttemptCount());
+        assertEquals(1, context.getFailoverCount());
+        assertEquals("FAILOVER", context.getTerminalStage());
     }
-
-    // ==================== 边界场景 ====================
 
     @Test
     void executeWithFailover_emptyCandidates() {
+        RequestStatsContext context = new RequestStatsContext();
         Mono<String> result = failoverStrategy.executeWithFailover(
                 List.of(),
                 candidate -> Mono.just("never"),
-                "test-correlation-id"
+                "test-correlation-id",
+                context
         );
 
         StepVerifier.create(result)
@@ -247,18 +274,21 @@ class FailoverStrategyTest {
                     assertEquals(ErrorCode.PROVIDER_NOT_FOUND, ((GatewayException) error).getErrorCode());
                 })
                 .verify(Duration.ofSeconds(5));
+        assertEquals(0, context.getAttemptCount());
+        assertEquals(0, context.getFailoverCount());
     }
 
     @Test
     void executeWithFailover_singleCandidate_authError() {
         List<RouteResult> candidates = List.of(routeResult("provider-a", "model-x"));
-
+        RequestStatsContext context = new RequestStatsContext();
         GatewayException authError = new GatewayException(ErrorCode.PROVIDER_AUTH_ERROR, "auth failed");
 
         Mono<String> result = failoverStrategy.executeWithFailover(
                 candidates,
                 candidate -> Mono.error(authError),
-                "test-correlation-id"
+                "test-correlation-id",
+                context
         );
 
         StepVerifier.create(result)
@@ -267,9 +297,10 @@ class FailoverStrategyTest {
                     assertEquals(ErrorCode.PROVIDER_AUTH_ERROR, ((GatewayException) error).getErrorCode());
                 })
                 .verify(Duration.ofSeconds(5));
+        assertEquals(1, context.getAttemptCount());
+        assertEquals(0, context.getFailoverCount());
+        assertTrue(context.getTerminalStage() == null || "UPSTREAM".equals(context.getTerminalStage()));
     }
-
-    // ==================== 辅助方法 ====================
 
     private RouteResult routeResult(String provider, String model) {
         RouteResult rr = mock(RouteResult.class);

@@ -20,6 +20,19 @@ public interface RequestLogMapper {
             @Result(property = "targetModel", column = "target_model"),
             @Result(property = "providerCode", column = "provider_code"),
             @Result(property = "providerType", column = "provider_type"),
+            @Result(property = "responseProtocol", column = "response_protocol"),
+            @Result(property = "requestPath", column = "request_path"),
+            @Result(property = "httpMethod", column = "http_method"),
+            @Result(property = "apiKeyPrefix", column = "api_key_prefix"),
+            @Result(property = "candidateCount", column = "candidate_count"),
+            @Result(property = "attemptCount", column = "attempt_count"),
+            @Result(property = "failoverCount", column = "failover_count"),
+            @Result(property = "retryCount", column = "retry_count"),
+            @Result(property = "circuitOpenSkippedCount", column = "circuit_open_skipped_count"),
+            @Result(property = "rateLimitTriggered", column = "rate_limit_triggered"),
+            @Result(property = "upstreamHttpStatus", column = "upstream_http_status"),
+            @Result(property = "upstreamErrorType", column = "upstream_error_type"),
+            @Result(property = "terminalStage", column = "terminal_stage"),
             @Result(property = "isStream", column = "is_stream"),
             @Result(property = "promptTokens", column = "prompt_tokens"),
             @Result(property = "cachedInputTokens", column = "cached_input_tokens"),
@@ -34,6 +47,9 @@ public interface RequestLogMapper {
     })
     @Select("""
             SELECT id, request_id, alias_model, target_model, provider_code, provider_type,
+                   response_protocol, request_path, http_method, api_key_prefix,
+                   candidate_count, attempt_count, failover_count, retry_count, circuit_open_skipped_count,
+                   rate_limit_triggered, upstream_http_status, upstream_error_type, terminal_stage,
                    is_stream, prompt_tokens, cached_input_tokens, completion_tokens, total_tokens, duration_ms,
                    status, error_code, error_message, source_ip, create_time
             FROM request_log
@@ -41,16 +57,36 @@ public interface RequestLogMapper {
             """)
     RequestLogDO selectById(@Param("id") Long id);
 
+    @Select("""
+            SELECT id, request_id, alias_model, target_model, provider_code, provider_type,
+                   response_protocol, request_path, http_method, api_key_prefix,
+                   candidate_count, attempt_count, failover_count, retry_count, circuit_open_skipped_count,
+                   rate_limit_triggered, upstream_http_status, upstream_error_type, terminal_stage,
+                   is_stream, prompt_tokens, cached_input_tokens, completion_tokens, total_tokens, duration_ms,
+                   status, error_code, error_message, source_ip, create_time
+            FROM request_log
+            WHERE request_id = #{requestId}
+            LIMIT 1
+            """)
+    @ResultMap("requestLogResultMap")
+    RequestLogDO selectByRequestId(@Param("requestId") String requestId);
+
     /**
      * 插入请求日志，回填主键
      */
     @Insert("""
             INSERT INTO request_log (
                 request_id, alias_model, target_model, provider_code, provider_type,
+                response_protocol, request_path, http_method, api_key_prefix,
+                candidate_count, attempt_count, failover_count, retry_count, circuit_open_skipped_count,
+                rate_limit_triggered, upstream_http_status, upstream_error_type, terminal_stage,
                 is_stream, prompt_tokens, cached_input_tokens, completion_tokens, total_tokens, duration_ms,
                 status, error_code, error_message, source_ip, create_time
             ) VALUES (
                 #{requestId}, #{aliasModel}, #{targetModel}, #{providerCode}, #{providerType},
+                #{responseProtocol}, #{requestPath}, #{httpMethod}, #{apiKeyPrefix},
+                #{candidateCount}, #{attemptCount}, #{failoverCount}, #{retryCount}, #{circuitOpenSkippedCount},
+                #{rateLimitTriggered}, #{upstreamHttpStatus}, #{upstreamErrorType}, #{terminalStage},
                 #{isStream}, #{promptTokens}, #{cachedInputTokens}, #{completionTokens}, #{totalTokens}, #{durationMs},
                 #{status}, #{errorCode}, #{errorMessage}, #{sourceIp}, #{createTime}
             )
@@ -77,6 +113,9 @@ public interface RequestLogMapper {
     @Select("""
             <script>
             SELECT id, request_id, alias_model, target_model, provider_code, provider_type,
+                   response_protocol, request_path, http_method, api_key_prefix,
+                   candidate_count, attempt_count, failover_count, retry_count, circuit_open_skipped_count,
+                   rate_limit_triggered, upstream_http_status, upstream_error_type, terminal_stage,
                    is_stream, prompt_tokens, cached_input_tokens, completion_tokens, total_tokens, duration_ms,
                    status, error_code, error_message, source_ip, create_time
             FROM request_log

@@ -4,6 +4,7 @@ import com.code.aigateway.admin.mapper.RequestLogMapper;
 import com.code.aigateway.admin.model.dataobject.RequestLogDO;
 import com.code.aigateway.admin.model.req.RequestLogQueryReq;
 import com.code.aigateway.admin.model.rsp.RequestLogRsp;
+import com.code.aigateway.common.exception.BizException;
 import com.code.aigateway.common.result.PageResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +35,17 @@ public class RequestLogService {
     }
 
     /**
+     * 根据 requestId 查询请求日志详情。
+     */
+    public RequestLogRsp getDetail(String requestId) {
+        RequestLogDO record = requestLogMapper.selectByRequestId(requestId);
+        if (record == null) {
+            throw new BizException("REQUEST_LOG_NOT_FOUND", "请求日志不存在，requestId: " + requestId);
+        }
+        return toRsp(record);
+    }
+
+    /**
      * DO 转 Rsp
      */
     private RequestLogRsp toRsp(RequestLogDO record) {
@@ -44,6 +56,19 @@ public class RequestLogService {
         rsp.setTargetModel(record.getTargetModel());
         rsp.setProviderCode(record.getProviderCode());
         rsp.setProviderType(record.getProviderType());
+        rsp.setResponseProtocol(record.getResponseProtocol());
+        rsp.setRequestPath(record.getRequestPath());
+        rsp.setHttpMethod(record.getHttpMethod());
+        rsp.setApiKeyPrefix(record.getApiKeyPrefix());
+        rsp.setCandidateCount(record.getCandidateCount());
+        rsp.setAttemptCount(record.getAttemptCount());
+        rsp.setFailoverCount(record.getFailoverCount());
+        rsp.setRetryCount(record.getRetryCount());
+        rsp.setCircuitOpenSkippedCount(record.getCircuitOpenSkippedCount());
+        rsp.setRateLimitTriggered(record.getRateLimitTriggered());
+        rsp.setUpstreamHttpStatus(record.getUpstreamHttpStatus());
+        rsp.setUpstreamErrorType(record.getUpstreamErrorType());
+        rsp.setTerminalStage(record.getTerminalStage());
         rsp.setIsStream(record.getIsStream());
         rsp.setPromptTokens(record.getPromptTokens());
         rsp.setCachedInputTokens(record.getCachedInputTokens());

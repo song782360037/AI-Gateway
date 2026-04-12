@@ -28,6 +28,45 @@ public class RequestLogDO {
     /** 提供商类型 */
     private String providerType;
 
+    /** 响应协议 */
+    private String responseProtocol;
+
+    /** 请求路径 */
+    private String requestPath;
+
+    /** HTTP 方法 */
+    private String httpMethod;
+
+    /** API Key 前缀 */
+    private String apiKeyPrefix;
+
+    /** 候选路由数 */
+    private Integer candidateCount;
+
+    /** 候选尝试次数 */
+    private Integer attemptCount;
+
+    /** Failover 次数 */
+    private Integer failoverCount;
+
+    /** 重试次数 */
+    private Integer retryCount;
+
+    /** 熔断打开跳过次数 */
+    private Integer circuitOpenSkippedCount;
+
+    /** 是否命中限流 */
+    private Boolean rateLimitTriggered;
+
+    /** 上游 HTTP 状态码 */
+    private Integer upstreamHttpStatus;
+
+    /** 上游错误类型 */
+    private String upstreamErrorType;
+
+    /** 链路终止阶段 */
+    private String terminalStage;
+
     /** 是否流式请求，映射 bit(1) */
     private Boolean isStream;
 
@@ -46,7 +85,7 @@ public class RequestLogDO {
     /** 响应耗时（毫秒） */
     private Integer durationMs;
 
-    /** 请求状态：SUCCESS / ERROR */
+    /** 请求状态：SUCCESS / ERROR / CANCELLED / REJECTED */
     private String status;
 
     /** 错误码（失败时记录） */
