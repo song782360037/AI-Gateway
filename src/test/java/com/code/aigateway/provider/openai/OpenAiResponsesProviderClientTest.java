@@ -904,6 +904,90 @@ class OpenAiResponsesProviderClientTest {
     }
 
     @Test
+    void chat_withAssistantTextHistory_encodesAssistantContentAsOutputText() throws Exception {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
+                    {
+                      "id": "resp_assistant_history_001",
+                      "object": "response",
+                      "model": "gpt-4o",
+                      "status": "completed",
+                      "output": [
+                        {
+                          "type": "message",
+                          "role": "assistant",
+                          "content": [
+                            {"type": "output_text", "text": "继续说明"}
+                          ]
+                        }
+                      ],
+                      "usage": {"input_tokens": 16, "output_tokens": 6, "total_tokens": 22}
+                    }
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        StepVerifier.create(providerClient.chat(buildRequestWithAssistantTextHistory(false)))
+                .assertNext(response -> assertEquals("resp_assistant_history_001", response.getId()))
+                .verifyComplete();
+
+        JsonNode root = objectMapper.readTree(requestBody.get());
+        JsonNode input = root.get("input");
+        assertNotNull(input);
+        assertEquals(3, input.size());
+        assertEquals("user", input.get(0).get("role").asText());
+        assertEquals("input_text", input.get(0).get("content").get(0).get("type").asText());
+        assertEquals("assistant", input.get(1).get("role").asText());
+        assertEquals("output_text", input.get(1).get("content").get(0).get("type").asText());
+        assertEquals("上一次回答", input.get(1).get("content").get(0).get("text").asText());
+        assertEquals("user", input.get(2).get("role").asText());
+        assertEquals("input_text", input.get(2).get("content").get(0).get("type").asText());
+    }
+
+    @Test
+    void chat_withAssistantTextAndToolCall_encodesAssistantTextAsOutputText() throws Exception {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
+                    {
+                      "id": "resp_assistant_tool_001",
+                      "object": "response",
+                      "model": "gpt-4o",
+                      "status": "completed",
+                      "output": [
+                        {
+                          "type": "message",
+                          "role": "assistant",
+                          "content": [
+                            {"type": "output_text", "text": "处理完成"}
+                          ]
+                        }
+                      ],
+                      "usage": {"input_tokens": 14, "output_tokens": 5, "total_tokens": 19}
+                    }
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        StepVerifier.create(providerClient.chat(buildRequestWithAssistantTextAndToolCall(false)))
+                .assertNext(response -> assertEquals("resp_assistant_tool_001", response.getId()))
+                .verifyComplete();
+
+        JsonNode root = objectMapper.readTree(requestBody.get());
+        JsonNode input = root.get("input");
+        assertNotNull(input);
+        assertEquals(4, input.size());
+        assertEquals("message", input.get(1).get("type").asText());
+        assertEquals("assistant", input.get(1).get("role").asText());
+        assertEquals("output_text", input.get(1).get("content").get(0).get("type").asText());
+        assertEquals("先调用工具", input.get(1).get("content").get(0).get("text").asText());
+        assertEquals("function_call", input.get(2).get("type").asText());
+        assertEquals(input.get(2).get("call_id").asText(), input.get(3).get("call_id").asText());
+        assertEquals("function_call_output", input.get(3).get("type").asText());
+    }
+
+    @Test
     void chat_withMultipleToolHistory_keepsStableDistinctResponsesIds() throws Exception {
         startServer(exchange -> {
             captureRequest(exchange);
@@ -947,6 +1031,46 @@ class OpenAiResponsesProviderClientTest {
         assertTrue(!firstResponsesCallId.equals(secondResponsesCallId));
         assertEquals(firstResponsesCallId, input.get(3).get("call_id").asText());
         assertEquals(secondResponsesCallId, input.get(4).get("call_id").asText());
+    }
+
+    private UnifiedRequest buildRequestWithAssistantTextHistory(boolean stream) {
+        UnifiedMessage firstUserMessage = new UnifiedMessage();
+        firstUserMessage.setRole("user");
+        firstUserMessage.setParts(List.of(textPart("你好")));
+
+        UnifiedMessage assistantMessage = new UnifiedMessage();
+        assistantMessage.setRole("assistant");
+        assistantMessage.setParts(List.of(textPart("上一次回答")));
+
+        UnifiedMessage secondUserMessage = new UnifiedMessage();
+        secondUserMessage.setRole("user");
+        secondUserMessage.setParts(List.of(textPart("继续")));
+
+        return buildToolHistoryRequest(stream, List.of(firstUserMessage, assistantMessage, secondUserMessage));
+    }
+
+    private UnifiedRequest buildRequestWithAssistantTextAndToolCall(boolean stream) {
+        UnifiedMessage userMsg = new UnifiedMessage();
+        userMsg.setRole("user");
+        userMsg.setParts(List.of(textPart("查天气")));
+
+        UnifiedToolCall toolCall = new UnifiedToolCall();
+        toolCall.setId("call_1");
+        toolCall.setType("function");
+        toolCall.setToolName("get_weather");
+        toolCall.setArgumentsJson("{\"city\":\"Shanghai\"}");
+
+        UnifiedMessage assistantMsg = new UnifiedMessage();
+        assistantMsg.setRole("assistant");
+        assistantMsg.setParts(List.of(textPart("先调用工具")));
+        assistantMsg.setToolCalls(List.of(toolCall));
+
+        UnifiedMessage toolResult = new UnifiedMessage();
+        toolResult.setRole("tool");
+        toolResult.setToolCallId("call_1");
+        toolResult.setParts(List.of(textPart("晴天")));
+
+        return buildToolHistoryRequest(stream, List.of(userMsg, assistantMsg, toolResult));
     }
 
     private UnifiedRequest buildRequestWithToolHistory(boolean stream) {

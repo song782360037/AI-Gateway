@@ -90,7 +90,7 @@ gateway:
   # WebClient 连接池与传输层配置
   http-client:
     max-connections: 500
-    connect-timeout-ms: 10000
+    connect-timeout-ms: 30000
 
 # 优雅停机
 server:

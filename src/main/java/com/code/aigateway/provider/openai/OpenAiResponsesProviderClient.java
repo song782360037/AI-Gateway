@@ -277,15 +277,16 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
         item.put("type", "message");
         item.put("role", role);
 
+        String textContentType = resolveMessageTextContentType(role);
         if (msg.getParts() == null || msg.getParts().isEmpty()) {
-            item.put("content", List.of(Map.of("type", "input_text", "text", "")));
+            item.put("content", List.of(Map.of("type", textContentType, "text", "")));
             return item;
         }
 
         // 检查是否只有文本内容（快速路径）
         boolean hasOnlyText = msg.getParts().stream().allMatch(p -> "text".equals(p.getType()));
         if (hasOnlyText) {
-            item.put("content", List.of(Map.of("type", "input_text", "text", extractTextContent(msg))));
+            item.put("content", List.of(Map.of("type", textContentType, "text", extractTextContent(msg))));
             return item;
         }
 
@@ -295,7 +296,7 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
             if ("text".equals(part.getType())) {
                 String text = part.getText() != null ? part.getText() : "";
                 if (!text.isEmpty()) {
-                    contentList.add(Map.of("type", "input_text", "text", text));
+                    contentList.add(Map.of("type", textContentType, "text", text));
                 }
             } else if ("image".equals(part.getType())) {
                 contentList.add(buildResponsesImageContent(part));
@@ -303,10 +304,21 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
         }
 
         if (contentList.isEmpty()) {
-            contentList.add(Map.of("type", "input_text", "text", ""));
+            contentList.add(Map.of("type", textContentType, "text", ""));
         }
         item.put("content", contentList);
         return item;
+    }
+
+    /**
+     * 根据消息角色选择 Responses API 文本 content 类型。
+     * <p>
+     * user 历史消息属于输入语义，使用 input_text；assistant 历史消息属于输出语义，
+     * 使用 output_text，避免严格上游在重放历史 assistant 消息时校验失败。
+     * </p>
+     */
+    private String resolveMessageTextContentType(String role) {
+        return "assistant".equals(role) ? "output_text" : "input_text";
     }
 
     /**
