@@ -82,6 +82,7 @@ class DashboardControllerTest {
         ModelUsageRankRsp rank1 = new ModelUsageRankRsp();
         rank1.setRank(1);
         rank1.setModelName("gpt-4o");
+        rank1.setTargetModel("gpt-4o-2024-11-20");
         rank1.setCallCount(5000);
         rank1.setTokenCount(2000000);
         rank1.setCost(120.50);
@@ -89,6 +90,7 @@ class DashboardControllerTest {
         ModelUsageRankRsp rank2 = new ModelUsageRankRsp();
         rank2.setRank(2);
         rank2.setModelName("claude-3.5-sonnet");
+        rank2.setTargetModel("claude-3-5-sonnet-20241022");
         rank2.setCallCount(3000);
         rank2.setTokenCount(1500000);
         rank2.setCost(95.00);
@@ -105,8 +107,10 @@ class DashboardControllerTest {
                 .jsonPath("$.data.length()").isEqualTo(2)
                 .jsonPath("$.data[0].rank").isEqualTo(1)
                 .jsonPath("$.data[0].modelName").isEqualTo("gpt-4o")
+                .jsonPath("$.data[0].targetModel").isEqualTo("gpt-4o-2024-11-20")
                 .jsonPath("$.data[0].callCount").isEqualTo(5000)
-                .jsonPath("$.data[1].modelName").isEqualTo("claude-3.5-sonnet");
+                .jsonPath("$.data[1].modelName").isEqualTo("claude-3.5-sonnet")
+                .jsonPath("$.data[1].targetModel").isEqualTo("claude-3-5-sonnet-20241022");
     }
 
     // ==================== recentRequests ====================

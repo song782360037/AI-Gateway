@@ -405,15 +405,6 @@ async function onPageSizeChange() {
   await loadData()
 }
 
-async function copyRequestId(requestId: string) {
-  try {
-    await navigator.clipboard.writeText(requestId)
-    ElMessage.success('请求 ID 已复制')
-  } catch {
-    ElMessage.error('复制失败')
-  }
-}
-
 async function openDetail(requestId: string) {
   detailVisible.value = true
   detailLoading.value = true

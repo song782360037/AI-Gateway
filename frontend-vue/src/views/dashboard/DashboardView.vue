@@ -75,7 +75,8 @@
                   <span class="rank-badge" :class="rankClass(row.rank)">{{ row.rank }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="modelName" label="模型" min-width="120" show-overflow-tooltip align="center" />
+              <el-table-column prop="modelName" label="请求模型" min-width="120" show-overflow-tooltip align="center" />
+              <el-table-column prop="targetModel" label="目标模型" min-width="120" show-overflow-tooltip align="center" />
               <el-table-column prop="callCount" label="调用次数" min-width="90" align="center">
                 <template #default="{ row }">{{ formatNumber(row.callCount) }}</template>
               </el-table-column>
