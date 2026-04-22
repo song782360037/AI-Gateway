@@ -406,11 +406,40 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
 
     /**
      * 解析非流式响应
+     * <p>
+     * OpenAI Responses API 的正常响应体也包含 "error": null 字段，
+     * 必须用 hasNonNull 而非 has 来判断是否真正存在错误。
+     * </p>
      */
     private UnifiedResponse parseResponse(JsonNode json) {
-        if (json.has("error")) {
-            String msg = json.path("error").path("message").asText("unknown error");
-            throw new GatewayException(ErrorCode.PROVIDER_ERROR, "OpenAI Responses error: " + msg);
+        // 注意：必须用 hasNonNull，OpenAI Responses 正常响应中 "error" 字段值为 null，
+        // 若用 has() 会把正常响应误判为错误
+        if (json.hasNonNull("error")) {
+            JsonNode errorNode = json.get("error");
+            String msg = errorNode.path("message").asText(null);
+            String type = errorNode.path("type").asText(null);
+            String code = errorNode.path("code").asText(null);
+
+            // 构建详细的错误信息
+            StringBuilder errorDetail = new StringBuilder();
+            if (msg != null && !msg.isBlank()) {
+                errorDetail.append(msg);
+            }
+            if (type != null && !type.isBlank()) {
+                if (errorDetail.length() > 0) errorDetail.append(", ");
+                errorDetail.append("type=").append(type);
+            }
+            if (code != null && !code.isBlank()) {
+                if (errorDetail.length() > 0) errorDetail.append(", ");
+                errorDetail.append("code=").append(code);
+            }
+            if (errorDetail.length() == 0) {
+                // 兜底：记录完整 error 节点用于调试
+                errorDetail.append("unknown error, raw=").append(errorNode);
+            }
+
+            log.warn("[OpenAI Responses] 上游返回错误响应: {}", errorDetail);
+            throw new GatewayException(ErrorCode.PROVIDER_ERROR, "OpenAI Responses error: " + errorDetail);
         }
 
         List<UnifiedToolCall> toolCalls = new ArrayList<>();
