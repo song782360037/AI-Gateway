@@ -76,29 +76,42 @@ const router = createRouter({
 /**
  * 全局前置守卫
  *
- * - public 路由（如登录页）始终可访问
- * - 已认证用户访问登录页时，重定向到仪表盘
- * - 未认证用户访问受保护路由时，重定向到登录页（携带 redirect 参数）
+ * - 首次进入先向后端探测：是否已初始化管理员、当前 Cookie 是否已登录
+ * - 系统未初始化时，统一引导到登录页中的“首次创建管理员”态
+ * - 已登录用户访问登录页时，重定向到仪表盘
+ * - 未登录用户访问受保护路由时，重定向到登录页（携带 redirect 参数）
  */
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to) => {
   const authStore = useAuthStore()
 
-  if (to.meta.public) {
-    // 已登录用户访问登录页，直接跳转首页
-    if (authStore.isAuthenticated) {
-      next({ path: '/dashboard' })
-    } else {
-      next()
+  try {
+    await authStore.bootstrap()
+  } catch {
+    if (!to.meta.public) {
+      return { path: '/login', query: { redirect: to.fullPath } }
     }
-    return
+    return true
+  }
+
+  if (authStore.needsInitialization) {
+    if (to.path !== '/login') {
+      return { path: '/login', query: { redirect: to.fullPath } }
+    }
+    return true
+  }
+
+  if (to.meta.public) {
+    if (authStore.isAuthenticated) {
+      return { path: '/dashboard' }
+    }
+    return true
   }
 
   if (!authStore.isAuthenticated) {
-    next({ path: '/login', query: { redirect: to.fullPath } })
-    return
+    return { path: '/login', query: { redirect: to.fullPath } }
   }
 
-  next()
+  return true
 })
 
 export default router

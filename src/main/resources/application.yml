@@ -48,11 +48,10 @@ gateway:
   auth:
     enabled: true # API Key 认证开关，true 时对 /v1/** 路径强制校验
 
-  # 管理后台 JWT 认证
+  # 管理后台认证（管理员账号改为数据库存储）
   admin-auth:
-    username: ${ADMIN_USERNAME:admin}
-    password: ${ADMIN_PASSWORD:admin123}
-    jwt-expiration-ms: 86400000       # Token 有效期（毫秒），默认 24 小时
+    session-ttl-days: 7               # 管理后台登录会话有效期（天）
+
 
   # 全局重试配置（流式和非流式统一）
   # 流式请求仅在首个 token 到达前重试，避免数据重复

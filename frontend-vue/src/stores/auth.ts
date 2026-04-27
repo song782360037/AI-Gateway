@@ -1,48 +1,147 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import { login as loginApi, type LoginParams, type LoginResult } from '../api/auth'
-
-const TOKEN_KEY = 'ai_gateway_admin_token'
+import { computed, ref } from 'vue'
+import {
+  changePassword as changePasswordApi,
+  getAuthStatus,
+  initializeAdmin as initializeAdminApi,
+  login as loginApi,
+  logout as logoutApi,
+  updateUsername as updateUsernameApi,
+  type AdminAuthStatus,
+  type ChangePasswordParams,
+  type LoginParams,
+  type SetupParams,
+  type UpdateUsernameParams,
+} from '../api/auth'
+import { consumeAuthRefreshFlag } from '../utils/auth-state'
 
 /**
- * 认证状态管理
+ * 后台认证状态管理
  *
  * 职责：
- * - JWT Token 持久化（localStorage）
- * - 登录 / 登出
- * - 暴露认证状态供路由守卫和组件使用
+ * - 初始化状态探测（是否已创建管理员）
+ * - 当前登录状态恢复（依赖 HttpOnly Cookie + 后端状态接口）
+ * - 登录 / 首次初始化 / 登出
+ * - 修改用户名 / 修改密码后的本地状态同步
  */
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref<string | null>(localStorage.getItem(TOKEN_KEY))
-  const isAuthenticated = computed(() => !!token.value)
+  const ready = ref(false)
+  const initialized = ref<boolean | null>(null)
+  const authenticated = ref(false)
+  const username = ref('')
+  const bootstrapError = ref('')
+  let bootstrapPromise: Promise<AdminAuthStatus> | null = null
 
-  /**
-   * 登录：调用后端接口，成功后持久化 Token
-   */
-  async function login(params: LoginParams): Promise<LoginResult> {
-    const result = await loginApi(params)
-    token.value = result.token
-    localStorage.setItem(TOKEN_KEY, result.token)
-    return result
+  const isAuthenticated = computed(() => authenticated.value)
+  const needsInitialization = computed(() => initialized.value === false)
+
+  function applyStatus(status: AdminAuthStatus) {
+    initialized.value = status.initialized
+    authenticated.value = status.authenticated
+    username.value = status.username ?? ''
+    bootstrapError.value = ''
+    ready.value = true
   }
 
-  /**
-   * 登出：清除本地 Token
-   */
-  function logout() {
-    token.value = null
-    localStorage.removeItem(TOKEN_KEY)
+  function clearAuthenticatedState() {
+    authenticated.value = false
+    username.value = ''
   }
 
-  /**
-   * 初始化时恢复 Token（页面刷新场景）
-   */
-  function restore() {
-    const saved = localStorage.getItem(TOKEN_KEY)
-    if (saved) {
-      token.value = saved
+  function resetState() {
+    ready.value = false
+    initialized.value = null
+    bootstrapError.value = ''
+    clearAuthenticatedState()
+  }
+
+  function applyBootstrapFailure(error: unknown) {
+    initialized.value = null
+    clearAuthenticatedState()
+    bootstrapError.value = error instanceof Error ? error.message : '系统状态检查失败，请稍后重试'
+    ready.value = true
+  }
+
+  function currentStatus(): AdminAuthStatus {
+    return {
+      initialized: initialized.value ?? false,
+      authenticated: authenticated.value,
+      username: username.value || null,
     }
   }
 
-  return { token, isAuthenticated, login, logout, restore }
+  async function bootstrap(force = false): Promise<AdminAuthStatus> {
+    const shouldRefresh = force || consumeAuthRefreshFlag() || Boolean(bootstrapError.value)
+    if (ready.value && !shouldRefresh) {
+      return currentStatus()
+    }
+    if (bootstrapPromise) {
+      return bootstrapPromise
+    }
+
+    bootstrapPromise = getAuthStatus()
+      .then((status) => {
+        applyStatus(status)
+        return status
+      })
+      .catch((error) => {
+        applyBootstrapFailure(error)
+        throw error
+      })
+      .finally(() => {
+        bootstrapPromise = null
+      })
+
+    return bootstrapPromise
+  }
+
+  async function initializeAdmin(params: SetupParams): Promise<AdminAuthStatus> {
+    const status = await initializeAdminApi(params)
+    applyStatus(status)
+    return status
+  }
+
+  async function login(params: LoginParams): Promise<AdminAuthStatus> {
+    const status = await loginApi(params)
+    applyStatus(status)
+    return status
+  }
+
+  async function updateUsername(params: UpdateUsernameParams): Promise<AdminAuthStatus> {
+    const status = await updateUsernameApi(params)
+    applyStatus(status)
+    return status
+  }
+
+  async function changePassword(params: ChangePasswordParams): Promise<AdminAuthStatus> {
+    const status = await changePasswordApi(params)
+    applyStatus(status)
+    return status
+  }
+
+  async function logout() {
+    try {
+      await logoutApi()
+    } finally {
+      initialized.value = initialized.value ?? true
+      ready.value = true
+      clearAuthenticatedState()
+    }
+  }
+
+  return {
+    ready,
+    initialized,
+    username,
+    bootstrapError,
+    isAuthenticated,
+    needsInitialization,
+    bootstrap,
+    initializeAdmin,
+    login,
+    updateUsername,
+    changePassword,
+    logout,
+    resetState,
+  }
 })

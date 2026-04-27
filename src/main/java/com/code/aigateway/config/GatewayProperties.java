@@ -51,7 +51,7 @@ public class GatewayProperties {
     private RetryProperties retry;
 
     /**
-     * 管理后台 JWT 认证配置
+     * 管理后台认证配置
      */
     private AdminAuthProperties adminAuth;
 
@@ -166,24 +166,14 @@ public class GatewayProperties {
     }
 
     /**
-     * 管理后台 JWT 认证配置
+     * 管理后台认证配置
      */
     @Data
     public static class AdminAuthProperties {
         /**
-         * 管理员用户名
+         * 后台登录会话有效期（天），默认 7 天
          */
-        private String username = "admin";
-
-        /**
-         * 管理员密码
-         */
-        private String password = "admin123";
-
-        /**
-         * JWT Token 有效期（毫秒），默认 24 小时
-         */
-        private long jwtExpirationMs = 86400000L;
+        private long sessionTtlDays = 7L;
     }
 
     /**

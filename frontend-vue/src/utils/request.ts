@@ -1,30 +1,19 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import type { ApiResponse } from '../types/common'
-
-const TOKEN_KEY = 'ai_gateway_admin_token'
+import { markAuthRefreshRequired } from './auth-state'
 
 const request = axios.create({
   // 统一从环境变量读取基础路径，开发和生产都保持同一调用方式。
   baseURL: import.meta.env.VITE_API_BASE,
   timeout: 15000,
-})
-
-/**
- * 请求拦截器：自动附加 JWT Token
- */
-request.interceptors.request.use((config) => {
-  const token = localStorage.getItem(TOKEN_KEY)
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
-  }
-  return config
+  withCredentials: true,
 })
 
 /**
  * 响应拦截器：
  * - 业务层错误（R<T> 包装）拆包抛错
- * - HTTP 401 → Token 失效，清除本地状态并跳转登录页
+ * - HTTP 401 → 登录状态失效，刷新认证状态并跳转登录页
  * - HTTP 429 → 限流提示，显示剩余配额和重试时间
  * - HTTP 503 → 服务不可用（熔断），友好提示
  * - 其他网络异常统一提示
@@ -49,16 +38,17 @@ request.interceptors.response.use(
   (error) => {
     const status = error?.response?.status
 
-    // 401 未授权：Token 过期或无效，清除登录态并跳转
+    // 401 未授权：登录状态失效或尚未登录，刷新状态并跳转
     if (status === 401) {
-      localStorage.removeItem(TOKEN_KEY)
+      markAuthRefreshRequired()
       const hash = window.location.hash || ''
       if (!hash.includes('/login')) {
         const current = hash.replace(/^#/, '')
         const redirect = current && current !== '/' ? `?redirect=${encodeURIComponent(current)}` : ''
         window.location.hash = `#/login${redirect}`
       }
-      ElMessage.error('登录已过期，请重新登录')
+      const message = error?.response?.data?.message || '请先登录后继续'
+      ElMessage.error(message)
       return Promise.reject(error)
     }
 

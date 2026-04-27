@@ -28,8 +28,14 @@ public class AdminExceptionHandler {
     @ExceptionHandler(BizException.class)
     public ResponseEntity<R<Void>> handleBizException(BizException ex) {
         log.warn("[管理接口异常] code: {}, message: {}", ex.getCode(), ex.getMessage());
-        HttpStatus status = "REQUEST_LOG_NOT_FOUND".equals(ex.getCode())
-                ? HttpStatus.NOT_FOUND : HttpStatus.BAD_REQUEST;
+        HttpStatus status;
+        if ("REQUEST_LOG_NOT_FOUND".equals(ex.getCode())) {
+            status = HttpStatus.NOT_FOUND;
+        } else if ("UNAUTHORIZED".equals(ex.getCode())) {
+            status = HttpStatus.UNAUTHORIZED;
+        } else {
+            status = HttpStatus.BAD_REQUEST;
+        }
         return ResponseEntity.status(status)
                 .body(R.fail(ex.getCode(), ex.getMessage()));
     }
