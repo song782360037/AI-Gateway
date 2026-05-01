@@ -1,5 +1,6 @@
 package com.code.aigateway.admin.service;
 
+import com.code.aigateway.admin.mapper.AutoRouteCandidateMapper;
 import com.code.aigateway.admin.mapper.ProviderConfigMapper;
 import com.code.aigateway.admin.model.dataobject.ProviderConfigDO;
 import com.code.aigateway.admin.model.req.ProviderConfigAddReq;
@@ -32,6 +33,7 @@ import java.util.stream.Collectors;
 public class ProviderConfigServiceImpl implements IProviderConfigService {
 
     private final ProviderConfigMapper providerConfigMapper;
+    private final AutoRouteCandidateMapper autoRouteCandidateMapper;
     private final ApiKeyEncryptor apiKeyEncryptor;
     private final RuntimeConfigRefreshService runtimeConfigRefreshService;
     private final TransactionTemplate transactionTemplate;
@@ -81,10 +83,15 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
             record.setApiKeyIv(existing.getApiKeyIv());
         }
 
-        // 编码变更时检查目标编码是否已被占用
-        if (!existing.getProviderCode().equals(req.getProviderCode())
-                && providerConfigMapper.existsByProviderCode(req.getProviderCode()) > 0) {
-            throw new BizException("CONFIG_CONFLICT", "提供商编码已存在: " + req.getProviderCode());
+        // 编码变更时检查目标编码是否已被占用，并保护仍被 Auto 路由候选引用的旧编码
+        if (!existing.getProviderCode().equals(req.getProviderCode())) {
+            if (providerConfigMapper.existsByProviderCode(req.getProviderCode()) > 0) {
+                throw new BizException("CONFIG_CONFLICT", "提供商编码已存在: " + req.getProviderCode());
+            }
+            validateNoEnabledAutoRouteCandidateReference(existing.getProviderCode());
+        }
+        if (Boolean.TRUE.equals(existing.getEnabled()) && !Boolean.TRUE.equals(req.getEnabled())) {
+            validateNoEnabledAutoRouteCandidateReference(existing.getProviderCode());
         }
 
         transactionTemplate.executeWithoutResult(status -> {
@@ -107,12 +114,13 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
             throw new BizException("CONFIG_NOT_FOUND", "提供商配置不存在，id: " + id);
         }
 
-        // 删除前校验是否存在引用此 provider 的启用中重定向规则
+        // 删除前校验是否存在引用此 provider 的启用中重定向规则或 Auto 路由候选
         int redirectCount = providerConfigMapper.existsEnabledRedirectByProviderCode(existing.getProviderCode());
         if (redirectCount > 0) {
             throw new BizException("CONFIG_CONFLICT",
                     "当前提供商仍被 " + redirectCount + " 条启用中的重定向规则引用，请先停用或删除关联规则");
         }
+        validateNoEnabledAutoRouteCandidateReference(existing.getProviderCode());
 
         transactionTemplate.executeWithoutResult(status -> {
             int rows = providerConfigMapper.softDeleteById(id);
@@ -141,6 +149,10 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         record.setEnabled(!existing.getEnabled());
         record.setUpdater("");
         record.setUpdateTime(LocalDateTime.now());
+
+        if (Boolean.TRUE.equals(existing.getEnabled())) {
+            validateNoEnabledAutoRouteCandidateReference(existing.getProviderCode());
+        }
 
         int rows = providerConfigMapper.updateEnabled(record);
         if (rows <= 0) {
@@ -216,6 +228,15 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
             return;
         }
         throw new BizException("CONFIG_REFRESH_FAILED", "运行时配置刷新失败，请稍后重试");
+    }
+
+    private void validateNoEnabledAutoRouteCandidateReference(String providerCode) {
+        int autoCandidateCount = autoRouteCandidateMapper.existsEnabledByProviderCode(providerCode);
+        if (autoCandidateCount <= 0) {
+            return;
+        }
+        throw new BizException("CONFIG_CONFLICT",
+                "当前提供商仍被 " + autoCandidateCount + " 条启用中的 Auto 路由候选引用，请先停用或删除关联候选");
     }
 
     private ProviderConfigDO buildInsertRecord(ProviderConfigAddReq req, ApiKeyEncryptor.EncryptResult encryptResult) {

@@ -29,6 +29,7 @@ public class AdminSessionAuthWebFilter implements WebFilter {
     private static final String ROLE_ADMIN = "ROLE_ADMIN";
     private static final Set<String> PUBLIC_PATHS = Set.of(
             "/admin/login",
+            "/admin/csrf",
             "/admin/bootstrap/status",
             "/admin/bootstrap/setup"
     );
@@ -57,6 +58,7 @@ public class AdminSessionAuthWebFilter implements WebFilter {
                     if (authenticatedAdmin == null) {
                         return chain.filter(exchange);
                     }
+
                     var authentication = new UsernamePasswordAuthenticationToken(
                             authenticatedAdmin.username(),
                             sessionToken,

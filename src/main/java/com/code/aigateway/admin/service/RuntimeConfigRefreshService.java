@@ -1,7 +1,11 @@
 package com.code.aigateway.admin.service;
 
+import com.code.aigateway.admin.mapper.AutoRouteCandidateMapper;
+import com.code.aigateway.admin.mapper.AutoRouteConfigMapper;
 import com.code.aigateway.admin.mapper.ModelRedirectConfigMapper;
 import com.code.aigateway.admin.mapper.ProviderConfigMapper;
+import com.code.aigateway.admin.model.dataobject.AutoRouteCandidateDO;
+import com.code.aigateway.admin.model.dataobject.AutoRouteConfigDO;
 import com.code.aigateway.admin.model.dataobject.ModelRedirectConfigDO;
 import com.code.aigateway.admin.model.dataobject.ProviderConfigDO;
 import com.code.aigateway.core.model.ResponseProtocol;
@@ -43,6 +47,12 @@ public class RuntimeConfigRefreshService {
 
     /** 模型重定向配置数据访问层 */
     private final ModelRedirectConfigMapper modelRedirectConfigMapper;
+
+    /** Auto 智能路由配置数据访问层 */
+    private final AutoRouteConfigMapper autoRouteConfigMapper;
+
+    /** Auto 智能路由候选数据访问层 */
+    private final AutoRouteCandidateMapper autoRouteCandidateMapper;
 
     /** API Key 加解密组件，用于把密文转换为运行时明文 */
     private final ApiKeyEncryptor apiKeyEncryptor;
@@ -147,9 +157,12 @@ public class RuntimeConfigRefreshService {
                     .comparing((RoutingConfigSnapshot.PatternRoute pr) -> pr.matchType() == MatchType.GLOB ? 0 : 1)
                     .thenComparing(pr -> pr.originalPattern().length(), Comparator.reverseOrder()));
 
+            Map<String, RoutingConfigSnapshot.AutoRouteEntry> autoRouteMap = buildAutoRouteMap(providerMap);
+
             // 7. 生成新的快照版本号，并构建不可变快照对象。
             long version = nextVersion();
-            RoutingConfigSnapshot snapshot = new RoutingConfigSnapshot(aliasRouteMap, patternRoutes, providerMap, version, source);
+            RoutingConfigSnapshot snapshot = new RoutingConfigSnapshot(
+                    aliasRouteMap, patternRoutes, providerMap, autoRouteMap, version, source);
 
             // 8. 原子替换本地快照，保证热路径读取始终一致。
             routingSnapshotHolder.update(snapshot);
@@ -159,8 +172,8 @@ public class RuntimeConfigRefreshService {
             redisRoutingCacheService.warmupSnapshot(snapshotJson, version);
             redisRoutingCacheService.clearDirty();
 
-            log.info("[运行时配置刷新] 刷新成功，来源: {}，版本: {}，provider数: {}，精确alias数: {}，模式规则数: {}",
-                    source, version, providerMap.size(), aliasRouteMap.size(), patternRoutes.size());
+            log.info("[运行时配置刷新] 刷新成功，来源: {}，版本: {}，provider数: {}，精确alias数: {}，模式规则数: {}，auto规则数: {}",
+                    source, version, providerMap.size(), aliasRouteMap.size(), patternRoutes.size(), autoRouteMap.size());
             return true;
         } catch (Exception ex) {
             // 10. 任意环节异常都不能影响主流程，需要打脏标记并记录错误日志。
@@ -211,6 +224,89 @@ public class RuntimeConfigRefreshService {
     }
 
     /**
+     * 将 Auto 智能路由配置聚合为运行时快照条目。
+     */
+    private Map<String, RoutingConfigSnapshot.AutoRouteEntry> buildAutoRouteMap(
+            Map<String, RoutingConfigSnapshot.ProviderEntry> providerMap) {
+        List<AutoRouteConfigDO> autoConfigs = autoRouteConfigMapper.selectAllEnabled();
+        if (autoConfigs.isEmpty()) {
+            return Map.of();
+        }
+
+        List<AutoRouteCandidateDO> candidates = autoRouteCandidateMapper.selectAllEnabled();
+        Map<Long, List<AutoRouteCandidateDO>> candidatesByConfigId = candidates.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.groupingBy(
+                        AutoRouteCandidateDO::getConfigId,
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ));
+
+        Map<String, RoutingConfigSnapshot.AutoRouteEntry> autoRouteMap = new LinkedHashMap<>();
+        for (AutoRouteConfigDO config : autoConfigs) {
+            List<RouteCandidate> routeCandidates = candidatesByConfigId
+                    .getOrDefault(config.getId(), List.of())
+                    .stream()
+                    .map(candidate -> buildAutoRouteCandidate(candidate, providerMap.get(candidate.getProviderCode())))
+                    .filter(Objects::nonNull)
+                    .sorted(Comparator.comparing(
+                            (RouteCandidate c) -> c.getProviderPriority() == null ? 0 : c.getProviderPriority(),
+                            Comparator.reverseOrder()))
+                    .toList();
+
+            if (routeCandidates.isEmpty()) {
+                log.warn("[运行时配置刷新] Auto 路由无可用候选，routeKey: {}", config.getRouteKey());
+                continue;
+            }
+            autoRouteMap.put(config.getRouteKey(), new RoutingConfigSnapshot.AutoRouteEntry(
+                    config.getRouteKey(), config.getSelectionStrategy(), routeCandidates));
+        }
+        return autoRouteMap;
+    }
+
+    /**
+     * 将 Auto 候选与 Provider 运行时配置聚合为路由候选项。
+     *
+     * <p>注意：Auto 候选的 providerPriority 字段来自候选自身的 priority 配置
+     * （而非 Provider 的优先级），以便在评分排序时使用候选级别的优先级权重。</p>
+     */
+    private RouteCandidate buildAutoRouteCandidate(AutoRouteCandidateDO candidate,
+                                                   RoutingConfigSnapshot.ProviderEntry providerEntry) {
+        if (providerEntry == null) {
+            log.warn("[运行时配置刷新] 忽略无效 Auto 候选，configId: {}，providerCode: {}，targetModel: {}",
+                    candidate.getConfigId(), candidate.getProviderCode(), candidate.getTargetModel());
+            return null;
+        }
+        return RouteCandidate.builder()
+                .providerType(providerEntry.providerType())
+                .providerCode(providerEntry.providerCode())
+                .targetModel(candidate.getTargetModel())
+                .providerBaseUrl(providerEntry.baseUrl())
+                .providerApiKey(providerEntry.apiKey())
+                .providerTimeoutSeconds(providerEntry.timeoutSeconds())
+                .providerPriority(candidate.getPriority() == null ? 0 : candidate.getPriority())
+                .supportedProtocols(providerEntry.supportedProtocols())
+                .supportsVision(candidate.getSupportsVision())
+                .supportsTools(candidate.getSupportsTools())
+                .supportsToolChoiceRequired(candidate.getSupportsToolChoiceRequired())
+                .supportsReasoning(candidate.getSupportsReasoning())
+                .supportsJson(candidate.getSupportsJson())
+                .supportsStream(candidate.getSupportsStream())
+                .maxInputTokens(candidate.getMaxInputTokens())
+                .maxOutputTokens(candidate.getMaxOutputTokens())
+                .qualityScore(candidate.getQualityScore())
+                .latencyScore(candidate.getLatencyScore())
+                .costScore(candidate.getCostScore())
+                .toolScore(candidate.getToolScore())
+                .visionScore(candidate.getVisionScore())
+                .reasoningScore(candidate.getReasoningScore())
+                .reliabilityScore(candidate.getReliabilityScore())
+                .scoreBias(candidate.getScoreBias())
+                .weight(candidate.getWeight())
+                .build();
+    }
+
+    /**
      * 生成快照版本号。
      *
      * <p>优先使用当前时间毫秒值；
@@ -218,8 +314,8 @@ public class RuntimeConfigRefreshService {
      */
     private long nextVersion() {
         long now = System.currentTimeMillis();
-        long sequence = versionSequence.updateAndGet(previous -> previous >= now ? previous + 1 : now);
-        return Math.max(now, sequence);
+        // updateAndGet 保证返回值 >= now：若 previous < now 则取 now，否则 previous + 1 >= now
+        return versionSequence.updateAndGet(previous -> previous >= now ? previous + 1 : now);
     }
 
     /**

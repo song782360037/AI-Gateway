@@ -12,7 +12,7 @@ export default defineConfig({
     proxy: {
       '/admin': {
         target: 'http://localhost:8080',
-        changeOrigin: true,
+        changeOrigin: false,
       },
     },
   },

@@ -1,5 +1,6 @@
 package com.code.aigateway.admin.service;
 
+import com.code.aigateway.admin.mapper.AutoRouteCandidateMapper;
 import com.code.aigateway.admin.mapper.ProviderConfigMapper;
 import com.code.aigateway.admin.model.dataobject.ProviderConfigDO;
 import com.code.aigateway.admin.model.req.ProviderConfigAddReq;
@@ -25,6 +26,7 @@ import static org.mockito.Mockito.verify;
 class ProviderConfigServiceImplTest {
 
     private ProviderConfigMapper providerConfigMapper;
+    private AutoRouteCandidateMapper autoRouteCandidateMapper;
     private ApiKeyEncryptor apiKeyEncryptor;
     private RuntimeConfigRefreshService runtimeConfigRefreshService;
     private TransactionTemplate transactionTemplate;
@@ -33,6 +35,7 @@ class ProviderConfigServiceImplTest {
     @BeforeEach
     void setUp() {
         providerConfigMapper = Mockito.mock(ProviderConfigMapper.class);
+        autoRouteCandidateMapper = Mockito.mock(AutoRouteCandidateMapper.class);
         apiKeyEncryptor = Mockito.mock(ApiKeyEncryptor.class);
         runtimeConfigRefreshService = Mockito.mock(RuntimeConfigRefreshService.class);
 
@@ -43,7 +46,8 @@ class ProviderConfigServiceImplTest {
         transactionTemplate = new TransactionTemplate(txManager);
 
         service = new ProviderConfigServiceImpl(
-                providerConfigMapper, apiKeyEncryptor, runtimeConfigRefreshService, transactionTemplate);
+                providerConfigMapper, autoRouteCandidateMapper, apiKeyEncryptor,
+                runtimeConfigRefreshService, transactionTemplate);
     }
 
     @Test

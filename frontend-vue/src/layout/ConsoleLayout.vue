@@ -48,6 +48,10 @@
           <el-icon><Connection /></el-icon>
           <span>提供商管理</span>
         </el-menu-item>
+        <el-menu-item index="/model-config">
+          <el-icon><Operation /></el-icon>
+          <span>模型配置</span>
+        </el-menu-item>
         <el-menu-item index="/api-key">
           <el-icon><Key /></el-icon>
           <span>API Key 配置</span>
@@ -201,7 +205,7 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Connection, DataAnalysis, Document, Key, Odometer, Setting, SwitchButton, User } from '@element-plus/icons-vue'
+import { Connection, DataAnalysis, Document, Key, Odometer, Operation, Setting, SwitchButton, User } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules, FormItemRule } from 'element-plus'
 import { useAuthStore } from '../stores/auth'

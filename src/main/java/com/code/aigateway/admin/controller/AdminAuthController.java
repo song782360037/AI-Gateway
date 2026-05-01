@@ -1,7 +1,9 @@
 package com.code.aigateway.admin.controller;
 
+import com.code.aigateway.admin.auth.AdminCsrfTokenManager;
 import com.code.aigateway.admin.auth.AdminSessionCookieManager;
 import com.code.aigateway.admin.model.rsp.AdminAuthStatusRsp;
+import com.code.aigateway.admin.model.rsp.AdminCsrfTokenRsp;
 import com.code.aigateway.admin.service.IAdminAuthService;
 import com.code.aigateway.common.result.R;
 import jakarta.validation.constraints.NotBlank;
@@ -31,6 +33,16 @@ public class AdminAuthController {
 
     private final IAdminAuthService adminAuthService;
     private final AdminSessionCookieManager cookieManager;
+    private final AdminCsrfTokenManager csrfTokenManager;
+
+    /**
+     * 获取管理端 CSRF Token。
+     */
+    @GetMapping("/csrf")
+    public Mono<R<AdminCsrfTokenRsp>> csrf(ServerHttpRequest request, ServerHttpResponse response) {
+        String token = csrfTokenManager.issueToken(request, response);
+        return Mono.just(R.ok(new AdminCsrfTokenRsp(token)));
+    }
 
     /**
      * 获取系统初始化状态与当前登录状态。

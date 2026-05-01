@@ -49,6 +49,17 @@ const router = createRouter({
       redirect: '/provider',
     },
     {
+      path: '/model-config',
+      name: 'model-config',
+      component: () => import('../views/model-config/ModelConfigView.vue'),
+      meta: {
+        eyebrow: '智能路由',
+        title: '模型配置',
+        description: '配置 auto 智能路由规则和候选模型，请求模型名为 auto 时自动选择最佳路由。',
+        tag: '模型',
+      },
+    },
+    {
       path: '/api-key',
       name: 'api-key',
       component: () => import('../views/api-key/ApiKeyConfigView.vue'),

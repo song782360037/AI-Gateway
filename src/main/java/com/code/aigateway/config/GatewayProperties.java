@@ -174,6 +174,35 @@ public class GatewayProperties {
          * 后台登录会话有效期（天），默认 7 天
          */
         private long sessionTtlDays = 7L;
+
+        /**
+         * CSRF Token 签名密钥（Base64 编码，32 字节）
+         * <p>
+         * 为空时每次启动随机生成，重启后旧 Token 失效；多实例部署时各实例密钥不一致会导致校验失败。
+         * 生产环境建议通过环境变量 GATEWAY_ADMIN_CSRF_SIGNING_KEY 设置固定密钥。
+         * </p>
+         */
+        private String csrfSigningKey;
+
+        /**
+         * 是否信任反向代理写入的 X-Forwarded-* 请求头。
+         * <p>
+         * 默认关闭，避免直连或代理未清洗请求头时被伪造来源影响 CSRF 同源判断和 Cookie Secure 标记。
+         * 仅在应用部署于可信反向代理之后，且代理会覆盖/清洗外部传入的 X-Forwarded-* 头时开启。
+         * </p>
+         */
+        private boolean trustForwardedHeaders = false;
+
+        /**
+         * 管理后台 CSRF Origin 校验的可信来源列表。
+         * <p>
+         * 当前端与后端不在同源（如开发环境前端在 localhost:5173、后端在 localhost:8080），
+         * 浏览器发出的 Origin 头与后端实际地址不同源，导致请求被拒。
+         * 在此列表中配置的 Origin 会被视为可信来源，绕过同源校验。
+         * 生产环境建议仅配置实际的前端域名。
+         * </p>
+         */
+        private List<String> trustedOrigins = List.of();
     }
 
     /**

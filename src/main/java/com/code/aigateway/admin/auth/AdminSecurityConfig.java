@@ -44,7 +44,7 @@ public class AdminSecurityConfig {
                 .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
                 .logout(ServerHttpSecurity.LogoutSpec::disable)
                 .authorizeExchange(exchanges -> exchanges
-                        .pathMatchers("/admin/login", "/admin/bootstrap/**").permitAll()
+                        .pathMatchers("/admin/login", "/admin/csrf", "/admin/bootstrap/**").permitAll()
                         .pathMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                         .pathMatchers("/admin/**").authenticated()
                         .anyExchange().permitAll()

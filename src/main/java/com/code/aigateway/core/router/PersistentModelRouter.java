@@ -33,6 +33,9 @@ public class PersistentModelRouter implements ModelRouter {
     /** YAML 兜底路由器 */
     private final ConfigBasedModelRouter fallbackRouter;
 
+    /** Auto 智能路由选择器 */
+    private final AutoRouteSelector autoRouteSelector;
+
     @Override
     public RouteResult route(UnifiedRequest request) {
         if (request.getModel() == null || request.getModel().isBlank()) {
@@ -41,6 +44,9 @@ public class PersistentModelRouter implements ModelRouter {
 
         RoutingConfigSnapshot snapshot = routingSnapshotHolder.get();
         if (snapshot == null) {
+            if (autoRouteSelector.isAutoModel(request.getModel())) {
+                throw new GatewayException(ErrorCode.MODEL_NOT_FOUND, "auto route snapshot not initialized");
+            }
             log.warn("[持久化路由] 本地快照不存在，回退到 YAML 路由，model: {}", request.getModel());
             return fallbackRouter.route(request);
         }
@@ -57,7 +63,12 @@ public class PersistentModelRouter implements ModelRouter {
             return selectCandidate(candidates, request);
         }
 
-        // 3. 快照未命中，回退到 YAML 路由
+        // 3. Auto 智能路由必须在 YAML fallback 和透传前处理
+        if (autoRouteSelector.isAutoModel(request.getModel())) {
+            return autoRouteSelector.select(snapshot, request);
+        }
+
+        // 4. 快照未命中，回退到 YAML 路由
         log.info("[持久化路由] 快照未命中，回退到 YAML 路由，model: {}，快照版本: {}",
                 request.getModel(), snapshot.getVersion());
         try {
@@ -111,7 +122,7 @@ public class PersistentModelRouter implements ModelRouter {
     private RouteResult selectCandidate(List<RouteCandidate> candidates, UnifiedRequest request) {
         String requestProtocol = request.getRequestProtocol();
         RouteCandidate selected = candidates.stream()
-                .filter(c -> isProtocolSupported(c, requestProtocol))
+                .filter(c -> c.supportsProtocol(requestProtocol))
                 .findFirst()
                 .orElse(null);
 
@@ -138,7 +149,7 @@ public class PersistentModelRouter implements ModelRouter {
     private List<RouteResult> buildRouteResults(List<RouteCandidate> candidates, UnifiedRequest request) {
         String requestProtocol = request.getRequestProtocol();
         List<RouteResult> filtered = candidates.stream()
-                .filter(c -> isProtocolSupported(c, requestProtocol))
+                .filter(c -> c.supportsProtocol(requestProtocol))
                 .map(c -> RouteResult.builder()
                         .providerType(resolveProviderType(c.getProviderType(), request.getModel()))
                         .providerName(c.getProviderCode())
@@ -183,6 +194,9 @@ public class PersistentModelRouter implements ModelRouter {
 
         RoutingConfigSnapshot snapshot = routingSnapshotHolder.get();
         if (snapshot == null) {
+            if (autoRouteSelector.isAutoModel(request.getModel())) {
+                throw new GatewayException(ErrorCode.MODEL_NOT_FOUND, "auto route snapshot not initialized");
+            }
             return fallbackRouter.routeAll(request);
         }
 
@@ -198,7 +212,12 @@ public class PersistentModelRouter implements ModelRouter {
             return buildRouteResults(candidates, request);
         }
 
-        // 3. 回退到 YAML 路由
+        // 3. Auto 智能路由必须在 YAML fallback 和透传前处理
+        if (autoRouteSelector.isAutoModel(request.getModel())) {
+            return autoRouteSelector.selectAll(snapshot, request);
+        }
+
+        // 4. 回退到 YAML 路由
         try {
             return fallbackRouter.routeAll(request);
         } catch (GatewayException ex) {
@@ -232,24 +251,6 @@ public class PersistentModelRouter implements ModelRouter {
         log.info("[持久化路由] 无路由规则，走透传分支，model: {}，候选数: {}",
                 originalModel, passthroughCandidates.size());
         return passthroughCandidates;
-    }
-
-    /**
-     * 判断候选路由是否支持当前请求协议。
-     * <p>supportedProtocols 为空时表示支持所有协议。</p>
-     */
-    private boolean isProtocolSupported(RouteCandidate candidate, String requestProtocol) {
-        if (requestProtocol == null) {
-            return true;
-        }
-        List<String> supported = candidate.getSupportedProtocols();
-        if (supported == null || supported.isEmpty()) {
-            return true;
-        }
-        // 归一化后比较：兼容 "openai-chat" vs "OPENAI_CHAT" 等格式差异
-        String normalized = ResponseProtocol.normalize(requestProtocol);
-        return supported.stream()
-                .anyMatch(s -> ResponseProtocol.normalize(s).equals(normalized));
     }
 
     /**

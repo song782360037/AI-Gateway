@@ -28,6 +28,9 @@ public final class RoutingConfigSnapshot {
     /** providerCode -> 提供商运行时配置 */
     private final Map<String, ProviderEntry> providerMap;
 
+    /** routeKey -> Auto 智能路由配置 */
+    private final Map<String, AutoRouteEntry> autoRouteMap;
+
     /** 快照版本号，用于识别快照是否已刷新 */
     private final long version;
 
@@ -42,6 +45,15 @@ public final class RoutingConfigSnapshot {
                                  Map<String, ProviderEntry> providerMap,
                                  long version,
                                  String source) {
+        this(aliasRouteMap, patternRoutes, providerMap, Collections.emptyMap(), version, source);
+    }
+
+    public RoutingConfigSnapshot(Map<String, List<RouteCandidate>> aliasRouteMap,
+                                 List<PatternRoute> patternRoutes,
+                                 Map<String, ProviderEntry> providerMap,
+                                 Map<String, AutoRouteEntry> autoRouteMap,
+                                 long version,
+                                 String source) {
         // 对别名路由表做不可变包装，避免外部引用修改内部快照状态。
         this.aliasRouteMap = Collections.unmodifiableMap(
                 aliasRouteMap.entrySet().stream()
@@ -54,6 +66,7 @@ public final class RoutingConfigSnapshot {
         this.patternRoutes = List.copyOf(patternRoutes);
         // 对提供商配置表做不可变包装，确保快照整体只读。
         this.providerMap = Collections.unmodifiableMap(Map.copyOf(providerMap));
+        this.autoRouteMap = Collections.unmodifiableMap(Map.copyOf(autoRouteMap));
         this.version = version;
         this.createdAt = System.currentTimeMillis();
         this.source = source;
@@ -92,6 +105,20 @@ public final class RoutingConfigSnapshot {
      */
     public Map<String, ProviderEntry> getProviderMap() {
         return providerMap;
+    }
+
+    /**
+     * 获取 Auto 智能路由配置。
+     */
+    public AutoRouteEntry getAutoRoute(String routeKey) {
+        return autoRouteMap.get(routeKey);
+    }
+
+    /**
+     * 获取 Auto 智能路由映射表。
+     */
+    public Map<String, AutoRouteEntry> getAutoRouteMap() {
+        return autoRouteMap;
     }
 
     /**
@@ -164,13 +191,32 @@ public final class RoutingConfigSnapshot {
         public String originalPattern() { return originalPattern; }
         public List<RouteCandidate> candidates() { return candidates; }
 
-        /** 获取预编译的 Pattern，首次调用时惰性编译并缓存 */
+        /**
+         * 获取预编译的 Pattern，首次调用时惰性编译并缓存。
+         *
+         * <p>使用局部变量 + volatile 保证线程安全：即使多个线程同时通过 null 检查，
+         * 也只会重复编译（幂等），不会返回未完整构造的对象。</p>
+         */
         @JsonIgnore
         public Pattern compiledPattern() {
-            if (compiledPattern == null) {
-                compiledPattern = Pattern.compile(regex);
+            Pattern p = compiledPattern;
+            if (p == null) {
+                compiledPattern = p = Pattern.compile(regex);
             }
-            return compiledPattern;
+            return p;
+        }
+    }
+
+    /**
+     * Auto 智能路由配置条目。
+     */
+    public record AutoRouteEntry(
+            String routeKey,
+            String selectionStrategy,
+            List<RouteCandidate> candidates
+    ) {
+        public AutoRouteEntry {
+            candidates = List.copyOf(candidates);
         }
     }
 

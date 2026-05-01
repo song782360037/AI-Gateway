@@ -66,10 +66,17 @@ public class AdminSessionCookieManager {
     }
 
     private boolean isSecureRequest(ServerHttpRequest request) {
-        if (request.getSslInfo() != null) {
+        if (request.getSslInfo() != null || "https".equalsIgnoreCase(request.getURI().getScheme())) {
             return true;
         }
+        GatewayProperties.AdminAuthProperties adminAuth = gatewayProperties.getAdminAuth();
+        if (adminAuth == null || !adminAuth.isTrustForwardedHeaders()) {
+            return false;
+        }
         String forwardedProto = request.getHeaders().getFirst("X-Forwarded-Proto");
-        return "https".equalsIgnoreCase(forwardedProto);
+        if (!StringUtils.hasText(forwardedProto)) {
+            return false;
+        }
+        return "https".equalsIgnoreCase(forwardedProto.split(",")[0].trim());
     }
 }
