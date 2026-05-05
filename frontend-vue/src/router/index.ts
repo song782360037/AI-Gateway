@@ -53,9 +53,9 @@ const router = createRouter({
       name: 'model-config',
       component: () => import('../views/model-config/ModelConfigView.vue'),
       meta: {
-        eyebrow: '智能路由',
+        eyebrow: '模型配置',
         title: '模型配置',
-        description: '配置 auto 智能路由规则和候选模型，请求模型名为 auto 时自动选择最佳路由。',
+        description: '配置 auto 智能路由规则和对外支持的模型列表，管理路由策略与 /v1/models 接口返回的模型。',
         tag: '模型',
       },
     },

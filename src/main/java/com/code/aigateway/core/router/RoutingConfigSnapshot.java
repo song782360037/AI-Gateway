@@ -31,6 +31,9 @@ public final class RoutingConfigSnapshot {
     /** routeKey -> Auto 智能路由配置 */
     private final Map<String, AutoRouteEntry> autoRouteMap;
 
+    /** 启用中的支持模型列表（按 sort_order 排序），供 /v1/models 接口使用 */
+    private final List<SupportedModelEntry> supportedModels;
+
     /** 快照版本号，用于识别快照是否已刷新 */
     private final long version;
 
@@ -45,13 +48,23 @@ public final class RoutingConfigSnapshot {
                                  Map<String, ProviderEntry> providerMap,
                                  long version,
                                  String source) {
-        this(aliasRouteMap, patternRoutes, providerMap, Collections.emptyMap(), version, source);
+        this(aliasRouteMap, patternRoutes, providerMap, Collections.emptyMap(), List.of(), version, source);
     }
 
     public RoutingConfigSnapshot(Map<String, List<RouteCandidate>> aliasRouteMap,
                                  List<PatternRoute> patternRoutes,
                                  Map<String, ProviderEntry> providerMap,
                                  Map<String, AutoRouteEntry> autoRouteMap,
+                                 long version,
+                                 String source) {
+        this(aliasRouteMap, patternRoutes, providerMap, autoRouteMap, List.of(), version, source);
+    }
+
+    public RoutingConfigSnapshot(Map<String, List<RouteCandidate>> aliasRouteMap,
+                                 List<PatternRoute> patternRoutes,
+                                 Map<String, ProviderEntry> providerMap,
+                                 Map<String, AutoRouteEntry> autoRouteMap,
+                                 List<SupportedModelEntry> supportedModels,
                                  long version,
                                  String source) {
         // 对别名路由表做不可变包装，避免外部引用修改内部快照状态。
@@ -67,6 +80,7 @@ public final class RoutingConfigSnapshot {
         // 对提供商配置表做不可变包装，确保快照整体只读。
         this.providerMap = Collections.unmodifiableMap(Map.copyOf(providerMap));
         this.autoRouteMap = Collections.unmodifiableMap(Map.copyOf(autoRouteMap));
+        this.supportedModels = List.copyOf(supportedModels);
         this.version = version;
         this.createdAt = System.currentTimeMillis();
         this.source = source;
@@ -119,6 +133,13 @@ public final class RoutingConfigSnapshot {
      */
     public Map<String, AutoRouteEntry> getAutoRouteMap() {
         return autoRouteMap;
+    }
+
+    /**
+     * 获取启用中的支持模型列表。
+     */
+    public List<SupportedModelEntry> getSupportedModels() {
+        return supportedModels;
     }
 
     /**
@@ -237,4 +258,14 @@ public final class RoutingConfigSnapshot {
             List<String> supportedProtocols
     ) {
     }
+
+    /**
+     * 支持模型运行时条目，供 /v1/models 接口使用。
+     */
+    public record SupportedModelEntry(
+            String modelId,
+            String displayName,
+            String ownedBy,
+            long createdEpochSeconds
+    ) {}
 }

@@ -4,10 +4,12 @@ import com.code.aigateway.admin.mapper.AutoRouteCandidateMapper;
 import com.code.aigateway.admin.mapper.AutoRouteConfigMapper;
 import com.code.aigateway.admin.mapper.ModelRedirectConfigMapper;
 import com.code.aigateway.admin.mapper.ProviderConfigMapper;
+import com.code.aigateway.admin.mapper.SupportedModelMapper;
 import com.code.aigateway.admin.model.dataobject.AutoRouteCandidateDO;
 import com.code.aigateway.admin.model.dataobject.AutoRouteConfigDO;
 import com.code.aigateway.admin.model.dataobject.ModelRedirectConfigDO;
 import com.code.aigateway.admin.model.dataobject.ProviderConfigDO;
+import com.code.aigateway.admin.model.dataobject.SupportedModelDO;
 import com.code.aigateway.core.model.ResponseProtocol;
 import com.code.aigateway.core.router.GlobPatternUtil;
 import com.code.aigateway.core.router.MatchType;
@@ -21,6 +23,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -53,6 +56,9 @@ public class RuntimeConfigRefreshService {
 
     /** Auto 智能路由候选数据访问层 */
     private final AutoRouteCandidateMapper autoRouteCandidateMapper;
+
+    /** 支持模型配置数据访问层 */
+    private final SupportedModelMapper supportedModelMapper;
 
     /** API Key 加解密组件，用于把密文转换为运行时明文 */
     private final ApiKeyEncryptor apiKeyEncryptor;
@@ -159,24 +165,27 @@ public class RuntimeConfigRefreshService {
 
             Map<String, RoutingConfigSnapshot.AutoRouteEntry> autoRouteMap = buildAutoRouteMap(providerMap);
 
-            // 7. 生成新的快照版本号，并构建不可变快照对象。
+            // 7. 查询启用中的支持模型，构建 /v1/models 接口数据。
+            List<RoutingConfigSnapshot.SupportedModelEntry> supportedModels = buildSupportedModels();
+
+            // 8. 生成新的快照版本号，并构建不可变快照对象。
             long version = nextVersion();
             RoutingConfigSnapshot snapshot = new RoutingConfigSnapshot(
-                    aliasRouteMap, patternRoutes, providerMap, autoRouteMap, version, source);
+                    aliasRouteMap, patternRoutes, providerMap, autoRouteMap, supportedModels, version, source);
 
-            // 8. 原子替换本地快照，保证热路径读取始终一致。
+            // 9. 原子替换本地快照，保证热路径读取始终一致。
             routingSnapshotHolder.update(snapshot);
 
-            // 9. 将快照序列化后预热到 Redis，便于其他节点快速同步。
+            // 10. 将快照序列化后预热到 Redis，便于其他节点快速同步。
             String snapshotJson = objectMapper.writeValueAsString(snapshot);
             redisRoutingCacheService.warmupSnapshot(snapshotJson, version);
             redisRoutingCacheService.clearDirty();
 
-            log.info("[运行时配置刷新] 刷新成功，来源: {}，版本: {}，provider数: {}，精确alias数: {}，模式规则数: {}，auto规则数: {}",
-                    source, version, providerMap.size(), aliasRouteMap.size(), patternRoutes.size(), autoRouteMap.size());
+            log.info("[运行时配置刷新] 刷新成功，来源: {}，版本: {}，provider数: {}，精确alias数: {}，模式规则数: {}，auto规则数: {}，支持模型数: {}",
+                    source, version, providerMap.size(), aliasRouteMap.size(), patternRoutes.size(), autoRouteMap.size(), supportedModels.size());
             return true;
         } catch (Exception ex) {
-            // 10. 任意环节异常都不能影响主流程，需要打脏标记并记录错误日志。
+            // 11. 任意环节异常都不能影响主流程，需要打脏标记并记录错误日志。
             log.error("[运行时配置刷新] 从数据库刷新运行时快照失败，来源: {}", source, ex);
             routingSnapshotHolder.setDirty(true);
             redisRoutingCacheService.markDirty();
@@ -360,5 +369,22 @@ public class RuntimeConfigRefreshService {
                     matchType, aliasName, ex);
             return null;
         }
+    }
+
+    /**
+     * 从数据库加载启用中的支持模型，构建 /v1/models 接口运行时数据。
+     */
+    private List<RoutingConfigSnapshot.SupportedModelEntry> buildSupportedModels() {
+        List<SupportedModelDO> models = supportedModelMapper.selectAllEnabled();
+        return models.stream()
+                .map(model -> new RoutingConfigSnapshot.SupportedModelEntry(
+                        model.getModelId(),
+                        model.getDisplayName(),
+                        model.getOwnedBy(),
+                        model.getCreateTime() != null
+                                ? model.getCreateTime().toEpochSecond(ZoneOffset.UTC)
+                                : 0L
+                ))
+                .toList();
     }
 }
