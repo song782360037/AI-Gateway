@@ -13,7 +13,13 @@ const router = createRouter({
     },
     {
       path: '/',
-      redirect: '/dashboard',
+      redirect: '/home',
+    },
+    {
+      path: '/home',
+      name: 'home',
+      component: () => import('../views/home/HomeView.vue'),
+      meta: { title: '首页', public: true },
     },
     {
       path: '/dashboard',
@@ -111,10 +117,12 @@ router.beforeEach(async (to) => {
     return true
   }
 
+  if (to.path === '/login' && authStore.isAuthenticated) {
+    return { path: '/dashboard' }
+  }
+
+  // public 路由（首页、登录页）未登录时直接放行，避免死循环
   if (to.meta.public) {
-    if (authStore.isAuthenticated) {
-      return { path: '/dashboard' }
-    }
     return true
   }
 

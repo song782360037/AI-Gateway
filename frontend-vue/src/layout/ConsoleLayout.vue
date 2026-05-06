@@ -5,17 +5,16 @@
       <!-- Logo 品牌 -->
       <div class="sidebar-logo">
         <div class="sidebar-logo__mark">
-          <!-- 棱镜分流图标：请求 → 棱镜 → 多路输出 -->
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-            <!-- 输入信号线 -->
-            <path d="M0 9H5" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
-            <!-- 棱镜三角形（半透明填充 + 描边） -->
-            <path d="M6 3L14 9L6 15Z" fill="white" fill-opacity="0.3"/>
-            <path d="M6 3L14 9L6 15Z" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
-            <!-- 输出分流线（上/中/下三路，递减透明度） -->
-            <path d="M14 9L18 4.5" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.9"/>
-            <path d="M14 9H18" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
-            <path d="M14 9L18 13.5" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.35"/>
+          <!-- AI Gateway 品牌图标：统一入口 → 棱镜网关 → 多路模型分发 -->
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <!-- 统一输入（单条粗线代表标准接口入口） -->
+            <path d="M2 12H7" stroke="white" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+            <!-- 棱镜网关主体（半透明填充 + 粗描边） -->
+            <path d="M7 3L19 12L7 21V3Z" fill="white" fill-opacity="0.4" stroke="white" stroke-width="2.5" stroke-linejoin="round"/>
+            <!-- 多路分发到不同 AI 模型提供商 -->
+            <path d="M19 12L22 7" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.95"/>
+            <path d="M19 12L22 12" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.65"/>
+            <path d="M19 12L22 17" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.95"/>
           </svg>
         </div>
         <div class="sidebar-logo__text">
