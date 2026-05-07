@@ -39,9 +39,7 @@ function isSameOriginAdminPath(url: string): boolean {
 }
 
 function readCookie(name: string): string {
-  const cookie = document.cookie
-    .split('; ')
-    .find((item) => item.startsWith(`${name}=`))
+  const cookie = document.cookie.split('; ').find((item) => item.startsWith(`${name}=`))
   return cookie ? decodeURIComponent(cookie.substring(name.length + 1)) : ''
 }
 
@@ -54,7 +52,8 @@ async function getCsrfToken(forceRefresh = false): Promise<string> {
 
   if (!csrfTokenPromise) {
     // GET /admin/csrf 不会触发请求拦截器附加 CSRF Token（GET 不在 UNSAFE_METHODS 中），因此不会递归调用
-    csrfTokenPromise = request.get<never, { token: string }>('/admin/csrf')
+    csrfTokenPromise = request
+      .get<never, { token: string }>('/admin/csrf')
       .then((data) => data.token)
       .catch((err) => {
         console.warn('[CSRF] 获取 CSRF Token 失败，写操作可能被拒绝:', err?.message || err)
@@ -121,7 +120,8 @@ request.interceptors.response.use(
       const hash = window.location.hash || ''
       if (!hash.includes('/login')) {
         const current = hash.replace(/^#/, '')
-        const redirect = current && current !== '/' ? `?redirect=${encodeURIComponent(current)}` : ''
+        const redirect =
+          current && current !== '/' ? `?redirect=${encodeURIComponent(current)}` : ''
         window.location.hash = `#/login${redirect}`
       }
       const message = error?.response?.data?.message || '请先登录后继续'
@@ -174,10 +174,11 @@ request.interceptors.response.use(
     }
 
     // 其他错误
-    const message = error?.response?.data?.message
-      || error?.response?.data?.error?.message
-      || error?.message
-      || '网络异常，请稍后重试'
+    const message =
+      error?.response?.data?.message ||
+      error?.response?.data?.error?.message ||
+      error?.message ||
+      '网络异常，请稍后重试'
 
     ElMessage.error(message)
     return Promise.reject(error)

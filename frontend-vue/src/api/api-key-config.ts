@@ -9,7 +9,10 @@ import type {
 } from '../types/api-key-config'
 
 export function fetchApiKeyPage(data: ApiKeyConfigQueryReq) {
-  return request.post<ApiKeyConfigQueryReq, PageResult<ApiKeyConfigRsp>>('/admin/api-key-config/list', data)
+  return request.post<ApiKeyConfigQueryReq, PageResult<ApiKeyConfigRsp>>(
+    '/admin/api-key-config/list',
+    data,
+  )
 }
 
 export function addApiKey(data: ApiKeyConfigAddReq) {

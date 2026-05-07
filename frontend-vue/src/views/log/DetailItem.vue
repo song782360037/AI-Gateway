@@ -3,7 +3,14 @@
     <div class="detail-item__label">{{ label }}</div>
     <div class="detail-item__value" :class="{ 'is-highlight': highlight }">
       <span>{{ displayValue }}</span>
-      <button v-if="copyable && hasValue" class="detail-item__copy" type="button" @click="copyValue">复制</button>
+      <button
+        v-if="copyable && hasValue"
+        class="detail-item__copy"
+        type="button"
+        @click="copyValue"
+      >
+        复制
+      </button>
     </div>
   </div>
 </template>
@@ -26,7 +33,9 @@ const props = withDefaults(
   },
 )
 
-const hasValue = computed(() => props.value !== null && props.value !== undefined && props.value !== '')
+const hasValue = computed(
+  () => props.value !== null && props.value !== undefined && props.value !== '',
+)
 const displayValue = computed(() => (hasValue.value ? String(props.value) : '-'))
 
 async function copyValue() {

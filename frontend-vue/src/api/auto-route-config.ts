@@ -11,7 +11,10 @@ import type {
 } from '../types/auto-route'
 
 export function fetchAutoRoutePage(data: AutoRouteConfigQueryReq) {
-  return request.post<AutoRouteConfigQueryReq, PageResult<AutoRouteConfigRsp>>('/admin/auto-route-config/list', data)
+  return request.post<AutoRouteConfigQueryReq, PageResult<AutoRouteConfigRsp>>(
+    '/admin/auto-route-config/list',
+    data,
+  )
 }
 
 export function addAutoRouteConfig(data: AutoRouteConfigAddReq) {
@@ -35,17 +38,29 @@ export function getAutoRouteConfig(id: number) {
 }
 
 export function addAutoRouteCandidate(data: AutoRouteCandidateAddReq) {
-  return request.post<AutoRouteCandidateAddReq, number>('/admin/auto-route-config/candidate/add', data)
+  return request.post<AutoRouteCandidateAddReq, number>(
+    '/admin/auto-route-config/candidate/add',
+    data,
+  )
 }
 
 export function updateAutoRouteCandidate(data: AutoRouteCandidateUpdateReq) {
-  return request.post<AutoRouteCandidateUpdateReq, void>('/admin/auto-route-config/candidate/update', data)
+  return request.post<AutoRouteCandidateUpdateReq, void>(
+    '/admin/auto-route-config/candidate/update',
+    data,
+  )
 }
 
 export function toggleAutoRouteCandidate(data: AutoRouteIdVersionReq) {
-  return request.post<AutoRouteIdVersionReq, void>('/admin/auto-route-config/candidate/toggle', data)
+  return request.post<AutoRouteIdVersionReq, void>(
+    '/admin/auto-route-config/candidate/toggle',
+    data,
+  )
 }
 
 export function deleteAutoRouteCandidate(data: AutoRouteIdVersionReq) {
-  return request.post<AutoRouteIdVersionReq, void>('/admin/auto-route-config/candidate/delete', data)
+  return request.post<AutoRouteIdVersionReq, void>(
+    '/admin/auto-route-config/candidate/delete',
+    data,
+  )
 }

@@ -1,16 +1,17 @@
 <template>
   <div>
-    <div class="card-header" style="margin-bottom: 16px;">
+    <div class="card-header" style="margin-bottom: 16px">
       <div class="card-header__actions">
         <el-button type="primary" size="small" @click="openCreate">新增模型</el-button>
-        <el-button size="small" @click="handleSync" :loading="syncing">从路由别名同步</el-button>
+        <el-button size="small" :loading="syncing" @click="handleSync">从路由别名同步</el-button>
         <el-button size="small" @click="loadData">刷新</el-button>
       </div>
     </div>
 
     <el-alert class="model-hint" type="info" :closable="false" show-icon>
       <template #title>
-        管理对外暴露的模型列表，启用后的模型将通过 GET /v1/models 接口返回给客户端。点击"从路由别名同步"可一键导入已有的路由别名。
+        管理对外暴露的模型列表，启用后的模型将通过 GET /v1/models
+        接口返回给客户端。点击"从路由别名同步"可一键导入已有的路由别名。
       </template>
     </el-alert>
 
@@ -60,7 +61,12 @@
       <el-table-column label="操作" fixed="right" width="200" align="center">
         <template #default="{ row }">
           <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
-          <el-button link :type="row.enabled ? 'warning' : 'success'" size="small" @click="toggleModel(row)">
+          <el-button
+            link
+            :type="row.enabled ? 'warning' : 'success'"
+            size="small"
+            @click="toggleModel(row)"
+          >
             {{ row.enabled ? '禁用' : '启用' }}
           </el-button>
           <el-button link type="danger" size="small" @click="removeModel(row)">删除</el-button>
@@ -78,9 +84,13 @@
           </template>
           <template v-else>
             <strong>{{ hasActiveFilters ? '没有匹配的模型' : '暂无支持模型' }}</strong>
-            <p>{{ hasActiveFilters ? '尝试重置筛选条件' : '请点击"新增模型"或"从路由别名同步"创建' }}</p>
+            <p>
+              {{ hasActiveFilters ? '尝试重置筛选条件' : '请点击"新增模型"或"从路由别名同步"创建' }}
+            </p>
             <div class="table-empty-state__actions">
-              <el-button v-if="hasActiveFilters" size="small" @click="resetQuery">重置筛选</el-button>
+              <el-button v-if="hasActiveFilters" size="small" @click="resetQuery"
+                >重置筛选</el-button
+              >
               <el-button type="primary" size="small" @click="openCreate">新增模型</el-button>
             </div>
           </template>
@@ -106,9 +116,20 @@
       destroy-on-close
       @closed="resetForm"
     >
-      <el-form ref="formRef" :model="form" :rules="formRules" label-width="90px" label-position="right">
+      <el-form
+        ref="formRef"
+        :model="form"
+        :rules="formRules"
+        label-width="90px"
+        label-position="right"
+      >
         <el-form-item label="模型标识" prop="modelId">
-          <el-input v-model.trim="form.modelId" :disabled="isEdit" placeholder="如 gpt-4o、claude-3-opus" maxlength="128" />
+          <el-input
+            v-model.trim="form.modelId"
+            :disabled="isEdit"
+            placeholder="如 gpt-4o、claude-3-opus"
+            maxlength="128"
+          />
         </el-form-item>
         <el-form-item label="展示名称" prop="displayName">
           <el-input v-model.trim="form.displayName" placeholder="如 GPT-4o" maxlength="128" />
@@ -117,7 +138,12 @@
           <el-input v-model.trim="form.ownedBy" placeholder="如 openai、anthropic" maxlength="64" />
         </el-form-item>
         <el-form-item label="排序权重" prop="sortOrder">
-          <el-input-number v-model="form.sortOrder" :min="0" :max="9999" controls-position="right" />
+          <el-input-number
+            v-model="form.sortOrder"
+            :min="0"
+            :max="9999"
+            controls-position="right"
+          />
         </el-form-item>
         <el-form-item label="启用" prop="enabled">
           <el-switch v-model="form.enabled" />
@@ -153,7 +179,14 @@ import type {
   SupportedModelUpdateReq,
 } from '../../types/supported-model'
 
-const query = reactive<SupportedModelQueryReq>({ modelId: '', displayName: '', ownedBy: '', enabled: undefined, page: 1, pageSize: 20 })
+const query = reactive<SupportedModelQueryReq>({
+  modelId: '',
+  displayName: '',
+  ownedBy: '',
+  enabled: undefined,
+  page: 1,
+  pageSize: 20,
+})
 const page = reactive<PageResult<SupportedModelRsp>>({ list: [], total: 0, page: 1, pageSize: 20 })
 const loading = ref(false)
 const loadError = ref(false)
@@ -179,7 +212,9 @@ const formRules: FormRules = {
   displayName: [{ required: true, message: '请输入展示名称', trigger: 'blur' }],
 }
 
-const hasActiveFilters = computed(() => Boolean(query.modelId || query.displayName || query.ownedBy || query.enabled !== undefined))
+const hasActiveFilters = computed(() =>
+  Boolean(query.modelId || query.displayName || query.ownedBy || query.enabled !== undefined),
+)
 
 async function loadData() {
   loading.value = true
@@ -275,11 +310,9 @@ async function submitForm() {
 async function toggleModel(row: SupportedModelRsp) {
   const action = row.enabled ? '禁用' : '启用'
   try {
-    await ElMessageBox.confirm(
-      `${action}后运行时配置会立即刷新，是否继续？`,
-      `${action}模型`,
-      { type: 'warning' },
-    )
+    await ElMessageBox.confirm(`${action}后运行时配置会立即刷新，是否继续？`, `${action}模型`, {
+      type: 'warning',
+    })
     await toggleSupportedModel(row.id, row.versionNo)
     ElMessage.success(`模型已${action}`)
     await loadData()
@@ -290,11 +323,9 @@ async function toggleModel(row: SupportedModelRsp) {
 
 async function removeModel(row: SupportedModelRsp) {
   try {
-    await ElMessageBox.confirm(
-      '删除后运行时配置会立即刷新，是否继续？',
-      '删除模型',
-      { type: 'warning' },
-    )
+    await ElMessageBox.confirm('删除后运行时配置会立即刷新，是否继续？', '删除模型', {
+      type: 'warning',
+    })
     await deleteSupportedModel(row.id, row.versionNo)
     ElMessage.success('模型删除成功')
     await loadData()

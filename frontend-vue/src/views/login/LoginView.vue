@@ -10,8 +10,22 @@
         <div class="brand-header">
           <div class="brand-icon">
             <svg width="24" height="24" viewBox="0 0 32 32" fill="none">
-              <rect x="2" y="2" width="28" height="28" rx="8" stroke="currentColor" stroke-width="2" />
-              <path d="M10 16L14 20L22 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+              <rect
+                x="2"
+                y="2"
+                width="28"
+                height="28"
+                rx="8"
+                stroke="currentColor"
+                stroke-width="2"
+              />
+              <path
+                d="M10 16L14 20L22 12"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
             </svg>
           </div>
           <div class="mode-pill">{{ modeLabel }}</div>
@@ -40,7 +54,9 @@
           <el-icon class="setup-tip__icon"><Lock /></el-icon>
           <div class="setup-tip__content">
             <div class="setup-tip__title">安全提醒</div>
-            <div class="setup-tip__desc">这是系统首次启动，请设置管理员凭证。初始化后系统将进入单用户模式，当前账户将拥有唯一管理权限。</div>
+            <div class="setup-tip__desc">
+              这是系统首次启动，请设置管理员凭证。初始化后系统将进入单用户模式，当前账户将拥有唯一管理权限。
+            </div>
           </div>
         </div>
 
@@ -95,7 +111,10 @@
               <span v-else class="hint-dot"></span>
               至少 8 位
             </span>
-            <span class="password-hints__item" :class="{ 'is-valid': /[A-Za-z]/.test(form.password) }">
+            <span
+              class="password-hints__item"
+              :class="{ 'is-valid': /[A-Za-z]/.test(form.password) }"
+            >
               <el-icon v-if="/[A-Za-z]/.test(form.password)"><Check /></el-icon>
               <span v-else class="hint-dot"></span>
               包含字母
@@ -151,16 +170,18 @@ const form = reactive({
 
 const isSetupMode = computed(() => authStore.initialized === false)
 const modeLabel = computed(() => (isSetupMode.value ? '首次初始化' : '安全登录'))
-const subtitle = computed(() => (
-  isSetupMode.value
-    ? '初始化系统并配置管理员'
-    : '使用管理员账户继续访问管理控制台'
-))
-const actionText = computed(() => (
+const subtitle = computed(() =>
+  isSetupMode.value ? '初始化系统并配置管理员' : '使用管理员账户继续访问管理控制台',
+)
+const actionText = computed(() =>
   loading.value
-    ? (isSetupMode.value ? '创建中...' : '登录中...')
-    : (isSetupMode.value ? '创建管理员并进入系统' : '登录')
-))
+    ? isSetupMode.value
+      ? '创建中...'
+      : '登录中...'
+    : isSetupMode.value
+      ? '创建管理员并进入系统'
+      : '登录',
+)
 
 const passwordRule: FormItemRule = {
   validator: (_rule, value: string, callback) => {
@@ -313,23 +334,23 @@ function initCanvas() {
   let stars: Star[] = []
 
   // 配置参数
-  const STAR_DENSITY = 0.00012          // 每像素星星数
-  const MAX_LINK_DIST = 150             // 星星间最大连线距离
-  const MOUSE_RADIUS = 200              // 鼠标影响半径
-  const MOUSE_ATTRACT = 0.015           // 鼠标吸引力强度
-  const MOUSE_REPEL_DIST = 80           // 鼠标排斥半径（太近时推开）
-  const MOUSE_REPEL = 0.05              // 排斥力强度
-  const FRICTION = 0.98                 // 速度衰减（模拟摩擦）
-  const BASE_SPEED = 0.25               // 星星基础移动速度
-  const PULSE_SPEED = 0.02              // 闪烁频率
+  const STAR_DENSITY = 0.00012 // 每像素星星数
+  const MAX_LINK_DIST = 150 // 星星间最大连线距离
+  const MOUSE_RADIUS = 200 // 鼠标影响半径
+  const MOUSE_ATTRACT = 0.015 // 鼠标吸引力强度
+  const MOUSE_REPEL_DIST = 80 // 鼠标排斥半径（太近时推开）
+  const MOUSE_REPEL = 0.05 // 排斥力强度
+  const FRICTION = 0.98 // 速度衰减（模拟摩擦）
+  const BASE_SPEED = 0.25 // 星星基础移动速度
+  const PULSE_SPEED = 0.02 // 闪烁频率
 
   // 颜色主题：蓝色 + 青色星链，偶尔暖色星点
   const COLORS = [
-    { r: 67, g: 97, b: 238 },   // 主蓝
-    { r: 105, g: 131, b: 242 },  // 亮蓝
-    { r: 6, g: 182, b: 212 },    // 青
-    { r: 140, g: 160, b: 242 },  // 淡紫蓝
-    { r: 200, g: 160, b: 100 },  // 暖金（少量）
+    { r: 67, g: 97, b: 238 }, // 主蓝
+    { r: 105, g: 131, b: 242 }, // 亮蓝
+    { r: 6, g: 182, b: 212 }, // 青
+    { r: 140, g: 160, b: 242 }, // 淡紫蓝
+    { r: 200, g: 160, b: 100 }, // 暖金（少量）
   ]
 
   function resize() {
@@ -480,8 +501,12 @@ function initCanvas() {
     // ---- 鼠标光标光晕 ----
     if (mouse.value.active) {
       const cursorGlow = ctx.createRadialGradient(
-        mouse.value.x, mouse.value.y, 0,
-        mouse.value.x, mouse.value.y, MOUSE_RADIUS * 0.5,
+        mouse.value.x,
+        mouse.value.y,
+        0,
+        mouse.value.x,
+        mouse.value.y,
+        MOUSE_RADIUS * 0.5,
       )
       cursorGlow.addColorStop(0, 'rgba(67,97,238,0.06)')
       cursorGlow.addColorStop(0.5, 'rgba(67,97,238,0.02)')
@@ -503,17 +528,24 @@ function initCanvas() {
 
   // 基于相位选星星颜色（确定性）
   function starColor(s: Star) {
-    const idx = Math.floor(s.phase / (Math.PI * 2) * COLORS.length) % COLORS.length
+    const idx = Math.floor((s.phase / (Math.PI * 2)) * COLORS.length) % COLORS.length
     return COLORS[idx]
   }
 
   resize()
   draw()
   window.addEventListener('resize', resize)
+
+  // 返回清理函数，用于组件卸载时移除事件监听
+  return () => {
+    window.removeEventListener('resize', resize)
+  }
 }
 
+let cleanupCanvas: (() => void) | null = null
+
 onMounted(async () => {
-  initCanvas()
+  cleanupCanvas = initCanvas()
   if (!authStore.ready) {
     try {
       await authStore.bootstrap()
@@ -528,6 +560,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   cancelAnimationFrame(animFrameId)
+  cleanupCanvas?.()
 })
 </script>
 
@@ -741,7 +774,9 @@ onUnmounted(() => {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   box-shadow: none !important;
-  transition: border-color 0.2s, background 0.2s;
+  transition:
+    border-color 0.2s,
+    background 0.2s;
 }
 
 .login-form :deep(.el-input__wrapper:hover) {
@@ -791,8 +826,12 @@ onUnmounted(() => {
 }
 
 @keyframes rotating {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* 响应式 */

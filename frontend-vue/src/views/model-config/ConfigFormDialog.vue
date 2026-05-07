@@ -124,7 +124,11 @@ function resetForm() {
 
 async function handleSubmit() {
   if (!formRef.value) return
-  try { await formRef.value.validate() } catch { return }
+  try {
+    await formRef.value.validate()
+  } catch {
+    return
+  }
 
   submitting.value = true
   try {

@@ -179,6 +179,9 @@ async function submit() {
     enabled: form.enabled,
   }
 
-  emit('submit', isEdit.value ? { ...basePayload, id: form.id, versionNo: form.versionNo } : basePayload)
+  emit(
+    'submit',
+    isEdit.value ? { ...basePayload, id: form.id, versionNo: form.versionNo } : basePayload,
+  )
 }
 </script>

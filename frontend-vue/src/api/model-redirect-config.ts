@@ -8,7 +8,10 @@ import type {
 } from '../types/model'
 
 export function fetchModelRedirectPage(data: ModelRedirectConfigQueryReq) {
-  return request.post<ModelRedirectConfigQueryReq, PageResult<ModelRedirectConfigRsp>>('/admin/model-redirect-config/list', data)
+  return request.post<ModelRedirectConfigQueryReq, PageResult<ModelRedirectConfigRsp>>(
+    '/admin/model-redirect-config/list',
+    data,
+  )
 }
 
 export function addModelRedirect(data: ModelRedirectConfigAddReq) {
@@ -16,7 +19,10 @@ export function addModelRedirect(data: ModelRedirectConfigAddReq) {
 }
 
 export function updateModelRedirect(data: ModelRedirectConfigUpdateReq) {
-  return request.post<ModelRedirectConfigUpdateReq, void>('/admin/model-redirect-config/update', data)
+  return request.post<ModelRedirectConfigUpdateReq, void>(
+    '/admin/model-redirect-config/update',
+    data,
+  )
 }
 
 export function deleteModelRedirect(id: number) {

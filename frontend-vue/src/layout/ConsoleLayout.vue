@@ -8,13 +8,44 @@
           <!-- AI Gateway 品牌图标：统一入口 → 棱镜网关 → 多路模型分发 -->
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
             <!-- 统一输入（单条粗线代表标准接口入口） -->
-            <path d="M2 12H7" stroke="white" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+            <path
+              d="M2 12H7"
+              stroke="white"
+              stroke-width="3"
+              stroke-linecap="round"
+              opacity="0.9"
+            />
             <!-- 棱镜网关主体（半透明填充 + 粗描边） -->
-            <path d="M7 3L19 12L7 21V3Z" fill="white" fill-opacity="0.4" stroke="white" stroke-width="2.5" stroke-linejoin="round"/>
+            <path
+              d="M7 3L19 12L7 21V3Z"
+              fill="white"
+              fill-opacity="0.4"
+              stroke="white"
+              stroke-width="2.5"
+              stroke-linejoin="round"
+            />
             <!-- 多路分发到不同 AI 模型提供商 -->
-            <path d="M19 12L22 7" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.95"/>
-            <path d="M19 12L22 12" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.65"/>
-            <path d="M19 12L22 17" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.95"/>
+            <path
+              d="M19 12L22 7"
+              stroke="white"
+              stroke-width="2"
+              stroke-linecap="round"
+              opacity="0.95"
+            />
+            <path
+              d="M19 12L22 12"
+              stroke="white"
+              stroke-width="2"
+              stroke-linecap="round"
+              opacity="0.65"
+            />
+            <path
+              d="M19 12L22 17"
+              stroke="white"
+              stroke-width="2"
+              stroke-linecap="round"
+              opacity="0.95"
+            />
           </svg>
         </div>
         <div class="sidebar-logo__text">
@@ -110,7 +141,9 @@
   >
     <div class="account-dialog__intro">
       <div class="account-dialog__intro-title">当前管理员：{{ username }}</div>
-      <div class="account-dialog__intro-desc">修改密码后将自动轮换当前会话，并使其他已登录设备失效。</div>
+      <div class="account-dialog__intro-desc">
+        修改密码后将自动轮换当前会话，并使其他已登录设备失效。
+      </div>
     </div>
 
     <el-tabs v-model="activeTab" class="account-tabs">
@@ -126,7 +159,11 @@
             <el-input :model-value="username" disabled />
           </el-form-item>
           <el-form-item label="新用户名" prop="newUsername">
-            <el-input v-model.trim="usernameForm.newUsername" maxlength="32" placeholder="请输入新的管理员用户名" />
+            <el-input
+              v-model.trim="usernameForm.newUsername"
+              maxlength="32"
+              placeholder="请输入新的管理员用户名"
+            />
           </el-form-item>
           <el-form-item label="当前密码" prop="currentPassword">
             <el-input
@@ -204,7 +241,17 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Connection, DataAnalysis, Document, Key, Odometer, Operation, Setting, SwitchButton, User } from '@element-plus/icons-vue'
+import {
+  Connection,
+  DataAnalysis,
+  Document,
+  Key,
+  Odometer,
+  Operation,
+  Setting,
+  SwitchButton,
+  User,
+} from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules, FormItemRule } from 'element-plus'
 import { useAuthStore } from '../stores/auth'
@@ -347,45 +394,49 @@ function handleDialogClosed() {
 async function submitUsernameChange() {
   if (!usernameFormRef.value) return
 
-  await usernameFormRef.value.validate(async (valid) => {
-    if (!valid) return
+  try {
+    await usernameFormRef.value.validate()
+  } catch {
+    return
+  }
 
-    updatingUsername.value = true
-    try {
-      await authStore.updateUsername({
-        currentPassword: usernameForm.currentPassword,
-        newUsername: usernameForm.newUsername,
-      })
-      ElMessage.success('用户名修改成功')
-      accountDialogVisible.value = false
-    } catch {
-      // 错误信息由请求拦截器统一处理
-    } finally {
-      updatingUsername.value = false
-    }
-  })
+  updatingUsername.value = true
+  try {
+    await authStore.updateUsername({
+      currentPassword: usernameForm.currentPassword,
+      newUsername: usernameForm.newUsername,
+    })
+    ElMessage.success('用户名修改成功')
+    accountDialogVisible.value = false
+  } catch {
+    // 错误信息由请求拦截器统一处理
+  } finally {
+    updatingUsername.value = false
+  }
 }
 
 async function submitPasswordChange() {
   if (!passwordFormRef.value) return
 
-  await passwordFormRef.value.validate(async (valid) => {
-    if (!valid) return
+  try {
+    await passwordFormRef.value.validate()
+  } catch {
+    return
+  }
 
-    updatingPassword.value = true
-    try {
-      await authStore.changePassword({
-        currentPassword: passwordForm.currentPassword,
-        newPassword: passwordForm.newPassword,
-      })
-      ElMessage.success('密码修改成功，当前会话已安全刷新')
-      accountDialogVisible.value = false
-    } catch {
-      // 错误信息由请求拦截器统一处理
-    } finally {
-      updatingPassword.value = false
-    }
-  })
+  updatingPassword.value = true
+  try {
+    await authStore.changePassword({
+      currentPassword: passwordForm.currentPassword,
+      newPassword: passwordForm.newPassword,
+    })
+    ElMessage.success('密码修改成功，当前会话已安全刷新')
+    accountDialogVisible.value = false
+  } catch {
+    // 错误信息由请求拦截器统一处理
+  } finally {
+    updatingPassword.value = false
+  }
 }
 
 async function handleLogout() {

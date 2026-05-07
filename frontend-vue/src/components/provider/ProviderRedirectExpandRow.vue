@@ -23,11 +23,7 @@
           <el-table-column prop="aliasName" label="对外模型" min-width="140" />
           <el-table-column label="匹配类型" min-width="100">
             <template #default="{ row }">
-              <el-tag
-                :type="matchTypeTagType(row.matchType)"
-                size="small"
-                effect="plain"
-              >
+              <el-tag :type="matchTypeTagType(row.matchType)" size="small" effect="plain">
                 {{ matchTypeLabel(row.matchType) }}
               </el-tag>
             </template>
@@ -36,7 +32,11 @@
           <el-table-column label="状态" min-width="80">
             <template #default="{ row }">
               <el-tag
-                :class="row.enabled ? 'status-chip status-chip--success' : 'status-chip status-chip--muted'"
+                :class="
+                  row.enabled
+                    ? 'status-chip status-chip--success'
+                    : 'status-chip status-chip--muted'
+                "
                 :type="row.enabled ? 'success' : 'info'"
                 size="small"
               >
@@ -46,7 +46,9 @@
           </el-table-column>
           <el-table-column label="操作" fixed="right" width="200">
             <template #default="{ row }">
-              <el-button link type="primary" size="small" @click="emit('editRedirect', row)">编辑</el-button>
+              <el-button link type="primary" size="small" @click="emit('editRedirect', row)"
+                >编辑</el-button
+              >
               <el-button
                 link
                 :type="row.enabled ? 'warning' : 'success'"
@@ -55,7 +57,9 @@
               >
                 {{ row.enabled ? '禁用' : '启用' }}
               </el-button>
-              <el-button link type="danger" size="small" @click="emit('deleteRedirect', row)">删除</el-button>
+              <el-button link type="danger" size="small" @click="emit('deleteRedirect', row)"
+                >删除</el-button
+              >
             </template>
           </el-table-column>
 
@@ -94,18 +98,24 @@ const loading = ref(false)
 /** 匹配类型显示文本 */
 function matchTypeLabel(matchType?: MatchType): string {
   switch (matchType) {
-    case 'GLOB': return '通配符'
-    case 'REGEX': return '正则'
-    default: return '精确'
+    case 'GLOB':
+      return '通配符'
+    case 'REGEX':
+      return '正则'
+    default:
+      return '精确'
   }
 }
 
 /** 匹配类型标签颜色 */
 function matchTypeTagType(matchType?: MatchType): '' | 'warning' | 'danger' {
   switch (matchType) {
-    case 'GLOB': return 'warning'
-    case 'REGEX': return 'danger'
-    default: return ''
+    case 'GLOB':
+      return 'warning'
+    case 'REGEX':
+      return 'danger'
+    default:
+      return ''
   }
 }
 

@@ -34,7 +34,8 @@ const router = createRouter({
       meta: {
         eyebrow: '运行时概览',
         title: '运行时状态',
-        description: '查看快照版本、脏标记和刷新来源，帮助后台管理员快速判断当前配置是否处于健康状态。',
+        description:
+          '查看快照版本、脏标记和刷新来源，帮助后台管理员快速判断当前配置是否处于健康状态。',
         tag: '运行时',
       },
     },
@@ -61,7 +62,8 @@ const router = createRouter({
       meta: {
         eyebrow: '模型配置',
         title: '模型配置',
-        description: '配置 auto 智能路由规则和对外支持的模型列表，管理路由策略与 /v1/models 接口返回的模型。',
+        description:
+          '配置 auto 智能路由规则和对外支持的模型列表，管理路由策略与 /v1/models 接口返回的模型。',
         tag: '模型',
       },
     },

@@ -25,7 +25,11 @@
             <el-input v-model="form.providerCode" placeholder="如 openai-main" />
           </el-form-item>
           <el-form-item label="提供商类型" prop="providerType">
-            <el-select v-model="form.providerType" placeholder="请选择提供商类型" style="width: 100%">
+            <el-select
+              v-model="form.providerType"
+              placeholder="请选择提供商类型"
+              style="width: 100%"
+            >
               <el-option
                 v-for="item in providerTypeOptions"
                 :key="item.value"
@@ -51,11 +55,21 @@
         </div>
         <div class="form-grid">
           <el-form-item :label="isEdit ? 'API 密钥（留空表示不修改）' : 'API 密钥'" prop="apiKey">
-            <el-input v-model="form.apiKey" type="password" show-password placeholder="新增必填，编辑留空不修改" />
+            <el-input
+              v-model="form.apiKey"
+              type="password"
+              show-password
+              placeholder="新增必填，编辑留空不修改"
+            />
           </el-form-item>
           <div class="form-grid__inline">
             <el-form-item label="超时（秒）" prop="timeoutSeconds">
-              <el-input-number v-model="form.timeoutSeconds" :min="1" :step="10" style="width: 100%" />
+              <el-input-number
+                v-model="form.timeoutSeconds"
+                :min="1"
+                :step="10"
+                style="width: 100%"
+              />
             </el-form-item>
             <el-form-item label="优先级" prop="priority">
               <el-input-number v-model="form.priority" :step="1" style="width: 100%" />
@@ -230,7 +244,10 @@ async function submit() {
     supportedProtocols: form.supportedProtocols,
   }
 
-  emit('submit', isEdit.value ? { ...basePayload, id: form.id, versionNo: form.versionNo } : basePayload)
+  emit(
+    'submit',
+    isEdit.value ? { ...basePayload, id: form.id, versionNo: form.versionNo } : basePayload,
+  )
 }
 </script>
 

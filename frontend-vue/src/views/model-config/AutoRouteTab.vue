@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div style="margin-bottom: 16px;">
+    <div style="margin-bottom: 16px">
       <div class="card-header__actions">
         <el-button type="primary" size="small" @click="openCreate">新增 Auto 配置</el-button>
         <el-button size="small" @click="loadData">刷新</el-button>
@@ -55,9 +55,16 @@
       </el-table-column>
       <el-table-column label="操作" fixed="right" width="260" align="center">
         <template #default="{ row }">
-          <el-button link type="primary" size="small" @click="openCandidates(row)">候选模型</el-button>
+          <el-button link type="primary" size="small" @click="openCandidates(row)"
+            >候选模型</el-button
+          >
           <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
-          <el-button link :type="row.enabled ? 'warning' : 'success'" size="small" @click="toggleConfig(row)">
+          <el-button
+            link
+            :type="row.enabled ? 'warning' : 'success'"
+            size="small"
+            @click="toggleConfig(row)"
+          >
             {{ row.enabled ? '禁用' : '启用' }}
           </el-button>
           <el-button link type="danger" size="small" @click="removeConfig(row)">删除</el-button>
@@ -77,7 +84,9 @@
             <strong>{{ hasActiveFilters ? '没有匹配的 Auto 配置' : '暂无 Auto 配置' }}</strong>
             <p>{{ hasActiveFilters ? '尝试重置筛选条件' : '请点击"新增 Auto 配置"创建' }}</p>
             <div class="table-empty-state__actions">
-              <el-button v-if="hasActiveFilters" size="small" @click="resetQuery">重置筛选</el-button>
+              <el-button v-if="hasActiveFilters" size="small" @click="resetQuery"
+                >重置筛选</el-button
+              >
               <el-button type="primary" size="small" @click="openCreate">新增 Auto 配置</el-button>
             </div>
           </template>
@@ -123,12 +132,15 @@ import {
   toggleAutoRouteConfig,
 } from '../../api/auto-route-config'
 import type { PageResult } from '../../types/common'
-import type {
-  AutoRouteConfigQueryReq,
-  AutoRouteConfigRsp,
-} from '../../types/auto-route'
+import type { AutoRouteConfigQueryReq, AutoRouteConfigRsp } from '../../types/auto-route'
 
-const query = reactive<AutoRouteConfigQueryReq>({ routeKey: '', displayName: '', enabled: undefined, page: 1, pageSize: 20 })
+const query = reactive<AutoRouteConfigQueryReq>({
+  routeKey: '',
+  displayName: '',
+  enabled: undefined,
+  page: 1,
+  pageSize: 20,
+})
 const page = reactive<PageResult<AutoRouteConfigRsp>>({ list: [], total: 0, page: 1, pageSize: 20 })
 const loading = ref(false)
 const loadError = ref(false)
@@ -142,7 +154,9 @@ const editingConfig = ref<AutoRouteConfigRsp>()
 const candidateDrawerVisible = ref(false)
 const selectedConfig = ref<AutoRouteConfigRsp>()
 
-const hasActiveFilters = computed(() => Boolean(query.routeKey || query.displayName || query.enabled !== undefined))
+const hasActiveFilters = computed(() =>
+  Boolean(query.routeKey || query.displayName || query.enabled !== undefined),
+)
 
 async function loadData() {
   loading.value = true

@@ -30,10 +30,21 @@
       <div class="provider-toolbar">
         <el-form :inline="true" :model="providerQuery" class="filter-bar">
           <el-form-item label="提供商名称">
-            <el-input v-model="providerQuery.providerCode" placeholder="openai-main" clearable size="default" />
+            <el-input
+              v-model="providerQuery.providerCode"
+              placeholder="openai-main"
+              clearable
+              size="default"
+            />
           </el-form-item>
           <el-form-item label="提供商类型">
-            <el-select v-model="providerQuery.providerType" placeholder="全部" clearable style="width: 160px" size="default">
+            <el-select
+              v-model="providerQuery.providerType"
+              placeholder="全部"
+              clearable
+              style="width: 160px"
+              size="default"
+            >
               <el-option label="OpenAI Chat" value="OPENAI_CHAT" />
               <el-option label="Response" value="OPENAI_RESPONSES" />
               <el-option label="Anthropic" value="ANTHROPIC" />
@@ -41,7 +52,12 @@
             </el-select>
           </el-form-item>
           <el-form-item label="启用状态">
-            <el-select v-model="enabledFilter" placeholder="全部" style="width: 120px" size="default">
+            <el-select
+              v-model="enabledFilter"
+              placeholder="全部"
+              style="width: 120px"
+              size="default"
+            >
               <el-option label="全部" value="all" />
               <el-option label="启用" value="true" />
               <el-option label="禁用" value="false" />
@@ -105,7 +121,9 @@
         <el-table-column label="状态" min-width="50" align="center">
           <template #default="{ row }">
             <el-tag
-              :class="row.enabled ? 'status-chip status-chip--success' : 'status-chip status-chip--muted'"
+              :class="
+                row.enabled ? 'status-chip status-chip--success' : 'status-chip status-chip--muted'
+              "
               :type="row.enabled ? 'success' : 'info'"
               size="small"
             >
@@ -132,7 +150,9 @@
         </el-table-column>
         <el-table-column label="操作" fixed="right" width="260" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openEditProvider(row)">编辑</el-button>
+            <el-button link type="primary" size="small" @click="openEditProvider(row)"
+              >编辑</el-button
+            >
             <el-button
               link
               type="primary"
@@ -142,10 +162,17 @@
             >
               {{ testingIds.has(row.id) ? '测试中' : '测试' }}
             </el-button>
-            <el-button link :type="row.enabled ? 'warning' : 'success'" size="small" @click="handleToggleProvider(row)">
+            <el-button
+              link
+              :type="row.enabled ? 'warning' : 'success'"
+              size="small"
+              @click="handleToggleProvider(row)"
+            >
               {{ row.enabled ? '禁用' : '启用' }}
             </el-button>
-            <el-button link type="danger" size="small" @click="removeProvider(row.id)">删除</el-button>
+            <el-button link type="danger" size="small" @click="removeProvider(row.id)"
+              >删除</el-button
+            >
           </template>
         </el-table-column>
 
@@ -164,8 +191,12 @@
               <strong>{{ hasActiveFilters ? '没有匹配的提供商' : '暂无提供商' }}</strong>
               <p>{{ hasActiveFilters ? '尝试重置筛选条件' : '点击"新增提供商"开始配置' }}</p>
               <div class="table-empty-state__actions">
-                <el-button v-if="hasActiveFilters" size="small" @click="resetProviderQuery">重置筛选</el-button>
-                <el-button type="primary" size="small" @click="openCreateProvider">新增提供商</el-button>
+                <el-button v-if="hasActiveFilters" size="small" @click="resetProviderQuery"
+                  >重置筛选</el-button
+                >
+                <el-button type="primary" size="small" @click="openCreateProvider"
+                  >新增提供商</el-button
+                >
               </div>
             </template>
           </div>
@@ -214,7 +245,15 @@ import ConsoleLayout from '../../layout/ConsoleLayout.vue'
 import ProviderFormDialog from '../../components/provider/ProviderFormDialog.vue'
 import ProviderRedirectExpandRow from '../../components/provider/ProviderRedirectExpandRow.vue'
 import ModelRedirectFormDialog from '../../components/model/ModelRedirectFormDialog.vue'
-import { addProvider, batchUpdatePriority, deleteProvider, fetchProviderPage, testConnection, toggleProvider, updateProvider } from '../../api/provider-config'
+import {
+  addProvider,
+  batchUpdatePriority,
+  deleteProvider,
+  fetchProviderPage,
+  testConnection,
+  toggleProvider,
+  updateProvider,
+} from '../../api/provider-config'
 import {
   addModelRedirect,
   deleteModelRedirect,
@@ -248,12 +287,19 @@ const providerQuery = reactive<ProviderConfigQueryReq>({
 })
 
 const enabledFilter = ref<'all' | 'true' | 'false'>('all')
-const providerPage = reactive<PageResult<ProviderConfigRsp>>({ list: [], total: 0, page: 1, pageSize: 10 })
+const providerPage = reactive<PageResult<ProviderConfigRsp>>({
+  list: [],
+  total: 0,
+  page: 1,
+  pageSize: 10,
+})
 const providerLoading = ref(false)
 const providerLoadError = ref(false)
 
-const hasActiveFilters = computed(
-  () => Boolean(providerQuery.providerCode || providerQuery.providerType || enabledFilter.value !== 'all'),
+const hasActiveFilters = computed(() =>
+  Boolean(
+    providerQuery.providerCode || providerQuery.providerType || enabledFilter.value !== 'all',
+  ),
 )
 
 async function loadProviders() {
@@ -268,11 +314,18 @@ async function loadProviders() {
     Object.assign(providerPage, result)
   } catch {
     providerLoadError.value = true
-    Object.assign(providerPage, { list: [], total: 0, page: providerQuery.page, pageSize: providerQuery.pageSize })
+    Object.assign(providerPage, {
+      list: [],
+      total: 0,
+      page: providerQuery.page,
+      pageSize: providerQuery.pageSize,
+    })
   } finally {
     providerLoading.value = false
-    // 数据加载后重新绑定拖拽（tbody DOM 可能在 loading 状态下被替换）
-    nextTick(() => initSortable())
+    // 仅在非拖拽保存期间重建 Sortable，避免在 onEnd 回调中销毁自身实例
+    nextTick(() => {
+      if (!sortSaving.value) initSortable()
+    })
   }
 }
 
@@ -466,7 +519,9 @@ function closeRedirectDialog() {
   redirectDialogVisible.value = false
 }
 
-async function submitRedirectForm(payload: ModelRedirectConfigAddReq | ModelRedirectConfigUpdateReq) {
+async function submitRedirectForm(
+  payload: ModelRedirectConfigAddReq | ModelRedirectConfigUpdateReq,
+) {
   try {
     if ('id' in payload) {
       await updateModelRedirect(payload)
@@ -544,7 +599,7 @@ onMounted(loadProviders)
 
 /* ==================== 拖拽排序 ==================== */
 
-const providerTableRef = ref<InstanceType<typeof import('element-plus')['ElTable']>>()
+const providerTableRef = ref<InstanceType<(typeof import('element-plus'))['ElTable']>>()
 let sortableInstance: Sortable | null = null
 
 /** 排序持久化中标记，防止重复提交 */
@@ -605,6 +660,7 @@ function initSortable() {
         await loadProviders()
       } finally {
         sortSaving.value = false
+        nextTick(() => initSortable())
       }
     },
   })

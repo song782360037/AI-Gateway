@@ -8,7 +8,10 @@ import type {
 } from '../types/supported-model'
 
 export function fetchSupportedModelPage(data: SupportedModelQueryReq) {
-  return request.post<SupportedModelQueryReq, PageResult<SupportedModelRsp>>('/admin/supported-model/list', data)
+  return request.post<SupportedModelQueryReq, PageResult<SupportedModelRsp>>(
+    '/admin/supported-model/list',
+    data,
+  )
 }
 
 export function addSupportedModel(data: SupportedModelAddReq) {

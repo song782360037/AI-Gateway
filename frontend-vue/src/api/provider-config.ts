@@ -9,7 +9,10 @@ import type {
 } from '../types/provider'
 
 export function fetchProviderPage(data: ProviderConfigQueryReq) {
-  return request.post<ProviderConfigQueryReq, PageResult<ProviderConfigRsp>>('/admin/provider-config/list', data)
+  return request.post<ProviderConfigQueryReq, PageResult<ProviderConfigRsp>>(
+    '/admin/provider-config/list',
+    data,
+  )
 }
 
 export function addProvider(data: ProviderConfigAddReq) {

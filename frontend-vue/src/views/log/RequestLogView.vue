@@ -107,9 +107,27 @@
         <el-table-column label="请求时间" min-width="170" align="center">
           <template #default="{ row }">{{ formatTime(row.createTime) }}</template>
         </el-table-column>
-        <el-table-column prop="aliasModel" label="请求模型" min-width="140" show-overflow-tooltip align="center" />
-        <el-table-column prop="targetModel" label="目标模型" min-width="140" show-overflow-tooltip align="center" />
-        <el-table-column prop="providerCode" label="通道" min-width="120" show-overflow-tooltip align="center" />
+        <el-table-column
+          prop="aliasModel"
+          label="请求模型"
+          min-width="140"
+          show-overflow-tooltip
+          align="center"
+        />
+        <el-table-column
+          prop="targetModel"
+          label="目标模型"
+          min-width="140"
+          show-overflow-tooltip
+          align="center"
+        />
+        <el-table-column
+          prop="providerCode"
+          label="通道"
+          min-width="120"
+          show-overflow-tooltip
+          align="center"
+        />
         <el-table-column label="提供商类型" min-width="127" align="center">
           <template #default="{ row }">
             <el-tag size="small" :type="providerTagType(row.providerType)">
@@ -127,10 +145,7 @@
                 Failover {{ row.failoverCount }}
               </el-tag>
               <el-tag v-if="row.rateLimitTriggered" type="info" size="small">限流</el-tag>
-              <span
-                v-if="!hasGovernanceSignals(row)"
-                class="text-muted"
-              >-</span>
+              <span v-if="!hasGovernanceSignals(row)" class="text-muted">-</span>
             </div>
           </template>
         </el-table-column>
@@ -144,7 +159,9 @@
           <template #default="{ row }">
             <span v-if="row.totalTokens != null" class="token-usage">
               <span class="token-total">{{ row.totalTokens.toLocaleString() }}</span>
-              <span class="token-detail">({{ row.promptTokens ?? 0 }} / {{ row.completionTokens ?? 0 }})</span>
+              <span class="token-detail"
+                >({{ row.promptTokens ?? 0 }} / {{ row.completionTokens ?? 0 }})</span
+              >
               <span v-if="(row.cachedInputTokens ?? 0) > 0" class="token-cached">
                 缓存: {{ row.cachedInputTokens?.toLocaleString() }}
               </span>
@@ -165,19 +182,37 @@
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="terminalStage" label="终止阶段" min-width="110" show-overflow-tooltip align="center">
+        <el-table-column
+          prop="terminalStage"
+          label="终止阶段"
+          min-width="110"
+          show-overflow-tooltip
+          align="center"
+        >
           <template #default="{ row }">
             <span v-if="row.terminalStage">{{ terminalStageLabel(row.terminalStage) }}</span>
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="errorCode" label="错误码" min-width="100" show-overflow-tooltip align="center">
+        <el-table-column
+          prop="errorCode"
+          label="错误码"
+          min-width="100"
+          show-overflow-tooltip
+          align="center"
+        >
           <template #default="{ row }">
             <span v-if="row.errorCode">{{ row.errorCode }}</span>
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="errorMessage" label="错误详情" min-width="170" show-overflow-tooltip align="center">
+        <el-table-column
+          prop="errorMessage"
+          label="错误详情"
+          min-width="170"
+          show-overflow-tooltip
+          align="center"
+        >
           <template #default="{ row }">
             <span v-if="row.errorMessage" class="error-detail">{{ row.errorMessage }}</span>
             <span v-else class="text-muted">-</span>
@@ -200,9 +235,17 @@
             </template>
             <template v-else>
               <strong>{{ hasActiveFilters ? '没有匹配的请求日志' : '暂无请求日志' }}</strong>
-              <p>{{ hasActiveFilters ? '尝试重置筛选条件' : '当有 API 请求经过网关时，日志将自动记录在此' }}</p>
+              <p>
+                {{
+                  hasActiveFilters
+                    ? '尝试重置筛选条件'
+                    : '当有 API 请求经过网关时，日志将自动记录在此'
+                }}
+              </p>
               <div class="table-empty-state__actions">
-                <el-button v-if="hasActiveFilters" size="small" @click="resetQuery">重置筛选</el-button>
+                <el-button v-if="hasActiveFilters" size="small" @click="resetQuery"
+                  >重置筛选</el-button
+                >
               </div>
             </template>
           </div>
@@ -251,12 +294,31 @@
           <div class="detail-section">
             <div class="detail-section__title">执行结果</div>
             <div class="detail-grid">
-              <DetailItem label="状态" :value="statusLabel(detailData.status)" :highlight="isErrorStatus(detailData.status)" />
-              <DetailItem label="终止阶段" :value="terminalStageLabel(detailData.terminalStage)" :highlight="isErrorStatus(detailData.status)" />
+              <DetailItem
+                label="状态"
+                :value="statusLabel(detailData.status)"
+                :highlight="isErrorStatus(detailData.status)"
+              />
+              <DetailItem
+                label="终止阶段"
+                :value="terminalStageLabel(detailData.terminalStage)"
+                :highlight="isErrorStatus(detailData.status)"
+              />
               <DetailItem label="总耗时" :value="formatNullableDuration(detailData.durationMs)" />
-              <DetailItem label="错误码" :value="detailData.errorCode" :highlight="Boolean(detailData.errorCode)" />
-              <DetailItem label="错误详情" :value="detailData.errorMessage" :highlight="Boolean(detailData.errorMessage)" />
-              <DetailItem label="上游状态码" :value="formatNullableNumber(detailData.upstreamHttpStatus)" />
+              <DetailItem
+                label="错误码"
+                :value="detailData.errorCode"
+                :highlight="Boolean(detailData.errorCode)"
+              />
+              <DetailItem
+                label="错误详情"
+                :value="detailData.errorMessage"
+                :highlight="Boolean(detailData.errorMessage)"
+              />
+              <DetailItem
+                label="上游状态码"
+                :value="formatNullableNumber(detailData.upstreamHttpStatus)"
+              />
               <DetailItem label="上游错误类型" :value="detailData.upstreamErrorType" />
             </div>
           </div>
@@ -264,21 +326,49 @@
           <div class="detail-section">
             <div class="detail-section__title">路由与治理</div>
             <div class="detail-grid">
-              <DetailItem label="候选路由数" :value="formatNullableNumber(detailData.candidateCount)" />
+              <DetailItem
+                label="候选路由数"
+                :value="formatNullableNumber(detailData.candidateCount)"
+              />
               <DetailItem label="尝试次数" :value="formatNullableNumber(detailData.attemptCount)" />
-              <DetailItem label="重试次数" :value="formatNullableNumber(detailData.retryCount)" :highlight="(detailData.retryCount ?? 0) > 0" />
-              <DetailItem label="Failover 次数" :value="formatNullableNumber(detailData.failoverCount)" :highlight="(detailData.failoverCount ?? 0) > 0" />
-              <DetailItem label="熔断跳过次数" :value="formatNullableNumber(detailData.circuitOpenSkippedCount)" :highlight="(detailData.circuitOpenSkippedCount ?? 0) > 0" />
-              <DetailItem label="命中限流" :value="booleanLabel(detailData.rateLimitTriggered)" :highlight="Boolean(detailData.rateLimitTriggered)" />
+              <DetailItem
+                label="重试次数"
+                :value="formatNullableNumber(detailData.retryCount)"
+                :highlight="(detailData.retryCount ?? 0) > 0"
+              />
+              <DetailItem
+                label="Failover 次数"
+                :value="formatNullableNumber(detailData.failoverCount)"
+                :highlight="(detailData.failoverCount ?? 0) > 0"
+              />
+              <DetailItem
+                label="熔断跳过次数"
+                :value="formatNullableNumber(detailData.circuitOpenSkippedCount)"
+                :highlight="(detailData.circuitOpenSkippedCount ?? 0) > 0"
+              />
+              <DetailItem
+                label="命中限流"
+                :value="booleanLabel(detailData.rateLimitTriggered)"
+                :highlight="Boolean(detailData.rateLimitTriggered)"
+              />
             </div>
           </div>
 
           <div class="detail-section">
             <div class="detail-section__title">Token 统计</div>
             <div class="detail-grid">
-              <DetailItem label="输入 Token" :value="formatNullableNumber(detailData.promptTokens)" />
-              <DetailItem label="缓存输入 Token" :value="formatNullableNumber(detailData.cachedInputTokens)" />
-              <DetailItem label="输出 Token" :value="formatNullableNumber(detailData.completionTokens)" />
+              <DetailItem
+                label="输入 Token"
+                :value="formatNullableNumber(detailData.promptTokens)"
+              />
+              <DetailItem
+                label="缓存输入 Token"
+                :value="formatNullableNumber(detailData.cachedInputTokens)"
+              />
+              <DetailItem
+                label="输出 Token"
+                :value="formatNullableNumber(detailData.completionTokens)"
+              />
               <DetailItem label="总 Token" :value="formatNullableNumber(detailData.totalTokens)" />
             </div>
           </div>
@@ -334,15 +424,15 @@ let latestLoadRequestId = 0
 const hasActiveFilters = computed(() =>
   Boolean(
     query.startTime ||
-      query.endTime ||
-      query.providerType ||
-      query.providerCode ||
-      query.status ||
-      query.aliasModel ||
-      query.requestId ||
-      query.isStream !== undefined ||
-      query.hasRetry !== undefined ||
-      query.hasFailover !== undefined,
+    query.endTime ||
+    query.providerType ||
+    query.providerCode ||
+    query.status ||
+    query.aliasModel ||
+    query.requestId ||
+    query.isStream !== undefined ||
+    query.hasRetry !== undefined ||
+    query.hasFailover !== undefined,
   ),
 )
 
@@ -528,11 +618,12 @@ function maskIp(ip?: string | null): string {
     return '-'
   }
   if (ip.includes(':')) {
-    const segments = ip.split(':')
+    // IPv6：取前两个非空段，后面统一隐藏
+    const segments = ip.split(':').filter(Boolean)
     if (segments.length <= 2) {
       return ip
     }
-    return `${segments[0]}:${segments[1]}:****:****`
+    return `${segments[0]}:${segments[1]}::****`
   }
   const segments = ip.split('.')
   if (segments.length !== 4) {
@@ -542,7 +633,9 @@ function maskIp(ip?: string | null): string {
 }
 
 function hasGovernanceSignals(row: RequestLogRsp): boolean {
-  return Boolean((row.retryCount ?? 0) > 0 || (row.failoverCount ?? 0) > 0 || row.rateLimitTriggered)
+  return Boolean(
+    (row.retryCount ?? 0) > 0 || (row.failoverCount ?? 0) > 0 || row.rateLimitTriggered,
+  )
 }
 
 function isErrorStatus(status?: string | null): boolean {

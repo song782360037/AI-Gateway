@@ -27,24 +27,24 @@ import { consumeAuthRefreshFlag } from '../utils/auth-state'
 export const useAuthStore = defineStore('auth', () => {
   const ready = ref(false)
   const initialized = ref<boolean | null>(null)
-  const authenticated = ref(false)
+  const isAuthed = ref(false)
   const username = ref('')
   const bootstrapError = ref('')
   let bootstrapPromise: Promise<AdminAuthStatus> | null = null
 
-  const isAuthenticated = computed(() => authenticated.value)
+  const isAuthenticated = computed(() => isAuthed.value)
   const needsInitialization = computed(() => initialized.value === false)
 
   function applyStatus(status: AdminAuthStatus) {
     initialized.value = status.initialized
-    authenticated.value = status.authenticated
+    isAuthed.value = status.authenticated
     username.value = status.username ?? ''
     bootstrapError.value = ''
     ready.value = true
   }
 
   function clearAuthenticatedState() {
-    authenticated.value = false
+    isAuthed.value = false
     username.value = ''
   }
 
@@ -65,7 +65,7 @@ export const useAuthStore = defineStore('auth', () => {
   function currentStatus(): AdminAuthStatus {
     return {
       initialized: initialized.value ?? false,
-      authenticated: authenticated.value,
+      authenticated: isAuthed.value,
       username: username.value || null,
     }
   }

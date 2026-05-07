@@ -8,8 +8,12 @@
     @closed="resetState"
   >
     <div class="candidate-toolbar">
-      <el-button type="primary" size="small" :disabled="!configData" @click="openCreate">新增候选模型</el-button>
-      <el-button size="small" :loading="detailLoading" :disabled="!configData" @click="reloadDetail">刷新</el-button>
+      <el-button type="primary" size="small" :disabled="!configData" @click="openCreate"
+        >新增候选模型</el-button
+      >
+      <el-button size="small" :loading="detailLoading" :disabled="!configData" @click="reloadDetail"
+        >刷新</el-button
+      >
     </div>
 
     <el-table v-loading="detailLoading" :data="candidates" stripe>
@@ -43,7 +47,12 @@
       <el-table-column label="操作" fixed="right" width="210" align="center">
         <template #default="{ row }">
           <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
-          <el-button link :type="row.enabled ? 'warning' : 'success'" size="small" @click="toggleCandidate(row)">
+          <el-button
+            link
+            :type="row.enabled ? 'warning' : 'success'"
+            size="small"
+            @click="toggleCandidate(row)"
+          >
             {{ row.enabled ? '禁用' : '启用' }}
           </el-button>
           <el-button link type="danger" size="small" @click="removeCandidate(row)">删除</el-button>
@@ -67,15 +76,25 @@
     :title="isEdit ? '编辑候选模型' : '新增候选模型'"
     width="760px"
     class="admin-dialog"
+    destroy-on-close
     @closed="resetForm"
   >
     <el-form ref="formRef" :model="form" :rules="rules" label-width="96px">
       <el-form-item label="Provider" prop="providerCode">
-        <el-select v-model="form.providerCode" filterable style="width: 100%" placeholder="请选择提供商">
+        <el-select
+          v-model="form.providerCode"
+          filterable
+          style="width: 100%"
+          placeholder="请选择提供商"
+        >
           <el-option
             v-for="provider in providerOptions"
             :key="provider.providerCode"
-            :label="provider.displayName ? `${provider.displayName}（${provider.providerCode}）` : provider.providerCode"
+            :label="
+              provider.displayName
+                ? `${provider.displayName}（${provider.providerCode}）`
+                : provider.providerCode
+            "
             :value="provider.providerCode"
           />
         </el-select>
@@ -84,10 +103,23 @@
         <el-input v-model.trim="form.targetModel" placeholder="如：gpt-4o-mini" maxlength="128" />
       </el-form-item>
       <el-form-item label="优先级" prop="priority">
-        <el-input-number v-model="form.priority" :min="0" :max="9999" :precision="0" :step="1" style="width: 100%" />
+        <el-input-number
+          v-model="form.priority"
+          :min="0"
+          :max="9999"
+          :precision="0"
+          :step="1"
+          style="width: 100%"
+        />
       </el-form-item>
       <el-form-item label="权重" prop="weight">
-        <el-input-number v-model="form.weight" :min="1" :max="10000" :precision="0" style="width: 100%" />
+        <el-input-number
+          v-model="form.weight"
+          :min="1"
+          :max="10000"
+          :precision="0"
+          style="width: 100%"
+        />
       </el-form-item>
 
       <el-divider content-position="left">能力约束</el-divider>
@@ -113,38 +145,98 @@
       </div>
       <div class="form-grid">
         <el-form-item label="输入上限">
-          <el-input-number v-model="form.maxInputTokens" :min="0" :precision="0" :step="1000" style="width: 100%" />
+          <el-input-number
+            v-model="form.maxInputTokens"
+            :min="0"
+            :precision="0"
+            :step="1000"
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="输出上限">
-          <el-input-number v-model="form.maxOutputTokens" :min="0" :precision="0" :step="1000" style="width: 100%" />
+          <el-input-number
+            v-model="form.maxOutputTokens"
+            :min="0"
+            :precision="0"
+            :step="1000"
+            style="width: 100%"
+          />
         </el-form-item>
       </div>
 
       <el-divider content-position="left">评分维度</el-divider>
       <div class="form-grid">
         <el-form-item label="质量评分">
-          <el-input-number v-model="form.qualityScore" :min="0" :max="100" :precision="0" style="width: 100%" />
+          <el-input-number
+            v-model="form.qualityScore"
+            :min="0"
+            :max="100"
+            :precision="0"
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="延迟评分">
-          <el-input-number v-model="form.latencyScore" :min="0" :max="100" :precision="0" style="width: 100%" />
+          <el-input-number
+            v-model="form.latencyScore"
+            :min="0"
+            :max="100"
+            :precision="0"
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="成本评分">
-          <el-input-number v-model="form.costScore" :min="0" :max="100" :precision="0" style="width: 100%" />
+          <el-input-number
+            v-model="form.costScore"
+            :min="0"
+            :max="100"
+            :precision="0"
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="工具评分">
-          <el-input-number v-model="form.toolScore" :min="0" :max="100" :precision="0" style="width: 100%" />
+          <el-input-number
+            v-model="form.toolScore"
+            :min="0"
+            :max="100"
+            :precision="0"
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="视觉评分">
-          <el-input-number v-model="form.visionScore" :min="0" :max="100" :precision="0" style="width: 100%" />
+          <el-input-number
+            v-model="form.visionScore"
+            :min="0"
+            :max="100"
+            :precision="0"
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="推理评分">
-          <el-input-number v-model="form.reasoningScore" :min="0" :max="100" :precision="0" style="width: 100%" />
+          <el-input-number
+            v-model="form.reasoningScore"
+            :min="0"
+            :max="100"
+            :precision="0"
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="可靠评分">
-          <el-input-number v-model="form.reliabilityScore" :min="0" :max="100" :precision="0" style="width: 100%" />
+          <el-input-number
+            v-model="form.reliabilityScore"
+            :min="0"
+            :max="100"
+            :precision="0"
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="评分偏置">
-          <el-input-number v-model="form.scoreBias" :min="-100" :max="100" :precision="0" style="width: 100%" />
+          <el-input-number
+            v-model="form.scoreBias"
+            :min="-100"
+            :max="100"
+            :precision="0"
+            style="width: 100%"
+          />
         </el-form-item>
       </div>
 
@@ -274,8 +366,12 @@ async function reloadDetail() {
 }
 
 async function loadProviders() {
-  const result = await fetchProviderPage({ enabled: true, page: 1, pageSize: 100 })
-  providerOptions.value = result.list
+  try {
+    const result = await fetchProviderPage({ enabled: true, page: 1, pageSize: 100 })
+    providerOptions.value = result.list
+  } catch {
+    providerOptions.value = []
+  }
 }
 
 function openCreate() {
@@ -326,7 +422,11 @@ function resetState() {
 
 async function handleSubmit() {
   if (!formRef.value || !props.configData) return
-  try { await formRef.value.validate() } catch { return }
+  try {
+    await formRef.value.validate()
+  } catch {
+    return
+  }
 
   submitting.value = true
   try {
@@ -359,11 +459,9 @@ async function handleSubmit() {
 async function toggleCandidate(row: AutoRouteCandidateRsp) {
   const action = row.enabled ? '禁用' : '启用'
   try {
-    await ElMessageBox.confirm(
-      `${action}后运行时路由会立即刷新，是否继续？`,
-      `${action}候选模型`,
-      { type: 'warning' },
-    )
+    await ElMessageBox.confirm(`${action}后运行时路由会立即刷新，是否继续？`, `${action}候选模型`, {
+      type: 'warning',
+    })
     await toggleAutoRouteCandidate({ id: row.id, versionNo: row.versionNo })
     ElMessage.success(`候选模型已${action}`)
     await reloadDetail()
@@ -375,11 +473,9 @@ async function toggleCandidate(row: AutoRouteCandidateRsp) {
 
 async function removeCandidate(row: AutoRouteCandidateRsp) {
   try {
-    await ElMessageBox.confirm(
-      '删除后运行时路由会立即刷新，是否继续？',
-      '删除候选模型',
-      { type: 'warning' },
-    )
+    await ElMessageBox.confirm('删除后运行时路由会立即刷新，是否继续？', '删除候选模型', {
+      type: 'warning',
+    })
     await deleteAutoRouteCandidate({ id: row.id, versionNo: row.versionNo })
     ElMessage.success('候选模型删除成功')
     await reloadDetail()

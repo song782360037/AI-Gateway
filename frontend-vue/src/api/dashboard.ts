@@ -1,5 +1,11 @@
 import request from '../utils/request'
-import type { DashboardPeriod, DashboardStats, ModelUsageRank, RecentRequest, SystemHealth } from '../types/dashboard'
+import type {
+  DashboardPeriod,
+  DashboardStats,
+  ModelUsageRank,
+  RecentRequest,
+  SystemHealth,
+} from '../types/dashboard'
 
 /** 获取仪表盘统计概览 */
 export function fetchDashboardStats(period: DashboardPeriod) {
@@ -13,7 +19,9 @@ export function fetchModelUsageRank(period: DashboardPeriod) {
 
 /** 获取最近请求记录 */
 export function fetchRecentRequests(period: DashboardPeriod) {
-  return request.get<never, RecentRequest[]>('/admin/dashboard/recent-requests', { params: { period } })
+  return request.get<never, RecentRequest[]>('/admin/dashboard/recent-requests', {
+    params: { period },
+  })
 }
 
 /** 系统健康检测 */

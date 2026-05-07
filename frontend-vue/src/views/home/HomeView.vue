@@ -8,24 +8,57 @@
             <!-- AI Gateway 品牌图标：统一入口 → 棱镜网关 → 多路模型分发 -->
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
               <!-- 统一输入（单条粗线代表标准接口入口） -->
-              <path d="M2 12H7" stroke="white" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+              <path
+                d="M2 12H7"
+                stroke="white"
+                stroke-width="3"
+                stroke-linecap="round"
+                opacity="0.9"
+              />
               <!-- 棱镜网关主体（半透明填充 + 粗描边） -->
-              <path d="M7 3L19 12L7 21V3Z" fill="white" fill-opacity="0.4" stroke="white" stroke-width="2.5" stroke-linejoin="round"/>
+              <path
+                d="M7 3L19 12L7 21V3Z"
+                fill="white"
+                fill-opacity="0.4"
+                stroke="white"
+                stroke-width="2.5"
+                stroke-linejoin="round"
+              />
               <!-- 多路分发到不同 AI 模型提供商 -->
-              <path d="M19 12L22 7" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.95"/>
-              <path d="M19 12L22 12" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.65"/>
-              <path d="M19 12L22 17" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.95"/>
+              <path
+                d="M19 12L22 7"
+                stroke="white"
+                stroke-width="2"
+                stroke-linecap="round"
+                opacity="0.95"
+              />
+              <path
+                d="M19 12L22 12"
+                stroke="white"
+                stroke-width="2"
+                stroke-linecap="round"
+                opacity="0.65"
+              />
+              <path
+                d="M19 12L22 17"
+                stroke="white"
+                stroke-width="2"
+                stroke-linecap="round"
+                opacity="0.95"
+              />
             </svg>
           </div>
           <span class="landing-brand__text">AI Gateway</span>
         </div>
         <div class="landing-nav__actions">
-          <router-link v-if="authStore.isAuthenticated" to="/dashboard" class="el-button el-button--primary">
+          <router-link
+            v-if="authStore.isAuthenticated"
+            to="/dashboard"
+            class="el-button el-button--primary"
+          >
             进入控制台
           </router-link>
-          <router-link v-else to="/login" class="el-button el-button--primary">
-            登录
-          </router-link>
+          <router-link v-else to="/login" class="el-button el-button--primary"> 登录 </router-link>
         </div>
       </div>
     </header>
@@ -35,11 +68,11 @@
       <div class="landing-hero__bg" />
       <div class="landing-hero__content">
         <h1 class="landing-hero__title">
-          统一接入 AI 模型<br>
+          统一接入 AI 模型<br />
           <span class="landing-hero__gradient">让每一次调用更高效</span>
         </h1>
         <p class="landing-hero__desc">
-          AI Gateway 提供多模型提供商聚合、智能路由、负载均衡与统一鉴权，<br class="hide-mobile">
+          AI Gateway 提供多模型提供商聚合、智能路由、负载均衡与统一鉴权，<br class="hide-mobile" />
           帮助开发团队以一套标准接口，无缝调用全球主流大模型。
         </p>
         <div class="landing-hero__actions">

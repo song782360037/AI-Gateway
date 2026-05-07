@@ -5,7 +5,10 @@
       <div class="dashboard-header">
         <div class="dashboard-header__left">
           <div class="dashboard-header__status">
-            <span class="status-capsule" :class="systemHealthy ? 'status-capsule--up' : 'status-capsule--down'">
+            <span
+              class="status-capsule"
+              :class="systemHealthy ? 'status-capsule--up' : 'status-capsule--down'"
+            >
               <span class="status-capsule__dot" />
               {{ systemHealthy ? '系统正常' : '系统异常' }}
             </span>
@@ -33,7 +36,7 @@
       <!-- ====== 中部：数据概览卡片 ====== -->
       <div class="overview-section">
         <div class="section-label">数据概览</div>
-        <div class="overview-grid" v-loading="loading">
+        <div v-loading="loading" class="overview-grid">
           <div
             v-for="card in overviewCards"
             :key="card.key"
@@ -75,8 +78,20 @@
                   <span class="rank-badge" :class="rankClass(row.rank)">{{ row.rank }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="modelName" label="请求模型" min-width="120" show-overflow-tooltip align="center" />
-              <el-table-column prop="targetModel" label="目标模型" min-width="120" show-overflow-tooltip align="center" />
+              <el-table-column
+                prop="modelName"
+                label="请求模型"
+                min-width="120"
+                show-overflow-tooltip
+                align="center"
+              />
+              <el-table-column
+                prop="targetModel"
+                label="目标模型"
+                min-width="120"
+                show-overflow-tooltip
+                align="center"
+              />
               <el-table-column prop="callCount" label="调用次数" min-width="90" align="center">
                 <template #default="{ row }">{{ formatNumber(row.callCount) }}</template>
               </el-table-column>
@@ -111,10 +126,27 @@
             </router-link>
           </div>
           <div class="table-module__body">
-            <el-table :data="recentRequests" size="default" class="dashboard-table" :show-header="true">
-              <el-table-column prop="time" label="时间" width="80" align="center"/>
-              <el-table-column prop="model" label="模型" min-width="130" show-overflow-tooltip align="center"/>
-              <el-table-column prop="provider" label="通道" min-width="90" show-overflow-tooltip align="center"/>
+            <el-table
+              :data="recentRequests"
+              size="default"
+              class="dashboard-table"
+              :show-header="true"
+            >
+              <el-table-column prop="time" label="时间" width="80" align="center" />
+              <el-table-column
+                prop="model"
+                label="模型"
+                min-width="130"
+                show-overflow-tooltip
+                align="center"
+              />
+              <el-table-column
+                prop="provider"
+                label="通道"
+                min-width="90"
+                show-overflow-tooltip
+                align="center"
+              />
               <el-table-column prop="duration" label="耗时" width="72" align="center">
                 <template #default="{ row }">
                   <span :class="{ 'duration-warn': row.duration > 5000 }">
@@ -162,7 +194,12 @@ import {
   fetchRecentRequests,
   fetchSystemHealth,
 } from '../../api/dashboard'
-import type { DashboardPeriod, DashboardStats, ModelUsageRank, RecentRequest } from '../../types/dashboard'
+import type {
+  DashboardPeriod,
+  DashboardStats,
+  ModelUsageRank,
+  RecentRequest,
+} from '../../types/dashboard'
 
 // ==================== 状态 ====================
 

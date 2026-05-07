@@ -6,21 +6,33 @@
         <span class="card-header__title">运行时快照状态</span>
         <div class="card-header__actions">
           <el-button size="small" :loading="loading" @click="loadStatus">刷新状态</el-button>
-          <el-button type="primary" size="small" :loading="loading" @click="reloadRuntime">重载运行时快照</el-button>
+          <el-button type="primary" size="small" :loading="loading" @click="reloadRuntime"
+            >重载运行时快照</el-button
+          >
         </div>
       </div>
 
       <!-- 加载失败提示 -->
-      <div v-if="loadError && !loading" style="padding: 20px; text-align: center; color: var(--text-secondary);">
+      <div
+        v-if="loadError && !loading"
+        style="padding: 20px; text-align: center; color: var(--text-secondary)"
+      >
         <p>无法获取运行时状态，请检查后端服务后重试。</p>
-        <el-button type="primary" size="small" style="margin-top: 12px;" @click="loadStatus">重试</el-button>
+        <el-button type="primary" size="small" style="margin-top: 12px" @click="loadStatus"
+          >重试</el-button
+        >
       </div>
 
       <template v-else>
         <div class="status-grid">
           <div class="status-item">
             <div class="status-item__label">快照状态</div>
-            <div :class="['status-item__value', status.hasSnapshot ? 'status-item__value--success' : 'status-item__value--warning']">
+            <div
+              :class="[
+                'status-item__value',
+                status.hasSnapshot ? 'status-item__value--success' : 'status-item__value--warning',
+              ]"
+            >
               {{ status.hasSnapshot ? '已加载' : '未初始化' }}
             </div>
           </div>
@@ -42,7 +54,12 @@
           </div>
           <div class="status-item">
             <div class="status-item__label">同步状态</div>
-            <div :class="['status-item__value', status.dirty ? 'status-item__value--danger' : 'status-item__value--success']">
+            <div
+              :class="[
+                'status-item__value',
+                status.dirty ? 'status-item__value--danger' : 'status-item__value--success',
+              ]"
+            >
               {{ status.dirty ? '待排查' : '正常' }}
             </div>
           </div>

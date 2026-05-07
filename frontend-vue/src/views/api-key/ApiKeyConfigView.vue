@@ -14,7 +14,13 @@
           <el-input v-model="query.name" placeholder="按名称搜索" clearable size="default" />
         </el-form-item>
         <el-form-item label="状态">
-          <el-select v-model="query.status" placeholder="全部" style="width: 120px" size="default" clearable>
+          <el-select
+            v-model="query.status"
+            placeholder="全部"
+            style="width: 120px"
+            size="default"
+            clearable
+          >
             <el-option label="启用" value="ACTIVE" />
             <el-option label="禁用" value="DISABLED" />
           </el-select>
@@ -70,7 +76,9 @@
               <strong>{{ hasActiveFilters ? '没有匹配的 API Key' : '暂无 API Key' }}</strong>
               <p>{{ hasActiveFilters ? '尝试重置筛选条件' : '请点击"新增 Key"创建' }}</p>
               <div class="table-empty-state__actions">
-                <el-button v-if="hasActiveFilters" size="small" @click="resetQuery">重置筛选</el-button>
+                <el-button v-if="hasActiveFilters" size="small" @click="resetQuery"
+                  >重置筛选</el-button
+                >
                 <el-button type="primary" size="small" @click="openCreate">新增 Key</el-button>
               </div>
             </template>
@@ -95,35 +103,54 @@
       :title="isEdit ? '编辑 API Key' : '新增 API Key'"
       width="520px"
       class="admin-dialog"
+      destroy-on-close
       @closed="resetForm"
     >
       <el-form ref="formRef" :model="form" :rules="formRules" label-width="90px">
         <el-form-item label="名称" prop="name">
           <el-input v-model="form.name" placeholder="备注用途，如「生产环境」" maxlength="128" />
         </el-form-item>
-        <el-form-item v-if="!isEdit" label="状态">
-          <el-select v-model="form.status" style="width: 100%">
-            <el-option label="启用" value="ACTIVE" />
-            <el-option label="禁用" value="DISABLED" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="isEdit" label="状态" prop="status">
+        <el-form-item label="状态" prop="status">
           <el-select v-model="form.status" style="width: 100%">
             <el-option label="启用" value="ACTIVE" />
             <el-option label="禁用" value="DISABLED" />
           </el-select>
         </el-form-item>
         <el-form-item label="每日限额">
-          <el-input-number v-model="form.dailyLimit" :min="1" :precision="0" placeholder="不限" style="width: 100%" />
+          <el-input-number
+            v-model="form.dailyLimit"
+            :min="1"
+            :precision="0"
+            placeholder="不限"
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="RPM 限流">
-          <el-input-number v-model="form.rpmLimit" :min="1" :precision="0" placeholder="使用全局默认" style="width: 100%" />
+          <el-input-number
+            v-model="form.rpmLimit"
+            :min="1"
+            :precision="0"
+            placeholder="使用全局默认"
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="小时限流">
-          <el-input-number v-model="form.hourlyLimit" :min="1" :precision="0" placeholder="使用全局默认" style="width: 100%" />
+          <el-input-number
+            v-model="form.hourlyLimit"
+            :min="1"
+            :precision="0"
+            placeholder="使用全局默认"
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="累计限额">
-          <el-input-number v-model="form.totalLimit" :min="1" :precision="0" placeholder="不限" style="width: 100%" />
+          <el-input-number
+            v-model="form.totalLimit"
+            :min="1"
+            :precision="0"
+            placeholder="不限"
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="过期时间">
           <el-date-picker
@@ -147,12 +174,16 @@
     </el-dialog>
 
     <!-- 创建成功展示 Key 的对话框 -->
-    <el-dialog v-model="keyRevealVisible" title="API Key 创建成功" width="520px" class="admin-dialog" :close-on-click-modal="false">
+    <el-dialog
+      v-model="keyRevealVisible"
+      title="API Key 创建成功"
+      width="520px"
+      class="admin-dialog"
+      :close-on-click-modal="false"
+    >
       <div class="key-reveal-intro">
         <el-alert type="warning" :closable="false" show-icon>
-          <template #title>
-            完整 Key 仅显示一次，关闭后无法再次查看。请立即复制保存。
-          </template>
+          <template #title> 完整 Key 仅显示一次，关闭后无法再次查看。请立即复制保存。 </template>
         </el-alert>
       </div>
       <div class="key-reveal-box">
