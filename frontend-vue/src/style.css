@@ -685,8 +685,15 @@ a {
 
 .overview-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 20px;
+}
+
+.overview-grid--primary {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.overview-grid--secondary {
+  grid-template-columns: repeat(3, 1fr);
 }
 
 /* 单张概览卡片 */
@@ -1235,8 +1242,22 @@ a {
 }
 
 /* ==================== 响应式 ==================== */
-@media (max-width: 1200px) {
-  .overview-grid {
+@media (max-width: 1280px) {
+  .overview-grid--primary {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .overview-grid--secondary {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 1024px) {
+  .overview-grid--primary {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .overview-grid--secondary {
     grid-template-columns: repeat(3, 1fr);
   }
 }
@@ -1266,7 +1287,8 @@ a {
   }
 
   .status-grid,
-  .overview-grid {
+  .overview-grid--primary,
+  .overview-grid--secondary {
     grid-template-columns: repeat(2, 1fr);
   }
 

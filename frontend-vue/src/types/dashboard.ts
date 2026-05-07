@@ -23,6 +23,8 @@ export interface DashboardStats {
   cacheTokens: DualMetric
   /** 平均响应时间（ms） */
   avgResponseMs: DualMetric
+  /** 请求成功率（百分比） */
+  successRate: DualMetric
 
   /** 接入通道（提供商）数量 */
   providerCount: number
@@ -56,4 +58,59 @@ export interface RecentRequest {
 /** 系统健康状态 */
 export interface SystemHealth {
   status: 'UP' | 'DOWN'
+}
+
+/** 趋势数据 */
+export interface DashboardTrend {
+  /** 时间标签列表 */
+  labels: string[]
+  /** 请求数序列 */
+  requestCounts: number[]
+  /** Token 消耗序列 */
+  tokenCounts: number[]
+  /** 费用序列（USD） */
+  costs: number[]
+  /** 成功率序列（百分比） */
+  successRates: number[]
+  /** 缓存命中率序列（百分比） */
+  cacheHitRates: number[]
+}
+
+/** 提供商分布单项 */
+export interface ProviderDistributionItem {
+  providerCode: string
+  requestCount: number
+  tokenCount: number
+  cost: number
+  percent: number
+}
+
+/** 提供商分布 */
+export interface ProviderDistribution {
+  items: ProviderDistributionItem[]
+}
+
+/** 错误摘要单项 */
+export interface ErrorSummaryItem {
+  errorCode: string
+  errorCount: number
+  percent: number
+}
+
+/** 错误摘要 */
+export interface ErrorSummary {
+  totalErrors: number
+  items: ErrorSummaryItem[]
+}
+
+/** 实时指标 */
+export interface RealtimeMetrics {
+  /** 最近 1 分钟请求数（RPM） */
+  rpm: number
+  /** 最近 1 分钟 Token 数（TPM） */
+  tpm: number
+  /** 最近 1 分钟成功率（百分比） */
+  successRate: number
+  /** 活跃通道数 */
+  activeProviders: number
 }

@@ -6,19 +6,28 @@ import com.code.aigateway.admin.mapper.RequestLogMapper;
 import com.code.aigateway.admin.mapper.RequestStatHourlyMapper;
 import com.code.aigateway.admin.model.dataobject.RequestLogDO;
 import com.code.aigateway.admin.model.rsp.DashboardOverviewRsp;
+import com.code.aigateway.admin.model.rsp.DashboardTrendRsp;
+import com.code.aigateway.admin.model.rsp.ErrorSummaryRsp;
 import com.code.aigateway.admin.model.rsp.ModelUsageRankRsp;
+import com.code.aigateway.admin.model.rsp.ProviderDistributionRsp;
 import com.code.aigateway.admin.model.rsp.RecentRequestRsp;
+import com.code.aigateway.admin.model.rsp.RealtimeMetricsRsp;
 import com.code.aigateway.core.stats.ModelPriceTable;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 仪表盘统计查询服务实现
@@ -32,6 +41,7 @@ import java.util.Set;
 public class DashboardServiceImpl implements IDashboardService {
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private static final DateTimeFormatter MONTH_DAY_FORMATTER = DateTimeFormatter.ofPattern("MM-dd");
     private static final Set<String> VALID_PERIODS = Set.of("today", "7d", "30d");
 
     private final RequestLogMapper requestLogMapper;
@@ -84,6 +94,14 @@ public class DashboardServiceImpl implements IDashboardService {
         long prevDuration = requestStatHourlyMapper.sumDurationMs(previousStart) - currentDuration;
         double previousAvg = previousRequests > 0 ? (double) prevDuration / previousRequests : 0;
         rsp.setAvgResponseMs(new DashboardOverviewRsp.DualMetric(currentAvg, previousAvg));
+
+        // 成功率（当前周期 / 上一周期）
+        long currentSuccess = requestStatHourlyMapper.sumSuccessCount(currentStart);
+        long prevSuccessTotal = requestStatHourlyMapper.sumSuccessCount(previousStart);
+        long previousSuccess = Math.max(0, prevSuccessTotal - currentSuccess);
+        double currentRate = currentRequests > 0 ? (double) currentSuccess / currentRequests * 100.0 : 100.0;
+        double previousRate = previousRequests > 0 ? (double) previousSuccess / previousRequests * 100.0 : 100.0;
+        rsp.setSuccessRate(new DashboardOverviewRsp.DualMetric(currentRate, previousRate));
 
         rsp.setProviderCount((int) providerConfigMapper.countList(null, null, null));
         rsp.setRedirectCount((int) modelRedirectConfigMapper.countList(null, null, null, null));
@@ -168,6 +186,123 @@ public class DashboardServiceImpl implements IDashboardService {
         return result;
     }
 
+    @Override
+    public DashboardTrendRsp getTrend(String period) {
+        String p = normalizePeriod(period);
+
+        DashboardTrendRsp cached = dashboardCacheService.getTrend(p);
+        if (cached != null) {
+            return cached;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime startTime = resolveStart(now, p);
+        String pattern = "today".equals(p) ? "%H:00" : "%m-%d";
+
+        List<RequestStatHourlyMapper.TrendPoint> raw = requestStatHourlyMapper.selectTrend(startTime, pattern);
+        List<String> labels = new ArrayList<>();
+        List<Long> requestCounts = new ArrayList<>();
+        List<Long> tokenCounts = new ArrayList<>();
+        List<Double> costs = new ArrayList<>();
+        List<Double> successRates = new ArrayList<>();
+        List<Double> cacheHitRates = new ArrayList<>();
+
+        for (RequestStatHourlyMapper.TrendPoint point : raw) {
+            labels.add(point.timeLabel());
+            requestCounts.add(point.requestCount());
+            tokenCounts.add(point.tokenCount());
+            costs.add(point.cost() == null ? 0.0 : point.cost().setScale(2, RoundingMode.HALF_UP).doubleValue());
+            successRates.add(round(point.successRate()));
+            cacheHitRates.add(round(point.cacheHitRate()));
+        }
+
+        // 补齐缺失的时间点（today 按小时、7d/30d 按天）
+        DashboardTrendRsp rsp = fillMissingPoints(p, now, labels, requestCounts, tokenCounts, costs, successRates, cacheHitRates);
+        dashboardCacheService.setTrend(p, rsp);
+        return rsp;
+    }
+
+    @Override
+    public ProviderDistributionRsp getProviderDistribution(String period) {
+        String p = normalizePeriod(period);
+
+        ProviderDistributionRsp cached = dashboardCacheService.getProviderDistribution(p);
+        if (cached != null) {
+            return cached;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime startTime = resolveStart(now, p);
+
+        List<RequestStatHourlyMapper.ProviderAgg> raw = requestStatHourlyMapper.selectProviderDistribution(startTime);
+        long totalRequests = raw.stream().mapToLong(RequestStatHourlyMapper.ProviderAgg::requestCount).sum();
+
+        ProviderDistributionRsp rsp = new ProviderDistributionRsp();
+        List<ProviderDistributionRsp.Item> items = new ArrayList<>();
+        for (RequestStatHourlyMapper.ProviderAgg agg : raw) {
+            ProviderDistributionRsp.Item item = new ProviderDistributionRsp.Item();
+            item.setProviderCode(agg.providerCode());
+            item.setRequestCount(agg.requestCount());
+            item.setTokenCount(agg.tokenCount());
+            item.setCost(agg.cost() == null ? 0.0 : agg.cost().setScale(2, RoundingMode.HALF_UP).doubleValue());
+            item.setPercent(totalRequests > 0 ? round((double) agg.requestCount() / totalRequests * 100.0) : 0.0);
+            items.add(item);
+        }
+        rsp.setItems(items);
+        dashboardCacheService.setProviderDistribution(p, rsp);
+        return rsp;
+    }
+
+    @Override
+    public ErrorSummaryRsp getErrorSummary(String period) {
+        String p = normalizePeriod(period);
+
+        ErrorSummaryRsp cached = dashboardCacheService.getErrorSummary(p);
+        if (cached != null) {
+            return cached;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime startTime = resolveStart(now, p);
+
+        List<RequestLogMapper.ErrorAgg> raw = requestLogMapper.aggregateByError(startTime, 10);
+        long totalErrors = raw.stream().mapToLong(RequestLogMapper.ErrorAgg::errorCount).sum();
+
+        ErrorSummaryRsp rsp = new ErrorSummaryRsp();
+        rsp.setTotalErrors(totalErrors);
+        List<ErrorSummaryRsp.ErrorItem> items = new ArrayList<>();
+        for (RequestLogMapper.ErrorAgg agg : raw) {
+            ErrorSummaryRsp.ErrorItem item = new ErrorSummaryRsp.ErrorItem();
+            item.setErrorCode(agg.errorCode() == null ? "UNKNOWN" : agg.errorCode());
+            item.setErrorCount(agg.errorCount());
+            item.setPercent(totalErrors > 0 ? round((double) agg.errorCount() / totalErrors * 100.0) : 0.0);
+            items.add(item);
+        }
+        rsp.setItems(items);
+        dashboardCacheService.setErrorSummary(p, rsp);
+        return rsp;
+    }
+
+    @Override
+    public RealtimeMetricsRsp getRealtimeMetrics() {
+        RealtimeMetricsRsp cached = dashboardCacheService.getRealtime();
+        if (cached != null) {
+            return cached;
+        }
+
+        LocalDateTime oneMinuteAgo = LocalDateTime.now().minusMinutes(1);
+        RequestLogMapper.RealtimeAgg agg = requestLogMapper.selectRealtime(oneMinuteAgo);
+
+        RealtimeMetricsRsp rsp = new RealtimeMetricsRsp();
+        rsp.setRpm(agg == null ? 0 : agg.totalCount());
+        rsp.setTpm(agg == null ? 0 : agg.tokenSum());
+        rsp.setSuccessRate(agg == null ? 100.0 : round(agg.successRate()));
+        rsp.setActiveProviders(providerConfigMapper.selectAllEnabled().size());
+
+        dashboardCacheService.setRealtime(rsp);
+        return rsp;
+    }
+
     // ==================== 时间范围计算 ====================
 
     /**
@@ -200,6 +335,65 @@ public class DashboardServiceImpl implements IDashboardService {
      */
     private String normalizePeriod(String period) {
         return (period != null && VALID_PERIODS.contains(period)) ? period : "today";
+    }
+
+    // ==================== 趋势数据补齐 ====================
+
+    private DashboardTrendRsp fillMissingPoints(String period, LocalDateTime now,
+                                                  List<String> labels, List<Long> requestCounts,
+                                                  List<Long> tokenCounts, List<Double> costs,
+                                                  List<Double> successRates, List<Double> cacheHitRates) {
+        DashboardTrendRsp rsp = new DashboardTrendRsp();
+
+        int count;
+        LocalDate startDate = null;
+        if ("today".equals(period)) {
+            count = now.getHour() + 1;
+        } else {
+            count = "7d".equals(period) ? 7 : 30;
+            startDate = now.toLocalDate().minusDays(count - 1);
+        }
+
+        Map<String, Integer> indexMap = new HashMap<>();
+        for (int i = 0; i < labels.size(); i++) {
+            indexMap.put(labels.get(i), i);
+        }
+
+        List<String> fullLabels = new ArrayList<>(count);
+        List<Long> fullRequests = new ArrayList<>(count);
+        List<Long> fullTokens = new ArrayList<>(count);
+        List<Double> fullCosts = new ArrayList<>(count);
+        List<Double> fullSuccess = new ArrayList<>(count);
+        List<Double> fullCache = new ArrayList<>(count);
+
+        for (int i = 0; i < count; i++) {
+            String key = "today".equals(period)
+                    ? String.format("%02d:00", i)
+                    : startDate.plusDays(i).format(MONTH_DAY_FORMATTER);
+            fullLabels.add(key);
+            Integer idx = indexMap.get(key);
+            if (idx != null) {
+                fullRequests.add(requestCounts.get(idx));
+                fullTokens.add(tokenCounts.get(idx));
+                fullCosts.add(costs.get(idx));
+                fullSuccess.add(successRates.get(idx));
+                fullCache.add(cacheHitRates.get(idx));
+            } else {
+                fullRequests.add(0L);
+                fullTokens.add(0L);
+                fullCosts.add(0.0);
+                fullSuccess.add(100.0);
+                fullCache.add(0.0);
+            }
+        }
+
+        rsp.setLabels(fullLabels);
+        rsp.setRequestCounts(fullRequests);
+        rsp.setTokenCounts(fullTokens);
+        rsp.setCosts(fullCosts);
+        rsp.setSuccessRates(fullSuccess);
+        rsp.setCacheHitRates(fullCache);
+        return rsp;
     }
 
     // ==================== 工具方法 ====================

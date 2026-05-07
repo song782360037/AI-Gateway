@@ -23,6 +23,9 @@ public class DashboardOverviewRsp {
     /** 平均响应时间（ms） */
     private DualMetric avgResponseMs;
 
+    /** 请求成功率（百分比） */
+    private DualMetric successRate;
+
     /** 接入通道（提供商）数量 */
     private int providerCount;
 

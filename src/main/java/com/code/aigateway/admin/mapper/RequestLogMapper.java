@@ -207,15 +207,38 @@ public interface RequestLogMapper {
                                             @Param("limit") int limit);
 
     /**
+     * 按错误码聚合统计
+     */
+    @Select("""
+            <script>
+            SELECT error_code AS errorCode, COUNT(1) AS errorCount
+            FROM request_log
+            WHERE status = 'ERROR'
+            <if test='startTime != null'>
+                AND create_time &gt;= #{startTime}
+            </if>
+            GROUP BY error_code
+            ORDER BY errorCount DESC
+            LIMIT #{limit}
+            </script>
+            """)
+    List<ErrorAgg> aggregateByError(@Param("startTime") LocalDateTime startTime,
+                                    @Param("limit") int limit);
+
+    /**
+     * 查询实时聚合指标（最近 N 分钟）
+     */
+    @Select("""
+            SELECT COUNT(1) AS totalCount,
+                   COALESCE(SUM(CASE WHEN status = 'SUCCESS' THEN 1 ELSE 0 END) * 100.0 / COUNT(1), 100) AS successRate,
+                   COALESCE(SUM(total_tokens), 0) AS tokenSum
+            FROM request_log
+            WHERE create_time >= #{startTime}
+            """)
+    RealtimeAgg selectRealtime(@Param("startTime") LocalDateTime startTime);
+
+    /**
      * 模型聚合结果
-     *
-     * @param targetModel   实际路由到的目标模型（用于费用估算）
-     * @param aliasModel    用户请求的模型别名（用于前端展示）
-     * @param callCount     调用次数
-     * @param tokenCount    总 Token 数
-     * @param promptSum     输入 Token 总数
-     * @param cachedInputSum 缓存命中 Token 总数
-     * @param completionSum 输出 Token 总数
      */
     record ModelAggregation(
             String targetModel,
@@ -226,4 +249,14 @@ public interface RequestLogMapper {
             long cachedInputSum,
             long completionSum
     ) {}
+
+    /**
+     * 错误聚合结果
+     */
+    record ErrorAgg(String errorCode, long errorCount) {}
+
+    /**
+     * 实时聚合结果
+     */
+    record RealtimeAgg(long totalCount, double successRate, long tokenSum) {}
 }

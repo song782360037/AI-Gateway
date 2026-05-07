@@ -1,8 +1,12 @@
 package com.code.aigateway.admin.service;
 
 import com.code.aigateway.admin.model.rsp.DashboardOverviewRsp;
+import com.code.aigateway.admin.model.rsp.DashboardTrendRsp;
+import com.code.aigateway.admin.model.rsp.ErrorSummaryRsp;
 import com.code.aigateway.admin.model.rsp.ModelUsageRankRsp;
+import com.code.aigateway.admin.model.rsp.ProviderDistributionRsp;
 import com.code.aigateway.admin.model.rsp.RecentRequestRsp;
+import com.code.aigateway.admin.model.rsp.RealtimeMetricsRsp;
 import com.code.aigateway.core.runtime.CacheConstants;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -53,6 +57,38 @@ public class DashboardCacheService {
         set(buildKey(CacheConstants.KEY_DASHBOARD_RECENT_REQUESTS, period), value);
     }
 
+    public DashboardTrendRsp getTrend(String period) {
+        return get(buildKey(CacheConstants.KEY_DASHBOARD_TREND, period), DashboardTrendRsp.class);
+    }
+
+    public void setTrend(String period, DashboardTrendRsp value) {
+        set(buildKey(CacheConstants.KEY_DASHBOARD_TREND, period), value);
+    }
+
+    public ProviderDistributionRsp getProviderDistribution(String period) {
+        return get(buildKey(CacheConstants.KEY_DASHBOARD_PROVIDER_DIST, period), ProviderDistributionRsp.class);
+    }
+
+    public void setProviderDistribution(String period, ProviderDistributionRsp value) {
+        set(buildKey(CacheConstants.KEY_DASHBOARD_PROVIDER_DIST, period), value);
+    }
+
+    public ErrorSummaryRsp getErrorSummary(String period) {
+        return get(buildKey(CacheConstants.KEY_DASHBOARD_ERROR_SUMMARY, period), ErrorSummaryRsp.class);
+    }
+
+    public void setErrorSummary(String period, ErrorSummaryRsp value) {
+        set(buildKey(CacheConstants.KEY_DASHBOARD_ERROR_SUMMARY, period), value);
+    }
+
+    public RealtimeMetricsRsp getRealtime() {
+        return get(CacheConstants.KEY_DASHBOARD_REALTIME, RealtimeMetricsRsp.class);
+    }
+
+    public void setRealtime(RealtimeMetricsRsp value) {
+        setExact(CacheConstants.KEY_DASHBOARD_REALTIME, value, CacheConstants.TTL_DASHBOARD_REALTIME);
+    }
+
     /**
      * 构建带 period 维度的缓存键，如 gateway:dashboard:overview:today
      */
@@ -91,6 +127,15 @@ public class DashboardCacheService {
             long ttl = CacheConstants.TTL_DASHBOARD + ThreadLocalRandom.current().nextInt(CacheConstants.TTL_RANDOM_RANGE);
             String json = objectMapper.writeValueAsString(value);
             stringRedisTemplate.opsForValue().set(key, json, ttl, TimeUnit.SECONDS);
+        } catch (Exception ex) {
+            log.warn("[仪表盘缓存] 写入缓存失败，key: {}", key, ex);
+        }
+    }
+
+    private void setExact(String key, Object value, long ttlSeconds) {
+        try {
+            String json = objectMapper.writeValueAsString(value);
+            stringRedisTemplate.opsForValue().set(key, json, ttlSeconds, TimeUnit.SECONDS);
         } catch (Exception ex) {
             log.warn("[仪表盘缓存] 写入缓存失败，key: {}", key, ex);
         }

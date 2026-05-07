@@ -2,8 +2,12 @@ package com.code.aigateway.admin.controller;
 
 import com.code.aigateway.admin.exception.AdminExceptionHandler;
 import com.code.aigateway.admin.model.rsp.DashboardOverviewRsp;
+import com.code.aigateway.admin.model.rsp.DashboardTrendRsp;
+import com.code.aigateway.admin.model.rsp.ErrorSummaryRsp;
 import com.code.aigateway.admin.model.rsp.ModelUsageRankRsp;
+import com.code.aigateway.admin.model.rsp.ProviderDistributionRsp;
 import com.code.aigateway.admin.model.rsp.RecentRequestRsp;
+import com.code.aigateway.admin.model.rsp.RealtimeMetricsRsp;
 import com.code.aigateway.admin.service.IDashboardService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -147,6 +151,104 @@ class DashboardControllerTest {
                 .jsonPath("$.data[0].model").isEqualTo("gpt-4o")
                 .jsonPath("$.data[0].status").isEqualTo("success")
                 .jsonPath("$.data[1].status").isEqualTo("error");
+    }
+
+    // ==================== trend ====================
+
+    @Test
+    void trend_success() {
+        DashboardTrendRsp trendRsp = new DashboardTrendRsp();
+        trendRsp.setLabels(List.of("00:00", "01:00"));
+        trendRsp.setRequestCounts(List.of(10L, 20L));
+        trendRsp.setTokenCounts(List.of(100L, 200L));
+        trendRsp.setCosts(List.of(0.5, 1.0));
+        trendRsp.setSuccessRates(List.of(99.0, 98.5));
+        trendRsp.setCacheHitRates(List.of(10.0, 15.0));
+
+        Mockito.when(dashboardService.getTrend("today")).thenReturn(trendRsp);
+
+        webTestClient.get()
+                .uri("/admin/dashboard/trend?period=today")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.success").isEqualTo(true)
+                .jsonPath("$.data.labels.length()").isEqualTo(2)
+                .jsonPath("$.data.requestCounts[0]").isEqualTo(10)
+                .jsonPath("$.data.successRates[1]").isEqualTo(98.5);
+    }
+
+    // ==================== providerDistribution ====================
+
+    @Test
+    void providerDistribution_success() {
+        ProviderDistributionRsp rsp = new ProviderDistributionRsp();
+        ProviderDistributionRsp.Item item = new ProviderDistributionRsp.Item();
+        item.setProviderCode("openai-main");
+        item.setRequestCount(500);
+        item.setTokenCount(20000);
+        item.setCost(12.5);
+        item.setPercent(75.0);
+        rsp.setItems(List.of(item));
+
+        Mockito.when(dashboardService.getProviderDistribution("7d")).thenReturn(rsp);
+
+        webTestClient.get()
+                .uri("/admin/dashboard/provider-distribution?period=7d")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.success").isEqualTo(true)
+                .jsonPath("$.data.items[0].providerCode").isEqualTo("openai-main")
+                .jsonPath("$.data.items[0].percent").isEqualTo(75.0);
+    }
+
+    // ==================== errorSummary ====================
+
+    @Test
+    void errorSummary_success() {
+        ErrorSummaryRsp rsp = new ErrorSummaryRsp();
+        rsp.setTotalErrors(15);
+        ErrorSummaryRsp.ErrorItem item = new ErrorSummaryRsp.ErrorItem();
+        item.setErrorCode("TIMEOUT");
+        item.setErrorCount(10);
+        item.setPercent(66.7);
+        rsp.setItems(List.of(item));
+
+        Mockito.when(dashboardService.getErrorSummary("30d")).thenReturn(rsp);
+
+        webTestClient.get()
+                .uri("/admin/dashboard/error-summary?period=30d")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.success").isEqualTo(true)
+                .jsonPath("$.data.totalErrors").isEqualTo(15)
+                .jsonPath("$.data.items[0].errorCode").isEqualTo("TIMEOUT");
+    }
+
+    // ==================== realtime ====================
+
+    @Test
+    void realtime_success() {
+        RealtimeMetricsRsp rsp = new RealtimeMetricsRsp();
+        rsp.setRpm(42);
+        rsp.setTpm(3500);
+        rsp.setSuccessRate(98.5);
+        rsp.setActiveProviders(3);
+
+        Mockito.when(dashboardService.getRealtimeMetrics()).thenReturn(rsp);
+
+        webTestClient.get()
+                .uri("/admin/dashboard/realtime")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.success").isEqualTo(true)
+                .jsonPath("$.data.rpm").isEqualTo(42)
+                .jsonPath("$.data.tpm").isEqualTo(3500)
+                .jsonPath("$.data.successRate").isEqualTo(98.5)
+                .jsonPath("$.data.activeProviders").isEqualTo(3);
     }
 
     // ==================== health ====================

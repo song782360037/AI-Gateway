@@ -1,7 +1,7 @@
 <template>
   <ConsoleLayout>
     <div class="dashboard-page">
-      <!-- ====== 顶部：页面标题 + 状态/操作区 ====== -->
+      <!-- ====== 顶部：系统状态 + 时间切换 ====== -->
       <div class="dashboard-header">
         <div class="dashboard-header__left">
           <div class="dashboard-header__status">
@@ -15,6 +15,45 @@
           </div>
         </div>
         <div class="dashboard-header__right">
+          <!-- 实时指标条 -->
+          <div class="realtime-bar">
+            <div class="realtime-item">
+              <span class="realtime-item__label">RPM</span>
+              <span class="realtime-item__value">{{ formatNumber(realtime?.rpm ?? 0) }}</span>
+            </div>
+            <div class="realtime-divider" />
+            <div class="realtime-item">
+              <span class="realtime-item__label">TPM</span>
+              <span class="realtime-item__value">{{ formatTokenCount(realtime?.tpm ?? 0) }}</span>
+            </div>
+            <div class="realtime-divider" />
+            <div class="realtime-item">
+              <span class="realtime-item__label">成功率</span>
+              <span class="realtime-item__value" :class="(realtime?.successRate ?? 100) >= 99 ? 'text-success' : 'text-warning'">
+                {{ (realtime?.successRate ?? 100).toFixed(1) }}%
+              </span>
+            </div>
+            <div class="realtime-divider" />
+            <div class="realtime-item">
+              <span class="realtime-item__label">活跃通道</span>
+              <span class="realtime-item__value">{{ realtime?.activeProviders ?? 0 }}</span>
+            </div>
+            <div class="realtime-divider group-divider" />
+            <div class="realtime-item">
+              <span class="realtime-item__label">缓存命中</span>
+              <span class="realtime-item__value">{{ formatTokenCount(stats.cacheTokens.current) }}</span>
+            </div>
+            <div class="realtime-divider" />
+            <div class="realtime-item">
+              <span class="realtime-item__label">提供商</span>
+              <span class="realtime-item__value">{{ formatNumber(stats.providerCount) }}</span>
+            </div>
+            <div class="realtime-divider" />
+            <div class="realtime-item">
+              <span class="realtime-item__label">重定向规则</span>
+              <span class="realtime-item__value">{{ formatNumber(stats.redirectCount) }}</span>
+            </div>
+          </div>
           <el-icon :size="18" class="dashboard-header__notify">
             <Bell />
           </el-icon>
@@ -33,17 +72,16 @@
         </div>
       </div>
 
-      <!-- ====== 中部：数据概览卡片 ====== -->
+      <!-- ====== 核心 KPI 卡片（第一行：5张核心指标） ====== -->
       <div class="overview-section">
-        <div class="section-label">数据概览</div>
-        <div v-loading="loading" class="overview-grid">
+        <div class="section-label">核心指标</div>
+        <div v-loading="loading" class="overview-grid overview-grid--primary">
           <div
-            v-for="card in overviewCards"
+            v-for="card in primaryCards"
             :key="card.key"
-            class="overview-card"
+            class="overview-card overview-card--primary"
             :style="{ '--card-accent': card.accent, '--card-accent-bg': card.accentBg }"
           >
-            <!-- 装饰背景 -->
             <div class="overview-card__deco" />
             <div class="overview-card__top">
               <div class="overview-card__icon-wrap">
@@ -61,6 +99,93 @@
             </div>
             <div class="overview-card__value">{{ card.displayValue }}</div>
             <div class="overview-card__sub">{{ card.subLabel }}</div>
+            <!-- 迷你趋势条 -->
+            <div v-if="card.sparklineData && card.sparklineData.length > 1" class="sparkline">
+              <v-chart
+                class="sparkline-chart"
+                :option="buildSparklineOption(card.sparklineData, card.accent)"
+                autoresize
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== 图表区：2x2 网格 ====== -->
+      <div class="charts-section">
+        <!-- 请求量趋势 -->
+        <div class="chart-card">
+          <div class="chart-card__header">
+            <div class="chart-card__title">
+              <el-icon :size="16"><TrendCharts /></el-icon>
+              <span>请求量趋势</span>
+            </div>
+          </div>
+          <div class="chart-card__body">
+            <v-chart
+              v-if="trend && trend.labels.length"
+              class="chart-instance"
+              :option="requestTrendOption"
+              autoresize
+            />
+            <div v-else class="chart-empty">暂无数据</div>
+          </div>
+        </div>
+
+        <!-- Token / 费用趋势 -->
+        <div class="chart-card">
+          <div class="chart-card__header">
+            <div class="chart-card__title">
+              <el-icon :size="16"><Coin /></el-icon>
+              <span>Token & 费用趋势</span>
+            </div>
+          </div>
+          <div class="chart-card__body">
+            <v-chart
+              v-if="trend && trend.labels.length"
+              class="chart-instance"
+              :option="tokenCostTrendOption"
+              autoresize
+            />
+            <div v-else class="chart-empty">暂无数据</div>
+          </div>
+        </div>
+
+        <!-- 提供商调用分布 -->
+        <div class="chart-card">
+          <div class="chart-card__header">
+            <div class="chart-card__title">
+              <el-icon :size="16"><OfficeBuilding /></el-icon>
+              <span>提供商调用分布</span>
+            </div>
+          </div>
+          <div class="chart-card__body">
+            <v-chart
+              v-if="providerDist && providerDist.items.length"
+              class="chart-instance"
+              :option="providerDistOption"
+              autoresize
+            />
+            <div v-else class="chart-empty">暂无数据</div>
+          </div>
+        </div>
+
+        <!-- 缓存命中率趋势 -->
+        <div class="chart-card">
+          <div class="chart-card__header">
+            <div class="chart-card__title">
+              <el-icon :size="16"><Lightning /></el-icon>
+              <span>缓存命中率趋势</span>
+            </div>
+          </div>
+          <div class="chart-card__body">
+            <v-chart
+              v-if="trend && trend.labels.length"
+              class="chart-instance"
+              :option="cacheHitRateOption"
+              autoresize
+            />
+            <div v-else class="chart-empty">暂无数据</div>
           </div>
         </div>
       </div>
@@ -151,6 +276,9 @@
                 show-overflow-tooltip
                 align="center"
               />
+              <el-table-column prop="tokens" label="Token" width="72" align="center">
+                <template #default="{ row }">{{ formatTokenCount(row.tokens) }}</template>
+              </el-table-column>
               <el-table-column prop="duration" label="耗时" width="72" align="center">
                 <template #default="{ row }">
                   <span :class="{ 'duration-warn': row.duration > 5000 }">
@@ -174,12 +302,47 @@
           </div>
         </div>
       </div>
+
+      <!-- ====== 错误分析（可折叠） ====== -->
+      <div v-if="errorSummary && errorSummary.totalErrors > 0" class="error-section">
+        <el-collapse>
+          <el-collapse-item>
+            <template #title>
+              <div class="error-section__title">
+                <el-icon :size="16" color="#ef4444"><Warning /></el-icon>
+                <span>错误分析</span>
+                <el-tag type="danger" size="small" effect="light" class="error-count-tag">
+                  {{ errorSummary.totalErrors }} 次错误
+                </el-tag>
+              </div>
+            </template>
+            <div class="error-section__body">
+              <div class="error-chart-wrapper">
+                <v-chart
+                  class="error-chart"
+                  :option="errorSummaryOption"
+                  autoresize
+                />
+              </div>
+              <el-table :data="errorSummary.items" size="small" class="dashboard-table">
+                <el-table-column prop="errorCode" label="错误码" min-width="140" />
+                <el-table-column prop="errorCount" label="次数" width="90" align="right">
+                  <template #default="{ row }">{{ formatNumber(row.errorCount) }}</template>
+                </el-table-column>
+                <el-table-column prop="percent" label="占比" width="90" align="right">
+                  <template #default="{ row }">{{ row.percent.toFixed(1) }}%</template>
+                </el-table-column>
+              </el-table>
+            </div>
+          </el-collapse-item>
+        </el-collapse>
+      </div>
     </div>
   </ConsoleLayout>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   ArrowRight,
@@ -189,23 +352,44 @@ import {
   Document,
   Lightning,
   OfficeBuilding,
-  Share,
   Timer,
   TrendCharts,
+  Warning,
 } from '@element-plus/icons-vue'
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { LineChart, BarChart, PieChart } from 'echarts/charts'
+import {
+  GridComponent,
+  TooltipComponent,
+  LegendComponent,
+  DataZoomComponent,
+} from 'echarts/components'
+import VChart from 'vue-echarts'
 import ConsoleLayout from '../../layout/ConsoleLayout.vue'
 import {
   fetchDashboardStats,
+  fetchDashboardTrend,
+  fetchErrorSummary,
   fetchModelUsageRank,
+  fetchProviderDistribution,
+  fetchRealtimeMetrics,
   fetchRecentRequests,
   fetchSystemHealth,
 } from '../../api/dashboard'
 import type {
   DashboardPeriod,
   DashboardStats,
+  DashboardTrend,
+  ErrorSummary,
   ModelUsageRank,
+  ProviderDistribution,
+  RealtimeMetrics,
   RecentRequest,
 } from '../../types/dashboard'
+
+// 注册 ECharts 组件
+use([CanvasRenderer, LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent])
 
 // ==================== 状态 ====================
 
@@ -220,17 +404,41 @@ const stats = reactive<DashboardStats>({
   tokens: { current: 0, previous: 0, changePercent: 0 },
   cacheTokens: { current: 0, previous: 0, changePercent: 0 },
   avgResponseMs: { current: 0, previous: 0, changePercent: 0 },
+  successRate: { current: 100, previous: 100, changePercent: 0 },
   providerCount: 0,
   redirectCount: 0,
 })
 const modelRank = ref<ModelUsageRank[]>([])
 const recentRequests = ref<RecentRequest[]>([])
+const trend = ref<DashboardTrend | null>(null)
+const providerDist = ref<ProviderDistribution | null>(null)
+const errorSummary = ref<ErrorSummary | null>(null)
+const realtime = ref<RealtimeMetrics | null>(null)
 
 const periodOptions: { label: string; value: DashboardPeriod }[] = [
   { label: '今天', value: 'today' },
   { label: '近7天', value: '7d' },
   { label: '近30天', value: '30d' },
 ]
+
+let realtimeTimer: ReturnType<typeof setInterval> | null = null
+let isPageVisible = true
+
+function onVisibilityChange() {
+  if (document.hidden) {
+    isPageVisible = false
+    if (realtimeTimer) {
+      clearInterval(realtimeTimer)
+      realtimeTimer = null
+    }
+  } else {
+    isPageVisible = true
+    loadRealtime()
+    if (!realtimeTimer) {
+      realtimeTimer = setInterval(loadRealtime, 15000)
+    }
+  }
+}
 
 // ==================== 格式化 ====================
 
@@ -278,14 +486,21 @@ function statusTagType(status: string): string {
 
 // ==================== 计算属性 ====================
 
-/** 上周期文案（用于卡片底部说明） */
 const periodPrevLabel = computed(() => {
   if (activePeriod.value === 'today') return '昨日'
   if (activePeriod.value === '7d') return '前7天'
   return '前30天'
 })
 
-const overviewCards = computed(() => [
+/** 缓存命中率 */
+const cacheHitRate = computed(() => {
+  // 简化计算：用缓存 Token / (缓存 Token + 非缓存 Token) 估算
+  // 实际后端不提供直接的命中率，这里用 cacheTokens / tokens * 100 近似
+  if (stats.tokens.current <= 0) return 0
+  return Math.min(100, (stats.cacheTokens.current / stats.tokens.current * 100))
+})
+
+const primaryCards = computed(() => [
   {
     key: 'requests',
     label: '请求数',
@@ -295,6 +510,7 @@ const overviewCards = computed(() => [
     icon: Connection,
     accent: '#4361ee',
     accentBg: 'rgba(67, 97, 238, 0.06)',
+    sparklineData: trend.value?.requestCounts ?? [],
   },
   {
     key: 'cost',
@@ -305,6 +521,7 @@ const overviewCards = computed(() => [
     icon: Coin,
     accent: '#f59e0b',
     accentBg: 'rgba(245, 158, 11, 0.06)',
+    sparklineData: trend.value?.costs ?? [],
   },
   {
     key: 'tokens',
@@ -315,16 +532,7 @@ const overviewCards = computed(() => [
     icon: TrendCharts,
     accent: '#10b981',
     accentBg: 'rgba(16, 185, 129, 0.06)',
-  },
-  {
-    key: 'cacheTokens',
-    label: '缓存命中',
-    displayValue: formatTokenCount(stats.cacheTokens.current),
-    subLabel: `${periodPrevLabel.value} ${formatTokenCount(stats.cacheTokens.previous)}`,
-    metric: stats.cacheTokens,
-    icon: Lightning,
-    accent: '#06b6d4',
-    accentBg: 'rgba(6, 182, 212, 0.06)',
+    sparklineData: trend.value?.tokenCounts ?? [],
   },
   {
     key: 'duration',
@@ -335,30 +543,198 @@ const overviewCards = computed(() => [
     icon: Timer,
     accent: '#8b5cf6',
     accentBg: 'rgba(139, 92, 246, 0.06)',
+    sparklineData: [],
   },
   {
-    key: 'providerCount',
-    label: '提供商',
-    displayValue: formatNumber(stats.providerCount),
-    subLabel: '接入通道总数',
-    metric: { current: stats.providerCount, previous: 0, changePercent: 0 },
-    icon: OfficeBuilding,
-    accent: '#6366f1',
-    accentBg: 'rgba(99, 102, 241, 0.06)',
-    hideTrend: true,
-  },
-  {
-    key: 'redirectCount',
-    label: '重定向规则',
-    displayValue: formatNumber(stats.redirectCount),
-    subLabel: '模型路由规则总数',
-    metric: { current: stats.redirectCount, previous: 0, changePercent: 0 },
-    icon: Share,
-    accent: '#ec4899',
-    accentBg: 'rgba(236, 72, 153, 0.06)',
-    hideTrend: true,
+    key: 'successRate',
+    label: '请求成功率',
+    displayValue: stats.successRate.current.toFixed(1) + '%',
+    subLabel: `${periodPrevLabel.value} ${stats.successRate.previous.toFixed(1)}%`,
+    metric: stats.successRate,
+    icon: Lightning,
+    accent: '#06b6d4',
+    accentBg: 'rgba(6, 182, 212, 0.06)',
+    sparklineData: trend.value?.successRates ?? [],
   },
 ])
+
+// ==================== ECharts 配置 ====================
+
+function buildSparklineOption(data: number[], color: string) {
+  return {
+    grid: { left: 0, right: 0, top: 2, bottom: 2 },
+    xAxis: { type: 'category', show: false, data: data.map((_, i) => i) },
+    yAxis: { type: 'value', show: false },
+    tooltip: { show: false },
+    series: [{
+      type: 'line',
+      data,
+      smooth: true,
+      symbol: 'none',
+      lineStyle: { width: 2, color },
+      areaStyle: {
+        color: {
+          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: color + '40' },
+            { offset: 1, color: color + '05' },
+          ],
+        },
+      },
+    }],
+  }
+}
+
+const requestTrendOption = computed(() => {
+  if (!trend.value) return {}
+  const t = trend.value
+  return {
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+    legend: { data: ['请求数', '成功率'], bottom: 0, icon: 'circle', itemWidth: 8, itemHeight: 8, textStyle: { fontSize: 11 } },
+    grid: { left: 10, right: 10, top: 30, bottom: 30, containLabel: true },
+    xAxis: { type: 'category', data: t.labels, axisLine: { lineStyle: { color: '#e2e8f0' } }, axisLabel: { color: '#94a3b8', fontSize: 11 } },
+    yAxis: [
+      { type: 'value', name: '请求', nameTextStyle: { padding: [0, 0, 0, -20] }, axisLine: { show: false }, splitLine: { lineStyle: { color: '#f1f5f9' } }, axisLabel: { color: '#94a3b8', fontSize: 11 } },
+      { type: 'value', name: '%', nameTextStyle: { padding: [0, -20, 0, 0] }, min: 0, max: 100, axisLine: { show: false }, splitLine: { show: false }, axisLabel: { color: '#94a3b8', fontSize: 11, formatter: '{value}%' } },
+    ],
+    series: [
+      {
+        name: '请求数',
+        type: 'bar',
+        data: t.requestCounts,
+        itemStyle: { color: '#4361ee', borderRadius: [4, 4, 0, 0] },
+        barMaxWidth: 24,
+      },
+      {
+        name: '成功率',
+        type: 'line',
+        yAxisIndex: 1,
+        data: t.successRates,
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        itemStyle: { color: '#10b981' },
+        lineStyle: { width: 2 },
+      },
+    ],
+  }
+})
+
+const tokenCostTrendOption = computed(() => {
+  if (!trend.value) return {}
+  const t = trend.value
+  return {
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+    legend: { data: ['Token', '费用'], bottom: 0, icon: 'circle', itemWidth: 8, itemHeight: 8, textStyle: { fontSize: 11 } },
+    grid: { left: 10, right: 10, top: 30, bottom: 30, containLabel: true },
+    xAxis: { type: 'category', data: t.labels, axisLine: { lineStyle: { color: '#e2e8f0' } }, axisLabel: { color: '#94a3b8', fontSize: 11 } },
+    yAxis: [
+      { type: 'value', name: 'Token', nameTextStyle: { padding: [0, 0, 0, -20] }, axisLine: { show: false }, splitLine: { lineStyle: { color: '#f1f5f9' } }, axisLabel: { color: '#94a3b8', fontSize: 11 } },
+      { type: 'value', name: '$', nameTextStyle: { padding: [0, -20, 0, 0] }, axisLine: { show: false }, splitLine: { show: false }, axisLabel: { color: '#94a3b8', fontSize: 11 } },
+    ],
+    series: [
+      {
+        name: 'Token',
+        type: 'bar',
+        data: t.tokenCounts,
+        itemStyle: { color: '#10b981', borderRadius: [4, 4, 0, 0] },
+        barMaxWidth: 24,
+      },
+      {
+        name: '费用',
+        type: 'line',
+        yAxisIndex: 1,
+        data: t.costs,
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        itemStyle: { color: '#f59e0b' },
+        lineStyle: { width: 2 },
+      },
+    ],
+  }
+})
+
+const providerDistOption = computed(() => {
+  if (!providerDist.value) return {}
+  const items = providerDist.value.items
+  const colors = ['#4361ee', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#6366f1']
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}: {c} 次 ({d}%)' },
+    legend: { orient: 'vertical', right: 10, top: 'center', icon: 'circle', itemWidth: 8, itemHeight: 8, textStyle: { fontSize: 11 } },
+    series: [
+      {
+        type: 'pie',
+        radius: ['45%', '70%'],
+        center: ['35%', '50%'],
+        avoidLabelOverlap: false,
+        itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
+        label: { show: false },
+        emphasis: { label: { show: true, fontSize: 13, fontWeight: 'bold' } },
+        data: items.map((item, idx) => ({
+          name: item.providerCode,
+          value: item.requestCount,
+          itemStyle: { color: colors[idx % colors.length] },
+        })),
+      },
+    ],
+  }
+})
+
+const cacheHitRateOption = computed(() => {
+  if (!trend.value) return {}
+  const t = trend.value
+  return {
+    tooltip: { trigger: 'axis', formatter: (params: unknown) => {
+      const p = params as Array<{ name: string; value: number }>
+      return `${p[0].name}<br/>命中率: ${p[0].value.toFixed(1)}%`
+    } },
+    grid: { left: 10, right: 10, top: 20, bottom: 20, containLabel: true },
+    xAxis: { type: 'category', data: t.labels, axisLine: { lineStyle: { color: '#e2e8f0' } }, axisLabel: { color: '#94a3b8', fontSize: 11 } },
+    yAxis: { type: 'value', min: 0, max: 100, axisLine: { show: false }, splitLine: { lineStyle: { color: '#f1f5f9' } }, axisLabel: { color: '#94a3b8', fontSize: 11, formatter: '{value}%' } },
+    series: [
+      {
+        type: 'line',
+        data: t.cacheHitRates,
+        smooth: true,
+        symbol: 'none',
+        lineStyle: { width: 2, color: '#06b6d4' },
+        areaStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(6, 182, 212, 0.25)' },
+              { offset: 1, color: 'rgba(6, 182, 212, 0.02)' },
+            ],
+          },
+        },
+      },
+    ],
+  }
+})
+
+const errorSummaryOption = computed(() => {
+  if (!errorSummary.value) return {}
+  const items = errorSummary.value.items
+  const colors = ['#ef4444', '#f59e0b', '#f97316', '#eab308', '#84cc16', '#10b981', '#06b6d4']
+  return {
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    grid: { left: 10, right: 30, top: 10, bottom: 10, containLabel: true },
+    xAxis: { type: 'value', axisLine: { show: false }, splitLine: { lineStyle: { color: '#f1f5f9' } }, axisLabel: { color: '#94a3b8', fontSize: 11 } },
+    yAxis: { type: 'category', data: [...items].reverse().map(i => i.errorCode), axisLine: { lineStyle: { color: '#e2e8f0' } }, axisLabel: { color: '#64748b', fontSize: 12 } },
+    series: [
+      {
+        type: 'bar',
+        data: [...items].reverse().map((item, idx) => ({
+          value: item.errorCount,
+          itemStyle: { color: colors[idx % colors.length], borderRadius: [0, 4, 4, 0] },
+        })),
+        barMaxWidth: 20,
+        label: { show: true, position: 'right', formatter: '{c}', color: '#64748b', fontSize: 11 },
+      },
+    ],
+  }
+})
 
 // ==================== 数据加载 ====================
 
@@ -367,10 +743,13 @@ async function loadAll() {
   loading.value = true
   try {
     const period = activePeriod.value
-    const [s, rank, recent] = await Promise.all([
+    const [s, rank, recent, tr, pd, es] = await Promise.all([
       fetchDashboardStats(period),
       fetchModelUsageRank(period),
       fetchRecentRequests(period),
+      fetchDashboardTrend(period),
+      fetchProviderDistribution(period),
+      fetchErrorSummary(period),
     ])
     if (requestId !== latestLoadRequestId) {
       return
@@ -378,6 +757,9 @@ async function loadAll() {
     Object.assign(stats, s)
     modelRank.value = rank
     recentRequests.value = recent
+    trend.value = tr
+    providerDist.value = pd
+    errorSummary.value = es
   } catch {
     if (requestId === latestLoadRequestId) {
       ElMessage.error('仪表盘数据加载失败，请稍后重试')
@@ -398,6 +780,15 @@ async function loadHealth() {
   }
 }
 
+async function loadRealtime() {
+  try {
+    const res = await fetchRealtimeMetrics()
+    realtime.value = res
+  } catch {
+    // 静默失败，实时指标非关键
+  }
+}
+
 function switchPeriod(p: DashboardPeriod) {
   if (activePeriod.value === p || loading.value) {
     return
@@ -409,6 +800,16 @@ function switchPeriod(p: DashboardPeriod) {
 onMounted(() => {
   loadAll()
   loadHealth()
+  loadRealtime()
+  realtimeTimer = setInterval(loadRealtime, 15000)
+  document.addEventListener('visibilitychange', onVisibilityChange)
+})
+
+onUnmounted(() => {
+  if (realtimeTimer) {
+    clearInterval(realtimeTimer)
+  }
+  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 </script>
 
@@ -422,5 +823,226 @@ onMounted(() => {
 /* 次要文本 */
 .text-muted {
   color: var(--text-placeholder);
+}
+
+.text-success {
+  color: #10b981;
+}
+
+.text-warning {
+  color: #f59e0b;
+}
+
+/* 实时指标条 */
+.realtime-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 4px 0;
+}
+
+.realtime-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.realtime-item__label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.realtime-item__value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.realtime-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--border-light);
+}
+
+/* 迷你趋势条 */
+.sparkline {
+  margin-top: 12px;
+  height: 40px;
+  position: relative;
+}
+
+.sparkline-chart {
+  width: 100%;
+  height: 100%;
+}
+
+/* 分组分隔线 */
+.realtime-divider.group-divider {
+  height: 28px;
+  background: var(--border-default);
+  margin: 0 4px;
+}
+
+/* 图表区 */
+.charts-section {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.chart-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.chart-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 18px 10px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.chart-card__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.chart-card__body {
+  flex: 1;
+  padding: 10px 14px 14px;
+  min-height: 240px;
+  position: relative;
+}
+
+.chart-instance {
+  width: 100%;
+  height: 240px;
+}
+
+.chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 240px;
+  color: var(--text-placeholder);
+  font-size: 13px;
+}
+
+/* 错误分析 */
+.error-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.error-section :deep(.el-collapse) {
+  border: none;
+}
+
+.error-section :deep(.el-collapse-item__header) {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.error-section :deep(.el-collapse-item__wrap) {
+  border-bottom: none;
+}
+
+.error-section :deep(.el-collapse-item__content) {
+  padding: 0;
+}
+
+.error-section__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.error-count-tag {
+  margin-left: 8px;
+  font-weight: 600;
+}
+
+.error-section__body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  padding: 16px 18px;
+}
+
+.error-chart-wrapper {
+  min-height: 200px;
+}
+
+.error-chart {
+  width: 100%;
+  height: 200px;
+}
+
+/* 响应式 */
+@media (max-width: 1280px) {
+  .charts-section {
+    grid-template-columns: 1fr;
+  }
+
+  .error-section__body {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1024px) {
+  .overview-grid--primary {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .overview-grid--secondary {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .dashboard-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dashboard-header__left {
+    flex-wrap: wrap;
+  }
+
+  .realtime-bar {
+    flex-wrap: wrap;
+  }
+
+  .overview-grid--primary,
+  .overview-grid--secondary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .tables-section {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

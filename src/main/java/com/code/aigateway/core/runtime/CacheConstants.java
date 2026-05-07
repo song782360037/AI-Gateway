@@ -21,6 +21,10 @@ public final class CacheConstants {
     public static final String KEY_DASHBOARD_OVERVIEW = "gateway:dashboard:overview";
     public static final String KEY_DASHBOARD_MODEL_RANK = "gateway:dashboard:model-rank";
     public static final String KEY_DASHBOARD_RECENT_REQUESTS = "gateway:dashboard:recent-requests";
+    public static final String KEY_DASHBOARD_TREND = "gateway:dashboard:trend";
+    public static final String KEY_DASHBOARD_PROVIDER_DIST = "gateway:dashboard:provider-dist";
+    public static final String KEY_DASHBOARD_ERROR_SUMMARY = "gateway:dashboard:error-summary";
+    public static final String KEY_DASHBOARD_REALTIME = "gateway:dashboard:realtime";
 
     // TTL（秒）
     public static final long TTL_SNAPSHOT = 24 * 60 * 60L;        // 24 小时
@@ -29,6 +33,7 @@ public final class CacheConstants {
     public static final long TTL_RELOAD_LOCK = 30L;               // 30 秒
     public static final long TTL_DIRTY_FLAG = 10 * 60L;           // 10 分钟
     public static final long TTL_DASHBOARD = 2 * 60L;             // 2 分钟
+    public static final long TTL_DASHBOARD_REALTIME = 30L;        // 30 秒
 
     // TTL 随机偏移范围（秒）
     public static final int TTL_RANDOM_RANGE = 5 * 60;            // 0-5 分钟随机偏移

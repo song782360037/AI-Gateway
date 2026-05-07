@@ -1,8 +1,12 @@
 package com.code.aigateway.admin.controller;
 
 import com.code.aigateway.admin.model.rsp.DashboardOverviewRsp;
+import com.code.aigateway.admin.model.rsp.DashboardTrendRsp;
+import com.code.aigateway.admin.model.rsp.ErrorSummaryRsp;
 import com.code.aigateway.admin.model.rsp.ModelUsageRankRsp;
+import com.code.aigateway.admin.model.rsp.ProviderDistributionRsp;
 import com.code.aigateway.admin.model.rsp.RecentRequestRsp;
+import com.code.aigateway.admin.model.rsp.RealtimeMetricsRsp;
 import com.code.aigateway.admin.service.IDashboardService;
 import com.code.aigateway.common.result.R;
 import lombok.RequiredArgsConstructor;
@@ -57,6 +61,49 @@ public class DashboardController {
     public Mono<R<List<RecentRequestRsp>>> recentRequests(
             @RequestParam(defaultValue = "today") String period) {
         return Mono.fromCallable(() -> dashboardService.getRecentRequests(period))
+                .subscribeOn(Schedulers.boundedElastic())
+                .map(R::ok);
+    }
+
+    /**
+     * 获取趋势数据（请求量、Token、费用、成功率、缓存命中率）
+     */
+    @GetMapping("/trend")
+    public Mono<R<DashboardTrendRsp>> trend(
+            @RequestParam(defaultValue = "today") String period) {
+        return Mono.fromCallable(() -> dashboardService.getTrend(period))
+                .subscribeOn(Schedulers.boundedElastic())
+                .map(R::ok);
+    }
+
+    /**
+     * 获取提供商调用分布
+     */
+    @GetMapping("/provider-distribution")
+    public Mono<R<ProviderDistributionRsp>> providerDistribution(
+            @RequestParam(defaultValue = "today") String period) {
+        return Mono.fromCallable(() -> dashboardService.getProviderDistribution(period))
+                .subscribeOn(Schedulers.boundedElastic())
+                .map(R::ok);
+    }
+
+    /**
+     * 获取错误摘要
+     */
+    @GetMapping("/error-summary")
+    public Mono<R<ErrorSummaryRsp>> errorSummary(
+            @RequestParam(defaultValue = "today") String period) {
+        return Mono.fromCallable(() -> dashboardService.getErrorSummary(period))
+                .subscribeOn(Schedulers.boundedElastic())
+                .map(R::ok);
+    }
+
+    /**
+     * 获取实时指标（最近 1 分钟）
+     */
+    @GetMapping("/realtime")
+    public Mono<R<RealtimeMetricsRsp>> realtime() {
+        return Mono.fromCallable(() -> dashboardService.getRealtimeMetrics())
                 .subscribeOn(Schedulers.boundedElastic())
                 .map(R::ok);
     }
