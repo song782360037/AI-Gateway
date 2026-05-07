@@ -80,10 +80,13 @@ public class AnthropicProviderClient extends AbstractProviderClient {
         // Anthropic 使用 x-api-key header 而非 Bearer Token
         WebClient.Builder builder = WebClient.builder()
                 .clientConnector(httpConnector)
-                .baseUrl(config.baseUrl())
-                .defaultHeader("x-api-key", config.apiKey())
-                .defaultHeader("anthropic-version", resolveApiVersion())
-                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
+                .baseUrl(config.baseUrl());
+        // 先设置自定义请求头（优先级最低）
+        com.code.aigateway.common.util.CustomHeaderUtils.applyCustomHeaders(builder, config.customHeaders(), "Provider客户端");
+        // 再设置认证头（优先级最高，不可被自定义头覆盖）
+        builder.defaultHeader("x-api-key", config.apiKey())
+               .defaultHeader("anthropic-version", resolveApiVersion())
+               .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
         if (correlationId != null && !correlationId.isBlank()) {
             builder.defaultHeader("X-Correlation-Id", correlationId);
         }

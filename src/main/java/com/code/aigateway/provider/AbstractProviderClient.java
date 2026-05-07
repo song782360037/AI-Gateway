@@ -1,5 +1,6 @@
 package com.code.aigateway.provider;
 
+import com.code.aigateway.common.util.CustomHeaderUtils;
 import com.code.aigateway.config.GatewayProperties;
 import com.code.aigateway.core.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
@@ -22,6 +23,7 @@ import reactor.util.retry.Retry;
 
 import java.net.ConnectException;
 import java.time.Duration;
+import java.util.Map;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -99,7 +101,8 @@ public abstract class AbstractProviderClient implements ProviderClient {
 
         return new ProviderRuntimeConfig(
                 providerName, trimTrailingSlash(baseUrl), apiKey, timeoutSeconds,
-                maxRetries, initialIntervalMs, maxIntervalMs
+                maxRetries, initialIntervalMs, maxIntervalMs,
+                resolveCustomHeaders(request)
         );
     }
 
@@ -108,6 +111,11 @@ public abstract class AbstractProviderClient implements ProviderClient {
     /**
      * 构建 WebClient，默认使用 Bearer Token 认证。
      * 子类可覆盖以自定义认证方式（如 Anthropic 的 x-api-key header）。
+     * <p>
+     * 自定义请求头在认证头之前设置，认证头后设置可确保同名头不被覆盖（defaultHeader 为追加语义）。
+     * 子类覆盖此方法时，应按相同顺序：先调用 CustomHeaderUtils.applyCustomHeaders 设置自定义头，
+     * 再设置认证相关头，确保认证头不可被自定义头覆盖。
+     * </p>
      *
      * @param config        运行时配置
      * @param correlationId 请求链路追踪 ID，透传至下游 Provider
@@ -115,12 +123,25 @@ public abstract class AbstractProviderClient implements ProviderClient {
     protected WebClient buildWebClient(ProviderRuntimeConfig config, String correlationId) {
         WebClient.Builder builder = WebClient.builder()
                 .clientConnector(httpConnector)
-                .baseUrl(config.baseUrl())
-                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + config.apiKey());
+                .baseUrl(config.baseUrl());
+        // 先设置自定义请求头（优先级最低）
+        CustomHeaderUtils.applyCustomHeaders(builder, config.customHeaders(), "Provider客户端");
+        // 再设置认证头（优先级最高，不可被自定义头覆盖）
+        builder.defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + config.apiKey());
         if (correlationId != null && !correlationId.isBlank()) {
             builder.defaultHeader("X-Correlation-Id", correlationId);
         }
         return builder.build();
+    }
+
+    /**
+     * 从请求上下文中解析自定义请求头。
+     */
+    private Map<String, String> resolveCustomHeaders(UnifiedRequest request) {
+        UnifiedRequest.ProviderExecutionContext ctx = request.getExecutionContext();
+        return ctx != null && ctx.getCustomHeaders() != null
+                ? ctx.getCustomHeaders()
+                : Map.of();
     }
 
     // ==================== 重试策略 ====================
@@ -441,7 +462,8 @@ public abstract class AbstractProviderClient implements ProviderClient {
             Integer timeoutSeconds,
             int maxRetries,
             long initialIntervalMs,
-            long maxIntervalMs
+            long maxIntervalMs,
+            Map<String, String> customHeaders
     ) {
     }
 }

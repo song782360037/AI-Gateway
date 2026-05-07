@@ -5,6 +5,8 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Builder;
 import lombok.Data;
 
+import java.util.Map;
+
 /**
  * 路由结果
  * <p>
@@ -51,4 +53,14 @@ public class RouteResult {
      */
     @JsonIgnore
     private String providerApiKey;
+
+    /**
+     * 自定义请求头（全局+提供商级别已合并）。
+     * <p>
+     * 提供商级别覆盖全局同名头，认证相关头不在此字段中。
+     * 序列化时排除，防止敏感自定义头泄露到日志或 API 响应。
+     * </p>
+     */
+    @JsonIgnore
+    private Map<String, String> customHeaders;
 }

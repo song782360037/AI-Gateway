@@ -5,11 +5,13 @@ import com.code.aigateway.admin.mapper.AutoRouteConfigMapper;
 import com.code.aigateway.admin.mapper.ModelRedirectConfigMapper;
 import com.code.aigateway.admin.mapper.ProviderConfigMapper;
 import com.code.aigateway.admin.mapper.SupportedModelMapper;
+import com.code.aigateway.admin.mapper.GlobalConfigMapper;
 import com.code.aigateway.admin.model.dataobject.AutoRouteCandidateDO;
 import com.code.aigateway.admin.model.dataobject.AutoRouteConfigDO;
 import com.code.aigateway.admin.model.dataobject.ModelRedirectConfigDO;
 import com.code.aigateway.admin.model.dataobject.ProviderConfigDO;
 import com.code.aigateway.admin.model.dataobject.SupportedModelDO;
+import com.code.aigateway.common.util.CustomHeaderUtils;
 import com.code.aigateway.core.model.ResponseProtocol;
 import com.code.aigateway.core.router.GlobPatternUtil;
 import com.code.aigateway.core.router.MatchType;
@@ -33,6 +35,8 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+
+import static com.code.aigateway.common.util.CustomHeaderUtils.parseHeadersJson;
 
 /**
  * 运行时配置刷新服务
@@ -59,6 +63,9 @@ public class RuntimeConfigRefreshService {
 
     /** 支持模型配置数据访问层 */
     private final SupportedModelMapper supportedModelMapper;
+
+    /** 全局配置数据访问层 */
+    private final GlobalConfigMapper globalConfigMapper;
 
     /** API Key 加解密组件，用于把密文转换为运行时明文 */
     private final ApiKeyEncryptor apiKeyEncryptor;
@@ -116,7 +123,10 @@ public class RuntimeConfigRefreshService {
                     })
                     .toList();
 
-            // 5. 按匹配类型分组：EXACT 走 HashMap，GLOB/REGEX 走预编译模式列表
+            // 5. 加载全局自定义请求头（在构建路由候选前加载，以便合并到候选中）
+            Map<String, String> globalCustomHeaders = loadGlobalCustomHeaders();
+
+            // 6. 按匹配类型分组：EXACT 走 HashMap，GLOB/REGEX 走预编译模式列表
             Map<String, List<RouteCandidate>> aliasRouteMap = new LinkedHashMap<>();
             List<RoutingConfigSnapshot.PatternRoute> patternRoutes = new ArrayList<>();
 
@@ -136,7 +146,7 @@ public class RuntimeConfigRefreshService {
 
                 // 构建候选路由列表
                 List<RouteCandidate> candidates = configs.stream()
-                        .map(config -> buildRouteCandidate(config, providerMap.get(config.getProviderCode())))
+                        .map(config -> buildRouteCandidate(config, providerMap.get(config.getProviderCode()), globalCustomHeaders))
                         .sorted(Comparator.comparing(
                                 (RouteCandidate c) -> c.getProviderPriority() == null ? 0 : c.getProviderPriority(),
                                 Comparator.reverseOrder()))
@@ -156,36 +166,36 @@ public class RuntimeConfigRefreshService {
                 }
             }
 
-            // 6. 对 patternRoutes 按特异性排序：同类型内按 originalPattern 长度降序，
+            // 7. 对 patternRoutes 按特异性排序：同类型内按 originalPattern 长度降序，
             //    更具体的规则（如 gpt-4o*）优先于更宽泛的规则（如 gpt-*）。
             //    GLOB 整体排在 REGEX 前面，保证 matchPatternRoutes 遍历时 GLOB 优先短路。
             patternRoutes.sort(Comparator
                     .comparing((RoutingConfigSnapshot.PatternRoute pr) -> pr.matchType() == MatchType.GLOB ? 0 : 1)
                     .thenComparing(pr -> pr.originalPattern().length(), Comparator.reverseOrder()));
 
-            Map<String, RoutingConfigSnapshot.AutoRouteEntry> autoRouteMap = buildAutoRouteMap(providerMap);
+            Map<String, RoutingConfigSnapshot.AutoRouteEntry> autoRouteMap = buildAutoRouteMap(providerMap, globalCustomHeaders);
 
-            // 7. 查询启用中的支持模型，构建 /v1/models 接口数据。
+            // 8. 查询启用中的支持模型，构建 /v1/models 接口数据。
             List<RoutingConfigSnapshot.SupportedModelEntry> supportedModels = buildSupportedModels();
 
-            // 8. 生成新的快照版本号，并构建不可变快照对象。
+            // 9. 生成新的快照版本号，并构建不可变快照对象。
             long version = nextVersion();
             RoutingConfigSnapshot snapshot = new RoutingConfigSnapshot(
-                    aliasRouteMap, patternRoutes, providerMap, autoRouteMap, supportedModels, version, source);
+                    aliasRouteMap, patternRoutes, providerMap, globalCustomHeaders, autoRouteMap, supportedModels, version, source);
 
-            // 9. 原子替换本地快照，保证热路径读取始终一致。
+            // 10. 原子替换本地快照，保证热路径读取始终一致。
             routingSnapshotHolder.update(snapshot);
 
-            // 10. 将快照序列化后预热到 Redis，便于其他节点快速同步。
+            // 11. 将快照序列化后预热到 Redis，便于其他节点快速同步。
             String snapshotJson = objectMapper.writeValueAsString(snapshot);
             redisRoutingCacheService.warmupSnapshot(snapshotJson, version);
             redisRoutingCacheService.clearDirty();
 
-            log.info("[运行时配置刷新] 刷新成功，来源: {}，版本: {}，provider数: {}，精确alias数: {}，模式规则数: {}，auto规则数: {}，支持模型数: {}",
-                    source, version, providerMap.size(), aliasRouteMap.size(), patternRoutes.size(), autoRouteMap.size(), supportedModels.size());
+            log.info("[运行时配置刷新] 刷新成功，来源: {}，版本: {}，provider数: {}，精确alias数: {}，模式规则数: {}，auto规则数: {}，支持模型数: {}，全局自定义头数: {}",
+                    source, version, providerMap.size(), aliasRouteMap.size(), patternRoutes.size(), autoRouteMap.size(), supportedModels.size(), globalCustomHeaders.size());
             return true;
         } catch (Exception ex) {
-            // 11. 任意环节异常都不能影响主流程，需要打脏标记并记录错误日志。
+            // 12. 任意环节异常都不能影响主流程，需要打脏标记并记录错误日志。
             log.error("[运行时配置刷新] 从数据库刷新运行时快照失败，来源: {}", source, ex);
             routingSnapshotHolder.setDirty(true);
             redisRoutingCacheService.markDirty();
@@ -211,7 +221,8 @@ public class RuntimeConfigRefreshService {
                 apiKey,
                 providerConfig.getTimeoutSeconds() == null ? 60 : providerConfig.getTimeoutSeconds(),
                 providerConfig.getPriority() == null ? 0 : providerConfig.getPriority(),
-                parseProtocols(providerConfig.getSupportedProtocols())
+                parseProtocols(providerConfig.getSupportedProtocols()),
+                parseHeadersJson(providerConfig.getCustomHeaders())
         );
     }
 
@@ -219,7 +230,11 @@ public class RuntimeConfigRefreshService {
      * 将模型重定向规则与提供商运行时配置聚合为一个候选路由项。
      */
     private RouteCandidate buildRouteCandidate(ModelRedirectConfigDO redirectConfig,
-                                               RoutingConfigSnapshot.ProviderEntry providerEntry) {
+                                               RoutingConfigSnapshot.ProviderEntry providerEntry,
+                                               Map<String, String> globalCustomHeaders) {
+        // 合并全局和提供商级别的自定义请求头（提供商级别覆盖全局同名头）
+        Map<String, String> mergedHeaders = CustomHeaderUtils.mergeCustomHeaders(globalCustomHeaders, providerEntry.customHeaders(), "运行时配置刷新");
+
         return RouteCandidate.builder()
                 .providerType(providerEntry.providerType())
                 .providerCode(providerEntry.providerCode())
@@ -229,6 +244,7 @@ public class RuntimeConfigRefreshService {
                 .providerTimeoutSeconds(providerEntry.timeoutSeconds())
                 .providerPriority(providerEntry.priority())
                 .supportedProtocols(providerEntry.supportedProtocols())
+                .customHeaders(mergedHeaders)
                 .build();
     }
 
@@ -236,7 +252,8 @@ public class RuntimeConfigRefreshService {
      * 将 Auto 智能路由配置聚合为运行时快照条目。
      */
     private Map<String, RoutingConfigSnapshot.AutoRouteEntry> buildAutoRouteMap(
-            Map<String, RoutingConfigSnapshot.ProviderEntry> providerMap) {
+            Map<String, RoutingConfigSnapshot.ProviderEntry> providerMap,
+            Map<String, String> globalCustomHeaders) {
         List<AutoRouteConfigDO> autoConfigs = autoRouteConfigMapper.selectAllEnabled();
         if (autoConfigs.isEmpty()) {
             return Map.of();
@@ -256,7 +273,7 @@ public class RuntimeConfigRefreshService {
             List<RouteCandidate> routeCandidates = candidatesByConfigId
                     .getOrDefault(config.getId(), List.of())
                     .stream()
-                    .map(candidate -> buildAutoRouteCandidate(candidate, providerMap.get(candidate.getProviderCode())))
+                    .map(candidate -> buildAutoRouteCandidate(candidate, providerMap.get(candidate.getProviderCode()), globalCustomHeaders))
                     .filter(Objects::nonNull)
                     .sorted(Comparator.comparing(
                             (RouteCandidate c) -> c.getProviderPriority() == null ? 0 : c.getProviderPriority(),
@@ -280,12 +297,15 @@ public class RuntimeConfigRefreshService {
      * （而非 Provider 的优先级），以便在评分排序时使用候选级别的优先级权重。</p>
      */
     private RouteCandidate buildAutoRouteCandidate(AutoRouteCandidateDO candidate,
-                                                   RoutingConfigSnapshot.ProviderEntry providerEntry) {
+                                                   RoutingConfigSnapshot.ProviderEntry providerEntry,
+                                                   Map<String, String> globalCustomHeaders) {
         if (providerEntry == null) {
             log.warn("[运行时配置刷新] 忽略无效 Auto 候选，configId: {}，providerCode: {}，targetModel: {}",
                     candidate.getConfigId(), candidate.getProviderCode(), candidate.getTargetModel());
             return null;
         }
+        // 合并全局和提供商级别的自定义请求头（提供商级别覆盖全局同名头）
+        Map<String, String> mergedHeaders = CustomHeaderUtils.mergeCustomHeaders(globalCustomHeaders, providerEntry.customHeaders(), "运行时配置刷新");
         return RouteCandidate.builder()
                 .providerType(providerEntry.providerType())
                 .providerCode(providerEntry.providerCode())
@@ -295,6 +315,7 @@ public class RuntimeConfigRefreshService {
                 .providerTimeoutSeconds(providerEntry.timeoutSeconds())
                 .providerPriority(candidate.getPriority() == null ? 0 : candidate.getPriority())
                 .supportedProtocols(providerEntry.supportedProtocols())
+                .customHeaders(mergedHeaders)
                 .supportsVision(candidate.getSupportsVision())
                 .supportsTools(candidate.getSupportsTools())
                 .supportsToolChoiceRequired(candidate.getSupportsToolChoiceRequired())
@@ -386,5 +407,22 @@ public class RuntimeConfigRefreshService {
                                 : 0L
                 ))
                 .toList();
+    }
+
+    /**
+     * 从全局配置表加载自定义请求头。
+     */
+    private Map<String, String> loadGlobalCustomHeaders() {
+        try {
+            com.code.aigateway.admin.model.dataobject.GlobalConfigDO record =
+                    globalConfigMapper.selectByConfigKey("custom_headers");
+            if (record == null) {
+                return Map.of();
+            }
+            return parseHeadersJson(record.getConfigValue());
+        } catch (Exception e) {
+            log.warn("[运行时配置刷新] 加载全局自定义请求头失败: {}", e.getMessage());
+            return Map.of();
+        }
     }
 }

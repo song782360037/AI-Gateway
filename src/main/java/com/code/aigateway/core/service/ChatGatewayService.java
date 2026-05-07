@@ -200,6 +200,7 @@ public class ChatGatewayService {
         ctx.setProviderTimeoutSeconds(routeResult.getProviderTimeoutSeconds());
         ctx.setProviderApiKey(routeResult.getProviderApiKey());
         ctx.setCorrelationId(correlationId);
+        ctx.setCustomHeaders(routeResult.getCustomHeaders());
         return ctx;
     }
 }

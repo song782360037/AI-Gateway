@@ -4,6 +4,7 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 提供商配置响应对象
@@ -43,6 +44,9 @@ public class ProviderConfigRsp {
 
     /** 支持的下游协议列表，空表示支持所有 */
     private List<String> supportedProtocols;
+
+    /** 提供商级别自定义请求头（键值对） */
+    private Map<String, String> customHeaders;
 
     /** 乐观锁版本号 */
     private Long versionNo;

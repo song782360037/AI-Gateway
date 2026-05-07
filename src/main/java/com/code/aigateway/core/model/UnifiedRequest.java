@@ -130,5 +130,14 @@ public class UnifiedRequest {
          * 请求链路追踪 ID，透传至下游 Provider
          */
         private String correlationId;
+
+        /**
+         * 自定义请求头（全局+提供商级别已合并，提供商级别覆盖全局同名头）。
+         * <p>
+         * 由路由阶段写入，在 ProviderClient 构建请求时应用。
+         * 认证相关头（如 Authorization）不在此字段中，由各 ProviderClient 单独设置。
+         * </p>
+         */
+        private Map<String, String> customHeaders;
     }
 }

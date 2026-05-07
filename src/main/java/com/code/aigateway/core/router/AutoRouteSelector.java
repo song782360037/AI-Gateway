@@ -84,6 +84,7 @@ public class AutoRouteSelector {
                 .providerBaseUrl(candidate.getProviderBaseUrl())
                 .providerTimeoutSeconds(candidate.getProviderTimeoutSeconds())
                 .providerApiKey(candidate.getProviderApiKey())
+                .customHeaders(candidate.getCustomHeaders())
                 .build();
     }
 

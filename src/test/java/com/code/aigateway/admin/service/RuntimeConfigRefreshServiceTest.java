@@ -2,11 +2,13 @@ package com.code.aigateway.admin.service;
 
 import com.code.aigateway.admin.mapper.AutoRouteCandidateMapper;
 import com.code.aigateway.admin.mapper.AutoRouteConfigMapper;
+import com.code.aigateway.admin.mapper.GlobalConfigMapper;
 import com.code.aigateway.admin.mapper.ModelRedirectConfigMapper;
 import com.code.aigateway.admin.mapper.ProviderConfigMapper;
 import com.code.aigateway.admin.mapper.SupportedModelMapper;
 import com.code.aigateway.admin.model.dataobject.AutoRouteCandidateDO;
 import com.code.aigateway.admin.model.dataobject.AutoRouteConfigDO;
+import com.code.aigateway.admin.model.dataobject.GlobalConfigDO;
 import com.code.aigateway.admin.model.dataobject.ModelRedirectConfigDO;
 import com.code.aigateway.admin.model.dataobject.ProviderConfigDO;
 import com.code.aigateway.admin.model.dataobject.SupportedModelDO;
@@ -79,6 +81,9 @@ class RuntimeConfigRefreshServiceTest {
     private RedisRoutingCacheService redisRoutingCacheService;
 
     @Mock
+    private GlobalConfigMapper globalConfigMapper;
+
+    @Mock
     private ObjectMapper objectMapper;
 
     private RuntimeConfigRefreshService service;
@@ -91,6 +96,7 @@ class RuntimeConfigRefreshServiceTest {
                 autoRouteConfigMapper,
                 autoRouteCandidateMapper,
                 supportedModelMapper,
+                globalConfigMapper,
                 apiKeyEncryptor,
                 routingSnapshotHolder,
                 redisRoutingCacheService,
@@ -1053,6 +1059,142 @@ class RuntimeConfigRefreshServiceTest {
             RoutingConfigSnapshot snapshot = captor.getValue();
             RouteCandidate rc = snapshot.getAutoRouteMap().get("default").candidates().get(0);
             assertEquals(0, rc.getProviderPriority(), "候选优先级为 null 时应默认0");
+        }
+    }
+
+    // ==================== 全局自定义请求头与脏数据防护 ====================
+
+    @Nested
+    @DisplayName("reloadFromDb - 全局自定义请求头")
+    class GlobalCustomHeaders {
+
+        @Test
+        @DisplayName("全局自定义请求头正确加载并合并到路由候选")
+        void shouldLoadAndMergeGlobalCustomHeaders() throws Exception {
+            // 用真实 ObjectMapper 才能正确解析 JSON
+            ObjectMapper realMapper = new ObjectMapper();
+            RuntimeConfigRefreshService realService = new RuntimeConfigRefreshService(
+                    providerConfigMapper, modelRedirectConfigMapper, autoRouteConfigMapper,
+                    autoRouteCandidateMapper, supportedModelMapper, globalConfigMapper,
+                    apiKeyEncryptor, routingSnapshotHolder, redisRoutingCacheService, realMapper
+            );
+
+            ProviderConfigDO provider = buildProviderDO("openai-main", "openai",
+                    "https://api.openai.com", 10, null);
+            when(providerConfigMapper.selectAllEnabled()).thenReturn(List.of(provider));
+            when(apiKeyEncryptor.decrypt(anyString(), anyString())).thenReturn("sk-key");
+
+            ModelRedirectConfigDO redirect = buildRedirectDO("gpt-4o", "openai-main", "gpt-4o", "EXACT");
+            when(modelRedirectConfigMapper.selectAllEnabled()).thenReturn(List.of(redirect));
+
+            when(autoRouteConfigMapper.selectAllEnabled()).thenReturn(List.of());
+            when(autoRouteCandidateMapper.selectAllEnabled()).thenReturn(List.of());
+            when(supportedModelMapper.selectAllEnabled()).thenReturn(List.of());
+
+            // 全局自定义请求头
+            GlobalConfigDO globalConfigDO = new GlobalConfigDO();
+            globalConfigDO.setConfigKey("custom_headers");
+            globalConfigDO.setConfigValue("{\"X-Global\":\"global-value\"}");
+            when(globalConfigMapper.selectByConfigKey("custom_headers")).thenReturn(globalConfigDO);
+
+            realService.reloadFromDb("startup");
+
+            ArgumentCaptor<RoutingConfigSnapshot> captor =
+                    ArgumentCaptor.forClass(RoutingConfigSnapshot.class);
+            verify(routingSnapshotHolder).update(captor.capture());
+
+            RoutingConfigSnapshot snapshot = captor.getValue();
+            assertEquals(1, snapshot.getGlobalCustomHeaders().size());
+            assertEquals("global-value", snapshot.getGlobalCustomHeaders().get("X-Global"));
+
+            // 路由候选应包含合并后的全局头
+            RouteCandidate candidate = snapshot.getCandidates("gpt-4o").get(0);
+            assertEquals("global-value", candidate.getCustomHeaders().get("X-Global"));
+        }
+
+        @Test
+        @DisplayName("全局配置缺失时使用空 Map，不影响刷新")
+        void shouldHandleMissingGlobalConfig() throws Exception {
+            when(providerConfigMapper.selectAllEnabled()).thenReturn(List.of());
+            when(modelRedirectConfigMapper.selectAllEnabled()).thenReturn(List.of());
+            when(autoRouteConfigMapper.selectAllEnabled()).thenReturn(List.of());
+            when(autoRouteCandidateMapper.selectAllEnabled()).thenReturn(List.of());
+            when(supportedModelMapper.selectAllEnabled()).thenReturn(List.of());
+            when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+            when(globalConfigMapper.selectByConfigKey("custom_headers")).thenReturn(null);
+
+            boolean result = service.reloadFromDb("startup");
+
+            assertTrue(result, "缺失全局配置不应导致刷新失败");
+        }
+
+        @Test
+        @DisplayName("脏数据：全局头 JSON 解析失败时使用空 Map，不影响刷新")
+        void shouldHandleCorruptGlobalHeadersJson() throws Exception {
+            when(providerConfigMapper.selectAllEnabled()).thenReturn(List.of());
+            when(modelRedirectConfigMapper.selectAllEnabled()).thenReturn(List.of());
+            when(autoRouteConfigMapper.selectAllEnabled()).thenReturn(List.of());
+            when(autoRouteCandidateMapper.selectAllEnabled()).thenReturn(List.of());
+            when(supportedModelMapper.selectAllEnabled()).thenReturn(List.of());
+
+            // 用真实 ObjectMapper 以触发 JSON 解析
+            ObjectMapper realMapper = new ObjectMapper();
+            when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+
+            GlobalConfigDO globalConfigDO = new GlobalConfigDO();
+            globalConfigDO.setConfigKey("custom_headers");
+            globalConfigDO.setConfigValue("invalid-json{");
+            when(globalConfigMapper.selectByConfigKey("custom_headers")).thenReturn(globalConfigDO);
+
+            // 刷新应仍然成功（内部 catch 异常返回空 Map）
+            boolean result = service.reloadFromDb("startup");
+            assertTrue(result, "JSON 解析失败不应导致刷新崩溃");
+        }
+
+        @Test
+        @DisplayName("提供商级别同名头覆盖全局头")
+        void providerHeaderShouldOverrideGlobalHeader() throws Exception {
+            // 用真实 ObjectMapper 来解析 customHeaders JSON
+            ObjectMapper realMapper = new ObjectMapper();
+
+            ProviderConfigDO provider = buildProviderDO("openai-main", "openai",
+                    "https://api.openai.com", 10, null);
+            // 提供商级别自定义头覆盖全局同名头
+            provider.setCustomHeaders(realMapper.writeValueAsString(Map.of("X-Shared", "provider-value")));
+            when(providerConfigMapper.selectAllEnabled()).thenReturn(List.of(provider));
+            when(apiKeyEncryptor.decrypt(anyString(), anyString())).thenReturn("sk-key");
+
+            ModelRedirectConfigDO redirect = buildRedirectDO("gpt-4o", "openai-main", "gpt-4o", "EXACT");
+            when(modelRedirectConfigMapper.selectAllEnabled()).thenReturn(List.of(redirect));
+
+            when(autoRouteConfigMapper.selectAllEnabled()).thenReturn(List.of());
+            when(autoRouteCandidateMapper.selectAllEnabled()).thenReturn(List.of());
+            when(supportedModelMapper.selectAllEnabled()).thenReturn(List.of());
+
+            // 全局头与提供商级别同名
+            GlobalConfigDO globalConfigDO = new GlobalConfigDO();
+            globalConfigDO.setConfigKey("custom_headers");
+            globalConfigDO.setConfigValue("{\"X-Shared\":\"global-value\",\"X-Only-Global\":\"global\"}");
+            when(globalConfigMapper.selectByConfigKey("custom_headers")).thenReturn(globalConfigDO);
+
+            // 使用真实 ObjectMapper 以便 JSON 正确解析
+            RuntimeConfigRefreshService realService = new RuntimeConfigRefreshService(
+                    providerConfigMapper, modelRedirectConfigMapper, autoRouteConfigMapper,
+                    autoRouteCandidateMapper, supportedModelMapper, globalConfigMapper,
+                    apiKeyEncryptor, routingSnapshotHolder, redisRoutingCacheService, realMapper
+            );
+
+            realService.reloadFromDb("startup");
+
+            ArgumentCaptor<RoutingConfigSnapshot> captor =
+                    ArgumentCaptor.forClass(RoutingConfigSnapshot.class);
+            verify(routingSnapshotHolder).update(captor.capture());
+
+            RouteCandidate candidate = captor.getValue().getCandidates("gpt-4o").get(0);
+            // 提供商级别覆盖全局同名头
+            assertEquals("provider-value", candidate.getCustomHeaders().get("X-Shared"));
+            // 仅全局存在的头仍然保留
+            assertEquals("global", candidate.getCustomHeaders().get("X-Only-Global"));
         }
     }
 }

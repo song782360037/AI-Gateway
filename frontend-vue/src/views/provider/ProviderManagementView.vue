@@ -19,6 +19,9 @@
             <el-button type="primary" @click="openCreateProvider">
               <el-icon style="margin-right: 4px"><Plus /></el-icon>新增提供商
             </el-button>
+            <el-button plain @click="globalHeadersDialogVisible = true">
+              <el-icon style="margin-right: 4px"><Setting /></el-icon>全局请求头
+            </el-button>
             <el-button plain @click="loadProviders">
               <el-icon style="margin-right: 4px"><RefreshRight /></el-icon>刷新
             </el-button>
@@ -148,6 +151,18 @@
             <el-tag v-else size="small" type="success">全部</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="自定义头" min-width="80" align="center">
+          <template #default="{ row }">
+            <el-tag
+              v-if="row.customHeaders && Object.keys(row.customHeaders).length > 0"
+              size="small"
+              type="warning"
+            >
+              {{ Object.keys(row.customHeaders).length }} 项
+            </el-tag>
+            <span v-else style="color: var(--el-text-color-placeholder)">—</span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" fixed="right" width="260" align="center">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openEditProvider(row)"
@@ -233,16 +248,24 @@
       @close="closeRedirectDialog"
       @submit="submitRedirectForm"
     />
+
+    <!-- 全局自定义请求头弹窗 -->
+    <GlobalHeadersDialog
+      v-if="globalHeadersDialogVisible"
+      :visible="globalHeadersDialogVisible"
+      @close="globalHeadersDialogVisible = false"
+    />
   </ConsoleLayout>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
-import { Plus, RefreshRight, Rank } from '@element-plus/icons-vue'
+import { Plus, RefreshRight, Rank, Setting } from '@element-plus/icons-vue'
 import Sortable from 'sortablejs'
 import ConsoleLayout from '../../layout/ConsoleLayout.vue'
 import ProviderFormDialog from '../../components/provider/ProviderFormDialog.vue'
+import GlobalHeadersDialog from '../../components/provider/GlobalHeadersDialog.vue'
 import ProviderRedirectExpandRow from '../../components/provider/ProviderRedirectExpandRow.vue'
 import ModelRedirectFormDialog from '../../components/model/ModelRedirectFormDialog.vue'
 import {
@@ -295,6 +318,10 @@ const providerPage = reactive<PageResult<ProviderConfigRsp>>({
 })
 const providerLoading = ref(false)
 const providerLoadError = ref(false)
+
+/* ==================== 全局请求头弹窗 ==================== */
+
+const globalHeadersDialogVisible = ref(false)
 
 const hasActiveFilters = computed(() =>
   Boolean(
@@ -401,10 +428,10 @@ function closeProviderDialog() {
 async function submitProviderForm(payload: ProviderConfigAddReq | ProviderConfigUpdateReq) {
   try {
     if ('id' in payload) {
-      await updateProvider(payload)
+      await updateProvider(payload as ProviderConfigUpdateReq)
       ElMessage.success('提供商更新成功')
     } else {
-      await addProvider(payload)
+      await addProvider(payload as ProviderConfigAddReq)
       ElMessage.success('提供商新增成功')
     }
     providerDialogVisible.value = false

@@ -28,6 +28,9 @@ public final class RoutingConfigSnapshot {
     /** providerCode -> 提供商运行时配置 */
     private final Map<String, ProviderEntry> providerMap;
 
+    /** 全局自定义请求头（所有提供商共用） */
+    private final Map<String, String> globalCustomHeaders;
+
     /** routeKey -> Auto 智能路由配置 */
     private final Map<String, AutoRouteEntry> autoRouteMap;
 
@@ -43,26 +46,35 @@ public final class RoutingConfigSnapshot {
     /** 快照来源，例如 startup、manual-refresh */
     private final String source;
 
+    /**
+     * @deprecated 使用包含 globalCustomHeaders 参数的完整构造函数
+     */
+    @Deprecated
     public RoutingConfigSnapshot(Map<String, List<RouteCandidate>> aliasRouteMap,
                                  List<PatternRoute> patternRoutes,
                                  Map<String, ProviderEntry> providerMap,
                                  long version,
                                  String source) {
-        this(aliasRouteMap, patternRoutes, providerMap, Collections.emptyMap(), List.of(), version, source);
+        this(aliasRouteMap, patternRoutes, providerMap, Map.of(), Collections.emptyMap(), List.of(), version, source);
     }
 
+    /**
+     * @deprecated 使用包含 globalCustomHeaders 参数的完整构造函数
+     */
+    @Deprecated
     public RoutingConfigSnapshot(Map<String, List<RouteCandidate>> aliasRouteMap,
                                  List<PatternRoute> patternRoutes,
                                  Map<String, ProviderEntry> providerMap,
                                  Map<String, AutoRouteEntry> autoRouteMap,
                                  long version,
                                  String source) {
-        this(aliasRouteMap, patternRoutes, providerMap, autoRouteMap, List.of(), version, source);
+        this(aliasRouteMap, patternRoutes, providerMap, Map.of(), autoRouteMap, List.of(), version, source);
     }
 
     public RoutingConfigSnapshot(Map<String, List<RouteCandidate>> aliasRouteMap,
                                  List<PatternRoute> patternRoutes,
                                  Map<String, ProviderEntry> providerMap,
+                                 Map<String, String> globalCustomHeaders,
                                  Map<String, AutoRouteEntry> autoRouteMap,
                                  List<SupportedModelEntry> supportedModels,
                                  long version,
@@ -79,6 +91,8 @@ public final class RoutingConfigSnapshot {
         this.patternRoutes = List.copyOf(patternRoutes);
         // 对提供商配置表做不可变包装，确保快照整体只读。
         this.providerMap = Collections.unmodifiableMap(Map.copyOf(providerMap));
+        this.globalCustomHeaders = Collections.unmodifiableMap(
+                globalCustomHeaders != null ? Map.copyOf(globalCustomHeaders) : Map.of());
         this.autoRouteMap = Collections.unmodifiableMap(Map.copyOf(autoRouteMap));
         this.supportedModels = List.copyOf(supportedModels);
         this.version = version;
@@ -119,6 +133,13 @@ public final class RoutingConfigSnapshot {
      */
     public Map<String, ProviderEntry> getProviderMap() {
         return providerMap;
+    }
+
+    /**
+     * 获取全局自定义请求头。
+     */
+    public Map<String, String> getGlobalCustomHeaders() {
+        return globalCustomHeaders;
     }
 
     /**
@@ -256,7 +277,8 @@ public final class RoutingConfigSnapshot {
             @JsonIgnore String apiKey,
             int timeoutSeconds,
             int priority,
-            List<String> supportedProtocols
+            List<String> supportedProtocols,
+            Map<String, String> customHeaders
     ) {
     }
 

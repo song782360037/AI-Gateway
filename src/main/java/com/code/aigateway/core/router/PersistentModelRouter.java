@@ -1,5 +1,6 @@
 package com.code.aigateway.core.router;
 
+import com.code.aigateway.common.util.CustomHeaderUtils;
 import com.code.aigateway.core.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.model.ResponseProtocol;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 基于持久化快照的模型路由器
@@ -140,6 +142,7 @@ public class PersistentModelRouter implements ModelRouter {
                 .providerBaseUrl(selected.getProviderBaseUrl())
                 .providerTimeoutSeconds(selected.getProviderTimeoutSeconds())
                 .providerApiKey(selected.getProviderApiKey())
+                .customHeaders(selected.getCustomHeaders())
                 .build();
     }
 
@@ -157,6 +160,7 @@ public class PersistentModelRouter implements ModelRouter {
                         .providerBaseUrl(c.getProviderBaseUrl())
                         .providerTimeoutSeconds(c.getProviderTimeoutSeconds())
                         .providerApiKey(c.getProviderApiKey())
+                        .customHeaders(c.getCustomHeaders())
                         .build())
                 .toList();
 
@@ -245,6 +249,7 @@ public class PersistentModelRouter implements ModelRouter {
                         .providerBaseUrl(entry.baseUrl())
                         .providerApiKey(entry.apiKey())
                         .providerTimeoutSeconds(entry.timeoutSeconds())
+                        .customHeaders(CustomHeaderUtils.mergeCustomHeaders(snapshot.getGlobalCustomHeaders(), entry.customHeaders(), "透传路由"))
                         .build())
                 .toList();
 

@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Value;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 路由候选规则
@@ -41,6 +42,9 @@ public class RouteCandidate {
 
     /** 提供商支持的下游协议列表，空表示支持所有 */
     List<String> supportedProtocols;
+
+    /** 提供商级别自定义请求头（已与全局头合并，提供商级别覆盖全局同名头） */
+    Map<String, String> customHeaders;
 
     Boolean supportsVision;
     Boolean supportsTools;

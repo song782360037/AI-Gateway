@@ -80,7 +80,7 @@ class RoutingConfigSnapshotJsonIgnoreTest {
             RoutingConfigSnapshot.ProviderEntry entry = new RoutingConfigSnapshot.ProviderEntry(
                     "OPENAI", "openai-main", true,
                     "https://api.openai.com/v1", "sk-secret-key-should-not-appear",
-                    60, 10, List.of("openai-chat")
+                    60, 10, List.of("openai-chat"), java.util.Map.of()
             );
 
             String json = objectMapper.writeValueAsString(entry);
@@ -97,7 +97,7 @@ class RoutingConfigSnapshotJsonIgnoreTest {
             RoutingConfigSnapshot.ProviderEntry entry = new RoutingConfigSnapshot.ProviderEntry(
                     "OPENAI", "openai-main", true,
                     "https://api.openai.com/v1", "sk-secret",
-                    60, 10, List.of("openai-chat")
+                    60, 10, List.of("openai-chat"), java.util.Map.of()
             );
 
             String json = objectMapper.writeValueAsString(entry);
@@ -132,13 +132,14 @@ class RoutingConfigSnapshotJsonIgnoreTest {
             RoutingConfigSnapshot.ProviderEntry providerEntry = new RoutingConfigSnapshot.ProviderEntry(
                     "ANTHROPIC", "anthropic-main", true,
                     "https://api.anthropic.com", "sk-ant-provider-secret-key",
-                    60, 5, List.of("anthropic-chat")
+                    60, 5, List.of("anthropic-chat"), java.util.Map.of()
             );
 
             RoutingConfigSnapshot snapshot = new RoutingConfigSnapshot(
                     java.util.Map.of("gpt-4o", List.of(candidate)),
                     List.of(),
                     java.util.Map.of("anthropic-main", providerEntry),
+                    java.util.Map.of(),
                     java.util.Map.of(),
                     List.of(),
                     1L,

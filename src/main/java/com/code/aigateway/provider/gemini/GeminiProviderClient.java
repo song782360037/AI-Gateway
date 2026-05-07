@@ -80,8 +80,11 @@ public class GeminiProviderClient extends AbstractProviderClient {
     protected WebClient buildWebClient(ProviderRuntimeConfig config, String correlationId) {
         WebClient.Builder builder = WebClient.builder()
                 .clientConnector(httpConnector)
-                .baseUrl(config.baseUrl())
-                .defaultHeader("x-goog-api-key", config.apiKey());
+                .baseUrl(config.baseUrl());
+        // 先设置自定义请求头（优先级最低）
+        com.code.aigateway.common.util.CustomHeaderUtils.applyCustomHeaders(builder, config.customHeaders(), "Provider客户端");
+        // 再设置认证头（优先级最高，不可被自定义头覆盖）
+        builder.defaultHeader("x-goog-api-key", config.apiKey());
         if (correlationId != null && !correlationId.isBlank()) {
             builder.defaultHeader("X-Correlation-Id", correlationId);
         }

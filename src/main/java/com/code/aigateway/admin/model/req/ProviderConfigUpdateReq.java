@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 更新提供商配置请求对象
@@ -59,4 +60,7 @@ public class ProviderConfigUpdateReq {
      * <p>为空或 null 时表示支持所有协议。</p>
      */
     private List<String> supportedProtocols;
+
+    /** 提供商级别自定义请求头（键值对），覆盖全局同名头 */
+    private Map<String, String> customHeaders;
 }

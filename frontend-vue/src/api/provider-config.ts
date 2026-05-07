@@ -2,6 +2,8 @@ import request from '../utils/request'
 import type { PageResult } from '../types/common'
 import type {
   ConnectionTestResult,
+  GlobalCustomHeadersRsp,
+  GlobalCustomHeadersUpdateReq,
   ProviderConfigAddReq,
   ProviderConfigQueryReq,
   ProviderConfigRsp,
@@ -45,4 +47,14 @@ export function batchUpdatePriority(items: PriorityUpdateItem[]) {
 /** 测试提供商连接 */
 export function testConnection(id: number) {
   return request.post<never, ConnectionTestResult>(`/admin/provider-config/test-connection/${id}`)
+}
+
+/** 获取全局自定义请求头 */
+export function fetchGlobalCustomHeaders() {
+  return request.get<never, GlobalCustomHeadersRsp>('/admin/global-config/custom-headers')
+}
+
+/** 更新全局自定义请求头 */
+export function updateGlobalCustomHeaders(data: GlobalCustomHeadersUpdateReq) {
+  return request.post<GlobalCustomHeadersUpdateReq, void>('/admin/global-config/custom-headers', data)
 }

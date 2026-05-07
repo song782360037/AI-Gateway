@@ -101,6 +101,42 @@
           />
         </el-checkbox-group>
       </section>
+
+      <!-- 自定义请求头 -->
+      <section class="dialog-section">
+        <div class="dialog-section__head">
+          <h4>自定义请求头</h4>
+          <p>
+            针对此提供商单独设置请求头，会覆盖全局同名头。
+            不允许设置认证相关头（Authorization、x-api-key、x-goog-api-key、anthropic-version）。
+          </p>
+        </div>
+        <div v-for="(item, index) in form.customHeadersList" :key="index" class="custom-header-row">
+          <el-input
+            v-model="item.key"
+            placeholder="Header 名称"
+            class="custom-header-input"
+            @change="validateHeaderKey(index)"
+          />
+          <el-input
+            v-model="item.value"
+            placeholder="Header 值"
+            class="custom-header-input"
+            @blur="validateHeaderKey(index)"
+          />
+          <el-button
+            type="danger"
+            plain
+            size="small"
+            @click="removeHeader(index)"
+          >
+            删除
+          </el-button>
+        </div>
+        <el-button type="primary" plain size="small" @click="addHeader">
+          + 添加请求头
+        </el-button>
+      </section>
     </el-form>
 
     <template #footer>
@@ -116,7 +152,15 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
-import type { ProviderConfigRsp } from '../../types/provider'
+import { ElMessage } from 'element-plus'
+import type { ProviderConfigAddReq, ProviderConfigRsp, ProviderConfigUpdateReq } from '../../types/provider'
+import { PROTECTED_HEADERS, VALID_HEADER_NAME_REGEX, hasCrlf } from '../../constants/customHeaders'
+
+/** 自定义请求头列表项 */
+interface HeaderItem {
+  key: string
+  value: string
+}
 
 interface ProviderFormModel {
   id?: number
@@ -130,6 +174,7 @@ interface ProviderFormModel {
   timeoutSeconds: number
   priority: number
   supportedProtocols: string[]
+  customHeadersList: HeaderItem[]
 }
 
 const providerTypeOptions = [
@@ -154,7 +199,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: []
-  submit: [payload: ProviderFormModel]
+  submit: [payload: ProviderConfigAddReq | ProviderConfigUpdateReq]
 }>()
 
 const formRef = ref<FormInstance>()
@@ -197,6 +242,7 @@ function buildFormState(value?: ProviderConfigRsp | null): ProviderFormModel {
     timeoutSeconds: value.timeoutSeconds,
     priority: value.priority,
     supportedProtocols: value.supportedProtocols ?? [],
+    customHeadersList: mapToHeadersList(value.customHeaders),
   }
 }
 
@@ -211,7 +257,25 @@ function createEmptyForm(): ProviderFormModel {
     timeoutSeconds: 60,
     priority: 0,
     supportedProtocols: [],
+    customHeadersList: [],
   }
+}
+
+/** 将 Map 形式的 customHeaders 转换为列表形式 */
+function mapToHeadersList(headers?: Record<string, string>): HeaderItem[] {
+  if (!headers) return []
+  return Object.entries(headers).map(([key, value]) => ({ key, value }))
+}
+
+/** 将列表形式转换回 Map，空列表返回空对象以区分"未传"和"清空" */
+function headersListToMap(list: HeaderItem[]): Record<string, string> {
+  const result: Record<string, string> = {}
+  for (const item of list) {
+    if (item.key.trim()) {
+      result[item.key.trim()] = item.value
+    }
+  }
+  return result
 }
 
 function validateApiKey(_rule: unknown, value: string, callback: (error?: Error) => void) {
@@ -223,6 +287,39 @@ function validateApiKey(_rule: unknown, value: string, callback: (error?: Error)
   callback()
 }
 
+/** 校验请求头键名合法性及值中是否包含换行符 */
+function validateHeaderKey(index: number) {
+  const item = form.customHeadersList[index]
+  if (!item) return
+
+  // 校验值中不包含换行符（独立于 key 校验，blur 时也能触发）
+  if (item.value && hasCrlf(item.value)) {
+    ElMessage.warning('请求头值不允许包含换行符')
+    item.value = ''
+  }
+
+  if (!item.key) return
+  const trimmed = item.key.trim()
+  if (!trimmed) return
+  if (!VALID_HEADER_NAME_REGEX.test(trimmed)) {
+    ElMessage.warning(`请求头名称包含非法字符: ${item.key}`)
+    item.key = ''
+    return
+  }
+  if (PROTECTED_HEADERS.has(trimmed.toLowerCase())) {
+    ElMessage.warning(`不允许设置认证相关头: ${trimmed}`)
+    item.key = ''
+  }
+}
+
+function addHeader() {
+  form.customHeadersList.push({ key: '', value: '' })
+}
+
+function removeHeader(index: number) {
+  form.customHeadersList.splice(index, 1)
+}
+
 function resetForm() {
   Object.assign(form, initialSnapshot.value)
   formRef.value?.clearValidate()
@@ -231,6 +328,26 @@ function resetForm() {
 async function submit() {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
+
+  // 校验自定义头中无受保护头和非法字符
+  for (const item of form.customHeadersList) {
+    if (!item.key) continue
+    const trimmed = item.key.trim()
+    if (!trimmed) continue
+    if (!VALID_HEADER_NAME_REGEX.test(trimmed)) {
+      ElMessage.error(`请求头名称包含非法字符: ${trimmed}`)
+      return
+    }
+    if (PROTECTED_HEADERS.has(trimmed.toLowerCase())) {
+      ElMessage.error(`不允许设置认证相关头: ${trimmed}`)
+      return
+    }
+    // 校验值中不包含换行符，防止 HTTP 头注入
+    if (item.value && hasCrlf(item.value)) {
+      ElMessage.error(`请求头值不允许包含换行符: ${trimmed}`)
+      return
+    }
+  }
 
   const basePayload = {
     providerCode: form.providerCode,
@@ -242,6 +359,7 @@ async function submit() {
     timeoutSeconds: form.timeoutSeconds,
     priority: form.priority,
     supportedProtocols: form.supportedProtocols,
+    customHeaders: headersListToMap(form.customHeadersList),
   }
 
   emit(
@@ -257,5 +375,17 @@ async function submit() {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+}
+
+/* 自定义请求头行布局 */
+.custom-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.custom-header-input {
+  flex: 1;
 }
 </style>

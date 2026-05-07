@@ -66,6 +66,11 @@ public class ProviderConfigDO {
     private String supportedProtocols;
 
     /**
+     * 提供商级别自定义请求头（JSON 键值对），覆盖全局同名头
+     */
+    private String customHeaders;
+
+    /**
      * 乐观锁版本号
      */
     private Long versionNo;

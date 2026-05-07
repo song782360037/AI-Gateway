@@ -9,6 +9,7 @@ import com.code.aigateway.admin.model.req.ProviderConfigUpdateReq;
 import com.code.aigateway.admin.model.rsp.ProviderConfigRsp;
 import com.code.aigateway.common.exception.BizException;
 import com.code.aigateway.common.result.PageResult;
+import com.code.aigateway.common.util.CustomHeaderUtils;
 import com.code.aigateway.core.model.ResponseProtocol;
 import com.code.aigateway.infra.crypto.ApiKeyEncryptor;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +20,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -251,6 +253,7 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         record.setTimeoutSeconds(req.getTimeoutSeconds());
         record.setPriority(req.getPriority());
         record.setSupportedProtocols(toCommaSeparated(req.getSupportedProtocols()));
+        record.setCustomHeaders(serializeCustomHeaders(req.getCustomHeaders()));
         record.setDeleted(false);
         record.setCreateTime(LocalDateTime.now());
         record.setUpdateTime(LocalDateTime.now());
@@ -269,6 +272,7 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         record.setTimeoutSeconds(req.getTimeoutSeconds());
         record.setPriority(req.getPriority());
         record.setSupportedProtocols(toCommaSeparated(req.getSupportedProtocols()));
+        record.setCustomHeaders(serializeCustomHeaders(req.getCustomHeaders()));
         record.setUpdateTime(LocalDateTime.now());
         return record;
     }
@@ -289,6 +293,7 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         rsp.setTimeoutSeconds(record.getTimeoutSeconds());
         rsp.setPriority(record.getPriority());
         rsp.setSupportedProtocols(toProtocolList(record.getSupportedProtocols()));
+        rsp.setCustomHeaders(deserializeCustomHeaders(record.getCustomHeaders()));
         rsp.setVersionNo(record.getVersionNo());
         rsp.setCreateTime(record.getCreateTime());
         rsp.setUpdateTime(record.getUpdateTime());
@@ -334,5 +339,28 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
      */
     private List<String> toProtocolList(String commaSeparated) {
         return ResponseProtocol.parseCommaSeparated(commaSeparated);
+    }
+
+    /**
+     * 将自定义请求头 Map 序列化为 JSON 字符串（存储到数据库）。
+     * <p>写入前先校验不包含受保护头且值无 CRLF。</p>
+     */
+    private String serializeCustomHeaders(Map<String, String> headers) {
+        if (headers == null || headers.isEmpty()) {
+            return null;
+        }
+        CustomHeaderUtils.validateCustomHeaders(headers);
+        return CustomHeaderUtils.serializeHeadersToJson(headers);
+    }
+
+    /**
+     * 将 JSON 字符串反序列化为自定义请求头 Map（从数据库读取）。
+     * <p>空或解析失败时返回空 Map，与 GlobalConfigService 保持一致。</p>
+     */
+    private Map<String, String> deserializeCustomHeaders(String json) {
+        if (json == null || json.isBlank()) {
+            return Map.of();
+        }
+        return CustomHeaderUtils.parseHeadersJson(json);
     }
 }
