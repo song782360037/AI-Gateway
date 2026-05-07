@@ -85,6 +85,7 @@ watch(
       loadHeaders()
     }
   },
+  { immediate: true },
 )
 
 async function loadHeaders() {
