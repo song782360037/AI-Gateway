@@ -68,11 +68,6 @@
           <el-icon><DataAnalysis /></el-icon>
           <span>仪表盘</span>
         </el-menu-item>
-        <el-menu-item index="/runtime">
-          <el-icon><Odometer /></el-icon>
-          <span>运行时状态</span>
-        </el-menu-item>
-
         <div class="sidebar-nav-label">配置</div>
         <el-menu-item index="/provider">
           <el-icon><Connection /></el-icon>
@@ -246,7 +241,6 @@ import {
   DataAnalysis,
   Document,
   Key,
-  Odometer,
   Operation,
   Setting,
   SwitchButton,

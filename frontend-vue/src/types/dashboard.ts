@@ -23,6 +23,12 @@ export interface DashboardStats {
   cacheTokens: DualMetric
   /** 平均响应时间（ms） */
   avgResponseMs: DualMetric
+
+  /** 接入通道（提供商）数量 */
+  providerCount: number
+
+  /** 模型重定向规则数量 */
+  redirectCount: number
 }
 
 /** 模型调用排行 */

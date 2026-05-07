@@ -1,5 +1,7 @@
 package com.code.aigateway.admin.service;
 
+import com.code.aigateway.admin.mapper.ModelRedirectConfigMapper;
+import com.code.aigateway.admin.mapper.ProviderConfigMapper;
 import com.code.aigateway.admin.mapper.RequestLogMapper;
 import com.code.aigateway.admin.mapper.RequestStatHourlyMapper;
 import com.code.aigateway.admin.model.dataobject.RequestLogDO;
@@ -35,6 +37,8 @@ public class DashboardServiceImpl implements IDashboardService {
     private final RequestLogMapper requestLogMapper;
     private final RequestStatHourlyMapper requestStatHourlyMapper;
     private final DashboardCacheService dashboardCacheService;
+    private final ProviderConfigMapper providerConfigMapper;
+    private final ModelRedirectConfigMapper modelRedirectConfigMapper;
 
     @Override
     public DashboardOverviewRsp getOverview(String period) {
@@ -80,6 +84,9 @@ public class DashboardServiceImpl implements IDashboardService {
         long prevDuration = requestStatHourlyMapper.sumDurationMs(previousStart) - currentDuration;
         double previousAvg = previousRequests > 0 ? (double) prevDuration / previousRequests : 0;
         rsp.setAvgResponseMs(new DashboardOverviewRsp.DualMetric(currentAvg, previousAvg));
+
+        rsp.setProviderCount((int) providerConfigMapper.countList(null, null, null));
+        rsp.setRedirectCount((int) modelRedirectConfigMapper.countList(null, null, null, null));
 
         dashboardCacheService.setOverview(p, rsp);
         return rsp;

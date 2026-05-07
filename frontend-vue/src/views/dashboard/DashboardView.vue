@@ -51,7 +51,11 @@
                   <component :is="card.icon" />
                 </el-icon>
               </div>
-              <span class="overview-card__trend" :class="trendClass(card.metric.changePercent)">
+              <span
+                v-if="!card.hideTrend"
+                class="overview-card__trend"
+                :class="trendClass(card.metric.changePercent)"
+              >
                 {{ trendText(card.metric.changePercent) }}
               </span>
             </div>
@@ -184,6 +188,8 @@ import {
   Connection,
   Document,
   Lightning,
+  OfficeBuilding,
+  Share,
   Timer,
   TrendCharts,
 } from '@element-plus/icons-vue'
@@ -214,6 +220,8 @@ const stats = reactive<DashboardStats>({
   tokens: { current: 0, previous: 0, changePercent: 0 },
   cacheTokens: { current: 0, previous: 0, changePercent: 0 },
   avgResponseMs: { current: 0, previous: 0, changePercent: 0 },
+  providerCount: 0,
+  redirectCount: 0,
 })
 const modelRank = ref<ModelUsageRank[]>([])
 const recentRequests = ref<RecentRequest[]>([])
@@ -327,6 +335,28 @@ const overviewCards = computed(() => [
     icon: Timer,
     accent: '#8b5cf6',
     accentBg: 'rgba(139, 92, 246, 0.06)',
+  },
+  {
+    key: 'providerCount',
+    label: '提供商',
+    displayValue: formatNumber(stats.providerCount),
+    subLabel: '接入通道总数',
+    metric: { current: stats.providerCount, previous: 0, changePercent: 0 },
+    icon: OfficeBuilding,
+    accent: '#6366f1',
+    accentBg: 'rgba(99, 102, 241, 0.06)',
+    hideTrend: true,
+  },
+  {
+    key: 'redirectCount',
+    label: '重定向规则',
+    displayValue: formatNumber(stats.redirectCount),
+    subLabel: '模型路由规则总数',
+    metric: { current: stats.redirectCount, previous: 0, changePercent: 0 },
+    icon: Share,
+    accent: '#ec4899',
+    accentBg: 'rgba(236, 72, 153, 0.06)',
+    hideTrend: true,
   },
 ])
 

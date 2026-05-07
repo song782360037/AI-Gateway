@@ -23,6 +23,12 @@ public class DashboardOverviewRsp {
     /** 平均响应时间（ms） */
     private DualMetric avgResponseMs;
 
+    /** 接入通道（提供商）数量 */
+    private int providerCount;
+
+    /** 模型重定向规则数量 */
+    private int redirectCount;
+
     /**
      * 双维度指标：当前周期值、上一周期值、环比变化百分比
      */

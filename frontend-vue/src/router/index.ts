@@ -28,18 +28,6 @@ const router = createRouter({
       meta: { title: '数据仪表盘' },
     },
     {
-      path: '/runtime',
-      name: 'runtime',
-      component: () => import('../views/runtime/RuntimeStatusView.vue'),
-      meta: {
-        eyebrow: '运行时概览',
-        title: '运行时状态',
-        description:
-          '查看快照版本、脏标记和刷新来源，帮助后台管理员快速判断当前配置是否处于健康状态。',
-        tag: '运行时',
-      },
-    },
-    {
       path: '/provider',
       name: 'provider',
       component: () => import('../views/provider/ProviderManagementView.vue'),
