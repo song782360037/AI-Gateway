@@ -245,14 +245,15 @@ public final class RoutingConfigSnapshot {
      * 提供商运行时配置条目。
      *
      * <p>该对象已经是聚合后的只读视图，
-     * 其中 apiKey 为运行时解密后的明文，仅在内存快照中使用。</p>
+     * 其中 apiKey 为运行时解密后的明文，仅在内存快照中使用。
+     * 序列化时排除 apiKey 以防止泄露到 Redis/日志。</p>
      */
     public record ProviderEntry(
             String providerType,
             String providerCode,
             boolean enabled,
             String baseUrl,
-            String apiKey,
+            @JsonIgnore String apiKey,
             int timeoutSeconds,
             int priority,
             List<String> supportedProtocols

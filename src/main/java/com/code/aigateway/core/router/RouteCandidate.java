@@ -1,6 +1,7 @@
 package com.code.aigateway.core.router;
 
 import com.code.aigateway.core.model.ResponseProtocol;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Builder;
 import lombok.Value;
 
@@ -28,7 +29,8 @@ public class RouteCandidate {
     /** 提供商 API 基础地址 */
     String providerBaseUrl;
 
-    /** 提供商 API Key，运行时使用的是解密后的明文 */
+    /** 提供商 API Key，运行时使用的是解密后的明文；序列化时排除以防止泄露到 Redis/日志 */
+    @JsonIgnore
     String providerApiKey;
 
     /** 提供商超时时间，单位秒 */
