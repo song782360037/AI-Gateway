@@ -321,10 +321,10 @@ function onMouseLeave() {
 
 function initCanvas() {
   const canvasEl = canvasRef.value
-  if (!canvasEl) return
+  if (!canvasEl) return null
 
   const context = canvasEl.getContext('2d')
-  if (!context) return
+  if (!context) return null
 
   const canvas = canvasEl
   const ctx = context
