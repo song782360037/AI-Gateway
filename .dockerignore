@@ -1,0 +1,46 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+# Maven构建产物
+target/
+
+# 前端构建产物和依赖
+frontend-vue/node/
+frontend-vue/node_modules/
+frontend-vue/dist/
+
+# 环境变量（包含敏感信息，不应进入构建上下文）
+.env
+.env.*
+
+# Claude Code
+.claude/
+
+# Docker相关
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# 文档和图片
+img/
+README.md
+CLAUDE.md
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 日志
+logs/
+*.log
+
+# GitHub
+.github/

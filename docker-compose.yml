@@ -1,0 +1,45 @@
+# Docker Compose 配置 - AI-Gateway 应用服务
+# 默认连接外部 MySQL 和 Redis，本地基础设施服务为可选
+# 使用方式: docker compose up -d
+
+services:
+  # ==================== 应用服务 ====================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-gateway-app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      # 数据库配置 - 默认连接外部 MySQL
+      - DB_HOST=${DB_HOST:-localhost}
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_NAME=${DB_NAME:-ai_gateway}
+      - DB_USER=${DB_USER:-root}
+      - DB_PASS=${DB_PASS:-}
+      # Redis 配置 - 默认连接外部 Redis
+      - REDIS_HOST=${REDIS_HOST:-localhost}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_PASS=${REDIS_PASS:-}
+      # 应用安全配置
+      - GATEWAY_API_KEY_SECRET=${GATEWAY_API_KEY_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      - GATEWAY_ADMIN_CSRF_SIGNING_KEY=${GATEWAY_ADMIN_CSRF_SIGNING_KEY:-}
+      # JVM 参数
+      - JAVA_OPTS=${JAVA_OPTS:--Xms256m -Xmx512m}
+      # Spring Profile
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-docker}
+    networks:
+      - ai-gateway-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
+# ==================== 网络 ====================
+networks:
+  ai-gateway-net:
+    driver: bridge

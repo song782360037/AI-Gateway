@@ -1,0 +1,28 @@
+spring:
+  config:
+    activate:
+      on-profile: docker
+
+  # Docker 环境 MySQL 数据源配置（通过环境变量注入）
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:ai_gateway}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${DB_USER:root}
+    password: ${DB_PASS:}
+
+  # Docker 环境 Redis 配置（通过环境变量注入）
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASS:}
+      database: 0
+
+# Docker 环境 API Key 加密密钥（通过环境变量注入）
+gateway:
+  security:
+    api-key-secret: ${GATEWAY_API_KEY_SECRET:}
+
+  admin-auth:
+    trust-forwarded-headers: true
+    trusted-origins:
+      - "*"

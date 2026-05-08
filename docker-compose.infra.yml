@@ -1,0 +1,65 @@
+# Docker Compose 配置 - AI-Gateway 本地基础设施服务（可选）
+# 仅当需要本地 MySQL 和 Redis 时使用
+#
+# 使用方式（同时启动应用 + 本地基础设施）:
+#   1. 在 .env 中设置 DB_HOST=mysql, REDIS_HOST=redis
+#   2. docker compose -f docker-compose.yml -f docker-compose.infra.yml up -d
+#
+# 仅启动基础设施（不启动应用）:
+#   docker compose -f docker-compose.infra.yml up -d
+
+services:
+  # ==================== MySQL 数据库（可选） ====================
+  mysql:
+    image: mysql:8.0
+    container_name: ai-gateway-mysql
+    restart: unless-stopped
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_PASS:-root}
+      - MYSQL_DATABASE=${DB_NAME:-ai_gateway}
+      - MYSQL_CHARACTER_SET_SERVER=utf8mb4
+      - MYSQL_COLLATION_SERVER=utf8mb4_unicode_ci
+      - TZ=Asia/Shanghai
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - ai-gateway-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p$${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
+  # ==================== Redis 缓存（可选） ====================
+  redis:
+    image: redis:7-alpine
+    container_name: ai-gateway-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --appendonly yes ${REDIS_PASS:+--requirepass ${REDIS_PASS}}
+    volumes:
+      - redis-data:/data
+    networks:
+      - ai-gateway-net
+    healthcheck:
+      test: ["CMD", "sh", "-c", "redis-cli ${REDIS_PASS:+-a $REDIS_PASS} ping"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+# ==================== 数据卷 ====================
+volumes:
+  mysql-data:
+    driver: local
+  redis-data:
+    driver: local
+
+# ==================== 网络（与主 compose 共享） ====================
+networks:
+  ai-gateway-net:
+    driver: bridge

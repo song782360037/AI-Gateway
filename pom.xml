@@ -241,6 +241,25 @@
                 <spring-boot.run.profiles>local</spring-boot.run.profiles>
             </properties>
         </profile>
+        <!-- Docker 构建专用：跳过前端构建，前端产物由 Dockerfile 第一阶段提供 -->
+        <profile>
+            <id>docker</id>
+            <properties>
+                <skip.frontend>true</skip.frontend>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.github.eirslett</groupId>
+                        <artifactId>frontend-maven-plugin</artifactId>
+                        <version>${frontend-maven-plugin.version}</version>
+                        <configuration>
+                            <skip>${skip.frontend}</skip>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
 
 </project>
