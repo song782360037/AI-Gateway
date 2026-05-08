@@ -161,6 +161,11 @@ public class AdminCsrfTokenManager {
                 .build();
     }
 
+    private boolean isTrustForwardedHeaders() {
+        GatewayProperties.AdminAuthProperties adminAuth = gatewayProperties.getAdminAuth();
+        return adminAuth != null && adminAuth.isTrustForwardedHeaders();
+    }
+
     private static final List<String> VALID_SAME_SITE_VALUES = List.of("Strict", "Lax", "None");
 
     private String resolveCookieSameSite() {
