@@ -106,6 +106,112 @@ mvn spring-boot:run -Plocal
 mvn test
 ```
 
+## Docker 部署
+
+项目提供 Docker 容器化部署方案，支持一键启停，适合生产环境快速部署。
+
+### 前置条件
+
+- Docker Engine 24+
+- Docker Compose 2.20+
+
+### 配置说明
+
+复制环境变量模板并根据实际环境修改：
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env` 文件，关键配置项说明：
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `DB_HOST` | MySQL 主机地址 | `localhost` |
+| `DB_PORT` | MySQL 端口 | `3306` |
+| `DB_NAME` | 数据库名 | `ai_gateway` |
+| `DB_USER` / `DB_PASS` | 数据库账号密码 | `root` / 无 |
+| `REDIS_HOST` / `REDIS_PORT` | Redis 地址和端口 | `localhost` / `6379` |
+| `GATEWAY_API_KEY_SECRET` | API Key AES-256 加密密钥（64位 hex） | `0123456789...` |
+| `APP_PORT` | 应用映射端口 | `8080` |
+
+> **注意**：生产环境务必修改 `GATEWAY_API_KEY_SECRET` 为随机生成的 64 位 hex 字符串，可通过 `openssl rand -hex 32` 生成。
+
+### 方式一：连接外部 MySQL/Redis（推荐生产）
+
+如果已有 MySQL 和 Redis 实例，编辑 `.env` 填入正确的主机地址、端口和密码后：
+
+```bash
+docker compose up -d
+```
+
+访问 `http://localhost:8080` 进入管理后台，首次访问需初始化管理员账号。
+
+### 方式二：全栈本地部署（含 MySQL + Redis，适合开发测试）
+
+配合 `docker-compose.infra.yml` 同时启动 MySQL 和 Redis 容器：
+
+```bash
+# 编辑 .env，将 DB_HOST 改为 mysql，REDIS_HOST 改为 redis
+# DB_HOST=mysql
+# REDIS_HOST=redis
+
+docker compose -f docker-compose.yml -f docker-compose.infra.yml up -d
+```
+
+仅启动基础设施（不启动应用）：
+
+```bash
+docker compose -f docker-compose.infra.yml up -d
+```
+
+### 手动构建镜像
+
+```bash
+# 多阶段构建（自动编译前端 + 后端）
+docker build -t ai-gateway:latest .
+
+# 使用自定义 .env 启动
+docker compose up -d
+```
+
+### 查看日志
+
+```bash
+# 应用日志
+docker compose logs -f app
+
+# 数据库初始化日志
+docker compose logs -f mysql
+
+# 查看应用健康状态
+curl http://localhost:8080/actuator/health
+```
+
+### 停止与清理
+
+```bash
+# 停止服务
+docker compose down
+
+# 停止并删除数据卷（将清除 MySQL 和 Redis 数据）
+docker compose -f docker-compose.infra.yml down -v
+```
+
+## 功能截图
+
+### 管理后台
+
+| 页面 | 截图 |
+|------|------|
+| **首页** — 管理入口和常用功能导航 | <img src="img/首页.png" width="400" alt="首页"> |
+| **登录页** — 管理员登录与首次初始化 | <img src="img/登录页.png" width="400" alt="登录页"> |
+| **仪表盘** — 系统健康、请求量、Token、成本、模型排行等 | <img src="img/仪表盘.png" width="400" alt="仪表盘"> |
+| **Provider 管理** — 接入通道 CRUD、启用/禁用、拖拽排序 | <img src="img/提供商管理.png" width="400" alt="Provider管理"> |
+| **模型配置** — 智能路由配置、候选模型评分 | <img src="img/模型配置1.png" width="400" alt="模型配置-路由"><br><img src="img/模型配置2.png" width="400" alt="模型配置-候选评分"> |
+| **API Key 管理** — 生成、编辑、删除、额度与限流配置 | <img src="img/API-KEY管理.png" width="400" alt="API Key管理"> |
+| **请求日志** — 按时间、Provider、通道、模型筛选，查看重试、Failover、限流等详情 | <img src="img/请求日志1.png" width="400" alt="请求日志-列表"><br><img src="img/请求日志2.png" width="400" alt="请求日志-详情"> |
+
 ### API 使用
 
 **OpenAI Chat 兼容接口：**
