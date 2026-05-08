@@ -422,17 +422,14 @@ const periodOptions: { label: string; value: DashboardPeriod }[] = [
 ]
 
 let realtimeTimer: ReturnType<typeof setInterval> | null = null
-let isPageVisible = true
 
 function onVisibilityChange() {
   if (document.hidden) {
-    isPageVisible = false
     if (realtimeTimer) {
       clearInterval(realtimeTimer)
       realtimeTimer = null
     }
   } else {
-    isPageVisible = true
     loadRealtime()
     if (!realtimeTimer) {
       realtimeTimer = setInterval(loadRealtime, 15000)
@@ -492,13 +489,7 @@ const periodPrevLabel = computed(() => {
   return '前30天'
 })
 
-/** 缓存命中率 */
-const cacheHitRate = computed(() => {
-  // 简化计算：用缓存 Token / (缓存 Token + 非缓存 Token) 估算
-  // 实际后端不提供直接的命中率，这里用 cacheTokens / tokens * 100 近似
-  if (stats.tokens.current <= 0) return 0
-  return Math.min(100, (stats.cacheTokens.current / stats.tokens.current * 100))
-})
+
 
 const primaryCards = computed(() => [
   {
@@ -544,6 +535,7 @@ const primaryCards = computed(() => [
     accent: '#8b5cf6',
     accentBg: 'rgba(139, 92, 246, 0.06)',
     sparklineData: [],
+    hideTrend: true,
   },
   {
     key: 'successRate',

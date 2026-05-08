@@ -7,7 +7,6 @@ import com.code.aigateway.admin.model.req.ProviderConfigAddReq;
 import com.code.aigateway.admin.model.req.ProviderConfigUpdateReq;
 import com.code.aigateway.common.exception.BizException;
 import com.code.aigateway.infra.crypto.ApiKeyEncryptor;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -41,7 +40,6 @@ class ProviderConfigServiceImplTest {
     private ApiKeyEncryptor apiKeyEncryptor;
     private RuntimeConfigRefreshService runtimeConfigRefreshService;
     private TransactionTemplate transactionTemplate;
-    private ObjectMapper objectMapper;
     private ProviderConfigServiceImpl service;
 
     @BeforeEach
@@ -50,7 +48,6 @@ class ProviderConfigServiceImplTest {
         autoRouteCandidateMapper = Mockito.mock(AutoRouteCandidateMapper.class);
         apiKeyEncryptor = Mockito.mock(ApiKeyEncryptor.class);
         runtimeConfigRefreshService = Mockito.mock(RuntimeConfigRefreshService.class);
-        objectMapper = new ObjectMapper();
 
         // 构造真实 TransactionTemplate，让 callback 直接执行（不走真实事务）
         PlatformTransactionManager txManager = Mockito.mock(PlatformTransactionManager.class);
@@ -60,7 +57,7 @@ class ProviderConfigServiceImplTest {
 
         service = new ProviderConfigServiceImpl(
                 providerConfigMapper, autoRouteCandidateMapper, apiKeyEncryptor,
-                runtimeConfigRefreshService, transactionTemplate, objectMapper);
+                runtimeConfigRefreshService, transactionTemplate);
     }
 
     // ==================== 新增 Provider 成功场景 ====================

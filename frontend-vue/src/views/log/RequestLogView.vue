@@ -145,7 +145,13 @@
                 Failover {{ row.failoverCount }}
               </el-tag>
               <el-tag v-if="row.rateLimitTriggered" type="info" size="small">限流</el-tag>
-              <span v-if="!hasGovernanceSignals(row)" class="text-muted">-</span>
+              <span
+                v-if="
+                  !hasGovernanceSignals(row) &&
+                  !row.rateLimitTriggered
+                "
+                class="text-muted"
+              >-</span>
             </div>
           </template>
         </el-table-column>
@@ -265,119 +271,11 @@
       </div>
     </div>
 
-    <el-drawer v-model="detailVisible" title="请求日志详情" size="720px" destroy-on-close>
-      <template v-if="detailLoading">
-        <div class="detail-loading">
-          <el-skeleton :rows="12" animated />
-        </div>
-      </template>
-      <template v-else-if="detailData">
-        <div class="detail-panel">
-          <div class="detail-section">
-            <div class="detail-section__title">基础信息</div>
-            <div class="detail-grid">
-              <DetailItem label="请求 ID" :value="detailData.requestId" copyable />
-              <DetailItem label="请求时间" :value="formatTime(detailData.createTime)" />
-              <DetailItem label="请求路径" :value="detailData.requestPath" />
-              <DetailItem label="请求方法" :value="detailData.httpMethod" />
-              <DetailItem label="提供商类型" :value="providerLabel(detailData.providerType)" />
-              <DetailItem label="响应协议" :value="detailData.responseProtocol" />
-              <DetailItem label="模型别名" :value="detailData.aliasModel" />
-              <DetailItem label="目标模型" :value="detailData.targetModel" />
-              <DetailItem label="通道" :value="detailData.providerCode" />
-              <DetailItem label="来源 IP" :value="maskIp(detailData.sourceIp)" />
-              <DetailItem label="API Key 前缀" :value="detailData.apiKeyPrefix" />
-              <DetailItem label="流式请求" :value="booleanLabel(detailData.isStream)" />
-            </div>
-          </div>
-
-          <div class="detail-section">
-            <div class="detail-section__title">执行结果</div>
-            <div class="detail-grid">
-              <DetailItem
-                label="状态"
-                :value="statusLabel(detailData.status)"
-                :highlight="isErrorStatus(detailData.status)"
-              />
-              <DetailItem
-                label="终止阶段"
-                :value="terminalStageLabel(detailData.terminalStage)"
-                :highlight="isErrorStatus(detailData.status)"
-              />
-              <DetailItem label="总耗时" :value="formatNullableDuration(detailData.durationMs)" />
-              <DetailItem
-                label="错误码"
-                :value="detailData.errorCode"
-                :highlight="Boolean(detailData.errorCode)"
-              />
-              <DetailItem
-                label="错误详情"
-                :value="detailData.errorMessage"
-                :highlight="Boolean(detailData.errorMessage)"
-              />
-              <DetailItem
-                label="上游状态码"
-                :value="formatNullableNumber(detailData.upstreamHttpStatus)"
-              />
-              <DetailItem label="上游错误类型" :value="detailData.upstreamErrorType" />
-            </div>
-          </div>
-
-          <div class="detail-section">
-            <div class="detail-section__title">路由与治理</div>
-            <div class="detail-grid">
-              <DetailItem
-                label="候选路由数"
-                :value="formatNullableNumber(detailData.candidateCount)"
-              />
-              <DetailItem label="尝试次数" :value="formatNullableNumber(detailData.attemptCount)" />
-              <DetailItem
-                label="重试次数"
-                :value="formatNullableNumber(detailData.retryCount)"
-                :highlight="(detailData.retryCount ?? 0) > 0"
-              />
-              <DetailItem
-                label="Failover 次数"
-                :value="formatNullableNumber(detailData.failoverCount)"
-                :highlight="(detailData.failoverCount ?? 0) > 0"
-              />
-              <DetailItem
-                label="熔断跳过次数"
-                :value="formatNullableNumber(detailData.circuitOpenSkippedCount)"
-                :highlight="(detailData.circuitOpenSkippedCount ?? 0) > 0"
-              />
-              <DetailItem
-                label="命中限流"
-                :value="booleanLabel(detailData.rateLimitTriggered)"
-                :highlight="Boolean(detailData.rateLimitTriggered)"
-              />
-            </div>
-          </div>
-
-          <div class="detail-section">
-            <div class="detail-section__title">Token 统计</div>
-            <div class="detail-grid">
-              <DetailItem
-                label="输入 Token"
-                :value="formatNullableNumber(detailData.promptTokens)"
-              />
-              <DetailItem
-                label="缓存输入 Token"
-                :value="formatNullableNumber(detailData.cachedInputTokens)"
-              />
-              <DetailItem
-                label="输出 Token"
-                :value="formatNullableNumber(detailData.completionTokens)"
-              />
-              <DetailItem label="总 Token" :value="formatNullableNumber(detailData.totalTokens)" />
-            </div>
-          </div>
-        </div>
-      </template>
-      <template v-else>
-        <el-empty description="暂无详情数据" />
-      </template>
-    </el-drawer>
+    <TraceTimelineDrawer
+      v-model="detailVisible"
+      :loading="detailLoading"
+      :data="detailData"
+    />
   </ConsoleLayout>
 </template>
 
@@ -385,16 +283,26 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import ConsoleLayout from '../../layout/ConsoleLayout.vue'
-import DetailItem from './DetailItem.vue'
+import TraceTimelineDrawer from './TraceTimelineDrawer.vue'
+import {
+  providerLabel,
+  providerTagType,
+  statusLabel,
+  statusTagType,
+  terminalStageLabel,
+  formatDuration,
+  formatTime,
+  hasGovernanceSignals,
+} from '../../utils/request-log'
 import { fetchRequestLogDetail, fetchRequestLogPage } from '../../api/request-log'
 import type { PageResult } from '../../types/common'
 import type { RequestLogQueryReq, RequestLogRsp } from '../../types/request-log'
 
 const PROVIDER_OPTIONS = [
-  { label: 'OpenAI', value: 'OPENAI', tagType: 'primary' },
-  { label: 'OpenAI Responses', value: 'OPENAI_RESPONSES', tagType: '' },
-  { label: 'Anthropic', value: 'ANTHROPIC', tagType: 'warning' },
-  { label: 'Gemini', value: 'GEMINI', tagType: 'success' },
+  { label: 'OpenAI', value: 'OPENAI' },
+  { label: 'OpenAI Responses', value: 'OPENAI_RESPONSES' },
+  { label: 'Anthropic', value: 'ANTHROPIC' },
+  { label: 'Gemini', value: 'GEMINI' },
 ] as const
 
 const query = reactive<RequestLogQueryReq>({
@@ -508,140 +416,6 @@ async function openDetail(requestId: string) {
   }
 }
 
-const providerLabelMap: Record<string, string> = {
-  OPENAI: 'OpenAI',
-  OPENAI_RESPONSES: 'OpenAI Responses',
-  ANTHROPIC: 'Anthropic',
-  GEMINI: 'Gemini',
-}
-
-const providerTagTypeMap: Record<string, string> = {
-  OPENAI: 'primary',
-  OPENAI_RESPONSES: '',
-  ANTHROPIC: 'warning',
-  GEMINI: 'success',
-}
-
-function providerLabel(type?: string | null): string {
-  if (!type) {
-    return '-'
-  }
-  return providerLabelMap[type] ?? type
-}
-
-function providerTagType(type?: string | null): string {
-  if (!type) {
-    return 'info'
-  }
-  return providerTagTypeMap[type] ?? 'info'
-}
-
-const statusLabelMap: Record<string, string> = {
-  SUCCESS: '成功',
-  ERROR: '失败',
-  CANCELLED: '已取消',
-  REJECTED: '已拒绝',
-}
-
-const statusTagTypeMap: Record<string, string> = {
-  SUCCESS: 'success',
-  ERROR: 'danger',
-  CANCELLED: 'warning',
-  REJECTED: 'info',
-}
-
-const terminalStageLabelMap: Record<string, string> = {
-  AUTH: '鉴权',
-  RATE_LIMIT: '限流',
-  ROUTING: '路由',
-  FAILOVER: 'Failover',
-  UPSTREAM: '上游调用',
-  STREAMING: '流式输出',
-}
-
-function statusLabel(status?: string | null): string {
-  if (!status) {
-    return '-'
-  }
-  return statusLabelMap[status] ?? status
-}
-
-function statusTagType(status?: string | null): string {
-  if (!status) {
-    return 'info'
-  }
-  return statusTagTypeMap[status] ?? 'info'
-}
-
-function terminalStageLabel(stage?: string | null): string {
-  if (!stage) {
-    return '-'
-  }
-  return terminalStageLabelMap[stage] ?? stage
-}
-
-function formatDuration(ms: number): string {
-  if (ms >= 1000) {
-    return `${(ms / 1000).toFixed(1)}s`
-  }
-  return `${ms}ms`
-}
-
-function formatNullableDuration(ms?: number | null): string {
-  if (ms === null || ms === undefined) {
-    return '-'
-  }
-  return formatDuration(ms)
-}
-
-function formatTime(dateTime?: string | null): string {
-  if (!dateTime) return '-'
-  return dateTime.replace('T', ' ').replace(/\.\d{1,3}$/, '')
-}
-
-function formatNullableNumber(value?: number | null): string {
-  if (value === null || value === undefined) {
-    return '-'
-  }
-  return value.toLocaleString()
-}
-
-function booleanLabel(value?: boolean | null): string {
-  if (value === null || value === undefined) {
-    return '-'
-  }
-  return value ? '是' : '否'
-}
-
-function maskIp(ip?: string | null): string {
-  if (!ip) {
-    return '-'
-  }
-  if (ip.includes(':')) {
-    // IPv6：取前两个非空段，后面统一隐藏
-    const segments = ip.split(':').filter(Boolean)
-    if (segments.length <= 2) {
-      return ip
-    }
-    return `${segments[0]}:${segments[1]}::****`
-  }
-  const segments = ip.split('.')
-  if (segments.length !== 4) {
-    return ip
-  }
-  return `${segments[0]}.${segments[1]}.*.*`
-}
-
-function hasGovernanceSignals(row: RequestLogRsp): boolean {
-  return Boolean(
-    (row.retryCount ?? 0) > 0 || (row.failoverCount ?? 0) > 0 || row.rateLimitTriggered,
-  )
-}
-
-function isErrorStatus(status?: string | null): boolean {
-  return status === 'ERROR' || status === 'REJECTED'
-}
-
 onMounted(loadData)
 </script>
 
@@ -686,41 +460,5 @@ onMounted(loadData)
   justify-content: center;
   gap: 4px;
   flex-wrap: wrap;
-}
-
-.detail-loading {
-  padding: 8px 0;
-}
-
-.detail-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.detail-section {
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 8px;
-  padding: 16px;
-  background: var(--el-bg-color-page);
-}
-
-.detail-section__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 12px;
-}
-
-.detail-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-@media (max-width: 900px) {
-  .detail-grid {
-    grid-template-columns: 1fr;
-  }
 }
 </style>

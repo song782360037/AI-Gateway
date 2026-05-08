@@ -5,7 +5,6 @@ import com.code.aigateway.admin.model.dataobject.GlobalConfigDO;
 import com.code.aigateway.admin.model.req.GlobalCustomHeadersUpdateReq;
 import com.code.aigateway.admin.model.rsp.GlobalCustomHeadersRsp;
 import com.code.aigateway.common.exception.BizException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -32,16 +31,14 @@ import static org.mockito.Mockito.when;
 class GlobalConfigServiceTest {
 
     private GlobalConfigMapper globalConfigMapper;
-    private ObjectMapper objectMapper;
     private RuntimeConfigRefreshService runtimeConfigRefreshService;
     private GlobalConfigService service;
 
     @BeforeEach
     void setUp() {
         globalConfigMapper = mock(GlobalConfigMapper.class);
-        objectMapper = new ObjectMapper();
         runtimeConfigRefreshService = mock(RuntimeConfigRefreshService.class);
-        service = new GlobalConfigService(globalConfigMapper, objectMapper, runtimeConfigRefreshService);
+        service = new GlobalConfigService(globalConfigMapper, runtimeConfigRefreshService);
     }
 
     // ==================== 查询场景 ====================
