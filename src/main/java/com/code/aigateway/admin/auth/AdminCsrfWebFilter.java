@@ -92,11 +92,15 @@ public class AdminCsrfWebFilter implements WebFilter {
      * <p>仅比较 scheme + host + port 部分，忽略路径。</p>
      */
     private boolean isTrustedOrigin(String value) {
+        List<String> trusted = getTrustedOrigins();
+        // 支持 "*" 通配符，匹配所有来源
+        if (trusted.contains("*")) {
+            return true;
+        }
         try {
             URI uri = URI.create(value);
             String originKey = (uri.getScheme() + "://" + uri.getHost()
                     + (uri.getPort() > 0 ? ":" + uri.getPort() : "")).toLowerCase();
-            List<String> trusted = getTrustedOrigins();
             for (String trustedOrigin : trusted) {
                 // 统一转为 scheme://host:port 格式进行比较
                 String normalized = normalizeOrigin(trustedOrigin);
