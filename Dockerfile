@@ -40,7 +40,7 @@ COPY src ./src
 COPY --from=frontend-builder /app/frontend-vue/dist ./frontend-vue/dist
 
 # 构建应用（使用 docker profile 跳过前端构建，前端产物已在上一步复制）
-RUN mvn clean package -DskipTests -B -Pdocker
+RUN mvn clean package -Dmaven.test.skip=true -B -Pdocker
 
 # 第三阶段：创建最终运行镜像
 FROM eclipse-temurin:21-jre-alpine

@@ -47,7 +47,7 @@ public interface GlobalConfigMapper {
      */
     @Insert("""
             INSERT INTO global_config (config_key, config_value, description, version_no, creator, updater)
-            VALUES (#{configKey}, #{configValue}, '全局自定义请求头（JSON 键值对）', 0, '', #{updater})
+            VALUES (#{configKey}, #{configValue}, #{description}, 0, '', '')
             """)
     int insertByConfigKey(GlobalConfigDO record);
 }

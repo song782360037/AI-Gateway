@@ -1,5 +1,6 @@
 package com.code.aigateway.admin.auth;
 
+import com.code.aigateway.admin.mapper.GlobalConfigMapper;
 import com.code.aigateway.config.GatewayProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,7 +34,7 @@ class AdminCsrfWebFilterTest {
     @BeforeEach
     void setUp() {
         GatewayProperties gatewayProperties = new GatewayProperties();
-        csrfTokenManager = new AdminCsrfTokenManager(gatewayProperties);
+        csrfTokenManager = new AdminCsrfTokenManager(gatewayProperties, mock(GlobalConfigMapper.class));
         filter = new AdminCsrfWebFilter(csrfTokenManager, new ObjectMapper(), gatewayProperties);
         filterChain = Mockito.mock(WebFilterChain.class);
         when(filterChain.filter(any())).thenReturn(Mono.empty());
@@ -188,7 +189,7 @@ class AdminCsrfWebFilterTest {
         GatewayProperties.AdminAuthProperties adminAuth = new GatewayProperties.AdminAuthProperties();
         adminAuth.setTrustForwardedHeaders(true);
         gatewayProperties.setAdminAuth(adminAuth);
-        AdminCsrfTokenManager trustedCsrfTokenManager = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager trustedCsrfTokenManager = new AdminCsrfTokenManager(gatewayProperties, mock(GlobalConfigMapper.class));
         AdminCsrfWebFilter trustedFilter = new AdminCsrfWebFilter(trustedCsrfTokenManager, new ObjectMapper(), gatewayProperties);
 
         MockServerWebExchange tokenExchange = MockServerWebExchange.from(

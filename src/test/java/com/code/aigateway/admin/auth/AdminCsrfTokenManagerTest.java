@@ -1,5 +1,6 @@
 package com.code.aigateway.admin.auth;
 
+import com.code.aigateway.admin.mapper.GlobalConfigMapper;
 import com.code.aigateway.config.GatewayProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -7,6 +8,8 @@ import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 
 import java.util.Base64;
+
+import static org.mockito.Mockito.mock;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -22,17 +25,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class AdminCsrfTokenManagerTest {
 
     private GatewayProperties gatewayProperties;
+    private GlobalConfigMapper globalConfigMapper;
 
     @BeforeEach
     void setUp() {
         gatewayProperties = new GatewayProperties();
+        globalConfigMapper = mock(GlobalConfigMapper.class);
     }
 
     // ==================== Token 签发与校验 ====================
 
     @Test
     void issueToken_returnsNonBlankToken() {
-        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("http://localhost/admin/csrf").build());
 
@@ -44,7 +49,7 @@ class AdminCsrfTokenManagerTest {
 
     @Test
     void isValid_withFreshToken_returnsTrue() {
-        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("http://localhost/admin/csrf").build());
 
@@ -55,25 +60,25 @@ class AdminCsrfTokenManagerTest {
 
     @Test
     void isValid_withNullToken_returnsFalse() {
-        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
         assertFalse(manager.isValid(null));
     }
 
     @Test
     void isValid_withEmptyToken_returnsFalse() {
-        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
         assertFalse(manager.isValid(""));
     }
 
     @Test
     void isValid_withMalformedToken_returnsFalse() {
-        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
         assertFalse(manager.isValid("not-a-valid-token"));
     }
 
     @Test
     void isValid_withWrongSignature_returnsFalse() {
-        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("http://localhost/admin/csrf").build());
 
@@ -86,8 +91,8 @@ class AdminCsrfTokenManagerTest {
 
     @Test
     void isValid_withTokenFromDifferentKey_returnsFalse() {
-        AdminCsrfTokenManager manager1 = new AdminCsrfTokenManager(gatewayProperties);
-        AdminCsrfTokenManager manager2 = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager1 = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
+        AdminCsrfTokenManager manager2 = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("http://localhost/admin/csrf").build());
 
@@ -104,8 +109,8 @@ class AdminCsrfTokenManagerTest {
         adminAuth.setCsrfSigningKey(fixedKey);
         gatewayProperties.setAdminAuth(adminAuth);
 
-        AdminCsrfTokenManager manager1 = new AdminCsrfTokenManager(gatewayProperties);
-        AdminCsrfTokenManager manager2 = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager1 = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
+        AdminCsrfTokenManager manager2 = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("http://localhost/admin/csrf").build());
 
@@ -119,7 +124,7 @@ class AdminCsrfTokenManagerTest {
 
     @Test
     void isValid_withLegacyTwoPartToken_returnsFalse() {
-        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
 
         assertFalse(manager.isValid("nonce.signature"));
         assertFalse(manager.isValid("onlyonepart"));
@@ -130,7 +135,7 @@ class AdminCsrfTokenManagerTest {
 
     @Test
     void issueToken_setsCookieWithCorrectAttributes() {
-        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("http://localhost/admin/csrf").build());
 
@@ -146,7 +151,7 @@ class AdminCsrfTokenManagerTest {
 
     @Test
     void issueToken_overHttps_setsSecureFlag() {
-        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("https://localhost/admin/csrf").build());
 
@@ -159,7 +164,7 @@ class AdminCsrfTokenManagerTest {
 
     @Test
     void issueToken_withForwardedProto_doesNotSetSecureFlagByDefault() {
-        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("http://localhost/admin/csrf")
                         .header("X-Forwarded-Proto", "https")
@@ -177,7 +182,7 @@ class AdminCsrfTokenManagerTest {
         GatewayProperties.AdminAuthProperties adminAuth = new GatewayProperties.AdminAuthProperties();
         adminAuth.setTrustForwardedHeaders(true);
         gatewayProperties.setAdminAuth(adminAuth);
-        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("http://localhost/admin/csrf")
                         .header("X-Forwarded-Proto", "https")
@@ -195,7 +200,7 @@ class AdminCsrfTokenManagerTest {
         GatewayProperties.AdminAuthProperties adminAuth = new GatewayProperties.AdminAuthProperties();
         adminAuth.setTrustForwardedHeaders(true);
         gatewayProperties.setAdminAuth(adminAuth);
-        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("http://localhost/admin/csrf")
                         .header("X-Forwarded-Proto", "https,http")
@@ -212,7 +217,7 @@ class AdminCsrfTokenManagerTest {
 
     @Test
     void clearToken_setsCookieWithZeroMaxAge() {
-        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("http://localhost/admin/csrf").build());
 
@@ -228,7 +233,7 @@ class AdminCsrfTokenManagerTest {
 
     @Test
     void resolveCookieToken_withCookie_returnsValue() {
-        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("http://localhost/admin/csrf")
                         .cookie(new org.springframework.http.HttpCookie(AdminCsrfTokenManager.COOKIE_NAME, "test-token"))
@@ -240,7 +245,7 @@ class AdminCsrfTokenManagerTest {
 
     @Test
     void resolveCookieToken_withoutCookie_returnsNull() {
-        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("http://localhost/admin/csrf").build());
 
@@ -257,7 +262,7 @@ class AdminCsrfTokenManagerTest {
         gatewayProperties.setAdminAuth(adminAuth);
 
         // 应不抛异常，回退到随机密钥
-        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("http://localhost/admin/csrf").build());
         String token = manager.issueToken(exchange.getRequest(), exchange.getResponse());
@@ -272,7 +277,7 @@ class AdminCsrfTokenManagerTest {
         gatewayProperties.setAdminAuth(adminAuth);
 
         // 应不抛异常，回退到随机密钥
-        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("http://localhost/admin/csrf").build());
         String token = manager.issueToken(exchange.getRequest(), exchange.getResponse());
@@ -284,7 +289,7 @@ class AdminCsrfTokenManagerTest {
 
     @Test
     void issueToken_generatesUniqueTokens() {
-        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties);
+        AdminCsrfTokenManager manager = new AdminCsrfTokenManager(gatewayProperties, globalConfigMapper);
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("http://localhost/admin/csrf").build());
 

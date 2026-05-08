@@ -61,6 +61,7 @@ public class GlobalConfigService {
         record.setConfigKey(CUSTOM_HEADERS_KEY);
         record.setVersionNo(req.getVersionNo());
         record.setConfigValue(CustomHeaderUtils.serializeHeadersToJson(req.getCustomHeaders()));
+        record.setDescription("全局自定义请求头（JSON 键值对）");
         record.setUpdater("");
         record.setUpdateTime(LocalDateTime.now());
 
