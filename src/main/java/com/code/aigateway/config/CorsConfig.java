@@ -29,19 +29,28 @@ public class CorsConfig {
         CorsConfiguration config = new CorsConfiguration();
 
         if (cors != null) {
-            cors.getAllowedOrigins().forEach(config::addAllowedOrigin);
+            boolean hasWildcard = cors.getAllowedOrigins().contains("*");
+            if (hasWildcard && cors.isAllowCredentials()) {
+                // 当 allowCredentials=true 时，浏览器不允许 Access-Control-Allow-Origin: *
+                // 改用 addAllowedOriginPattern 支持通配符
+                config.addAllowedOriginPattern("*");
+            } else {
+                cors.getAllowedOrigins().forEach(config::addAllowedOrigin);
+            }
             cors.getAllowedMethods().forEach(config::addAllowedMethod);
             cors.getAllowedHeaders().forEach(config::addAllowedHeader);
+            cors.getExposedHeaders().forEach(config::addExposedHeader);
             config.setAllowCredentials(cors.isAllowCredentials());
             config.setMaxAge(cors.getMaxAgeSeconds());
         } else {
             // 未配置时使用安全默认值
-            config.addAllowedOrigin("*");
+            config.addAllowedOriginPattern("*");
             config.addAllowedMethod("*");
             config.addAllowedHeader("*");
             config.setMaxAge(3600L);
         }
 
+        // 始终暴露的内置响应头
         config.addExposedHeader("X-Request-Id");
         config.addExposedHeader("X-RateLimit-Limit");
         config.addExposedHeader("X-RateLimit-Remaining");

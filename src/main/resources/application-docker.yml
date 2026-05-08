@@ -22,7 +22,18 @@ gateway:
   security:
     api-key-secret: ${GATEWAY_API_KEY_SECRET:}
 
+  # Docker 环境 CORS 配置：
+  # allow-credentials 设为 true 以支持前端 withCredentials 跨域携带 Cookie
+  cors:
+    allow-credentials: true
+    # allowed-origins: "*" 配合 allow-credentials: true 时，
+    # CorsConfig 会自动切换为 allowedOriginPattern("*") 以符合浏览器规范
+    allowed-origins: "*"
+
   admin-auth:
     trust-forwarded-headers: true
     trusted-origins:
       - "*"
+    # Docker 部署若使用反向代理（如 Nginx）导致跨站时，需将 same-site 设为 None
+    # 并确保启用了 HTTPS（否则浏览器会拒绝 None 类型的 Cookie）
+    # csrf-cookie-same-site: "None"

@@ -185,6 +185,17 @@ public class GatewayProperties {
         private String csrfSigningKey;
 
         /**
+         * CSRF Cookie 的 SameSite 属性。
+         * <p>
+         * 可选值：Lax、Strict、None。
+         * 默认 Lax，在同源部署下正常工作。
+         * 在 Docker 部署且使用反向代理（如 Nginx）导致前端与后端不同源时，需设置为 None
+         * （同时须确保已启用 HTTPS，否则浏览器会拒绝 None 类型的 Cookie）。
+         * </p>
+         */
+        private String csrfCookieSameSite = "Lax";
+
+        /**
          * 是否信任反向代理写入的 X-Forwarded-* 请求头。
          * <p>
          * 默认关闭，避免直连或代理未清洗请求头时被伪造来源影响 CSRF 同源判断和 Cookie Secure 标记。
@@ -220,6 +231,8 @@ public class GatewayProperties {
         private boolean allowCredentials = false;
         /** 预检请求缓存时间（秒） */
         private long maxAgeSeconds = 3600;
+        /** 暴露给前端的响应头列表 */
+        private List<String> exposedHeaders = List.of();
     }
 
     /**
