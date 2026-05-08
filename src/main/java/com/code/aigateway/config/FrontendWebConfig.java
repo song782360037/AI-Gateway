@@ -1,5 +1,7 @@
 package com.code.aigateway.config;
 
+import java.net.URI;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
@@ -35,6 +37,8 @@ public class FrontendWebConfig implements WebFluxConfigurer {
      * <p>Spring WebFlux 的 ResourceHandler 默认不会将目录请求解析为 index.html，
      * 直接访问该路径会导致内部异常。通过 RouterFunction 优先匹配并返回 index.html，
      * 使 hash 路由的 Vue 应用能正常加载。</p>
+     *
+     * <p>同时将根路径 "/" 重定向到前端首页，方便直接通过 http://host:port 访问。</p>
      */
     @Bean
     public RouterFunction<ServerResponse> frontendIndexRouter() {
@@ -42,6 +46,7 @@ public class FrontendWebConfig implements WebFluxConfigurer {
         return RouterFunctions.route()
                 .GET("/frontend-vue", request -> ServerResponse.ok().contentType(MediaType.TEXT_HTML).bodyValue(indexHtml))
                 .GET("/frontend-vue/", request -> ServerResponse.ok().contentType(MediaType.TEXT_HTML).bodyValue(indexHtml))
+                .GET("/", request -> ServerResponse.permanentRedirect(URI.create("/frontend-vue/")).build())
                 .build();
     }
 }

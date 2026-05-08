@@ -34,6 +34,8 @@ gateway:
     trust-forwarded-headers: true
     trusted-origins:
       - "*"
-    # Docker 部署若使用反向代理（如 Nginx）导致跨站时，需将 same-site 设为 None
-    # 并确保启用了 HTTPS（否则浏览器会拒绝 None 类型的 Cookie）
+    # CSRF Cookie SameSite 属性，默认 Lax。
+    # - 同源部署（前端由 Spring Boot 直接提供，如直接访问 http://host:port）→ 保持 Lax 即可
+    # - 跨站部署（前端与后端不同源，如 Nginx 反向代理到不同域名/端口）→ 需设为 None，
+    #   但必须同时启用 HTTPS（浏览器要求 SameSite=None 的 Cookie 必须带 Secure 标记）
     # csrf-cookie-same-site: "None"

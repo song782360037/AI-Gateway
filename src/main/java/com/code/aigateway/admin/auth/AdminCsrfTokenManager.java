@@ -139,9 +139,18 @@ public class AdminCsrfTokenManager {
      */
     private ResponseCookie buildCookie(ServerHttpRequest request, String value, Duration maxAge) {
         boolean secure = isSecureRequest(request);
+        // SameSite=None 要求 Cookie 带 Secure 标记，否则浏览器会拒绝存储。
+        // 仅在反向代理可能已配置 SSL 但未正确传递 X-Forwarded-Proto 时强制 Secure；
+        // 纯 HTTP 环境不应配置 SameSite=None，否则 Cookie 永远无法生效。
         if ("None".equals(cookieSameSite) && !secure) {
-            log.warn("[CSRF] SameSite=None 但请求非 HTTPS，浏览器将拒绝设置此 Cookie，" +
-                    "CSRF 防护可能失效。请启用 HTTPS 或配置 trust-forwarded-headers=true");
+            if (isTrustForwardedHeaders()) {
+                log.warn("[CSRF] SameSite=None 但 X-Forwarded-Proto 未指示 HTTPS，" +
+                        "强制 Secure=true；若反向代理未配置 SSL，浏览器将拒绝此 Cookie");
+                secure = true;
+            } else {
+                log.error("[CSRF] SameSite=None 需要 HTTPS，但当前请求为 HTTP 且未启用 trust-forwarded-headers。" +
+                        "浏览器将拒绝此 Cookie，CSRF 防护不可用。请在 HTTPS 反向代理后部署，或改用 Lax/Strict");
+            }
         }
         return ResponseCookie.from(COOKIE_NAME, value)
                 .httpOnly(false)

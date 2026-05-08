@@ -61,9 +61,18 @@ public class AdminCsrfWebFilter implements WebFilter {
         String headerToken = request.getHeaders().getFirst(AdminCsrfTokenManager.HEADER_NAME);
         String cookieToken = csrfTokenManager.resolveCookieToken(request);
         if (!StringUtils.hasText(headerToken) || !StringUtils.hasText(cookieToken)) {
+            log.debug("[管理端 CSRF] Token 校验失败: headerToken={}, cookieToken={}, path={}",
+                    StringUtils.hasText(headerToken) ? "已提供" : "缺失",
+                    StringUtils.hasText(cookieToken) ? "已提供" : "缺失",
+                    request.getPath().value());
             return false;
         }
-        return headerToken.equals(cookieToken) && csrfTokenManager.isValid(headerToken);
+        boolean match = headerToken.equals(cookieToken);
+        boolean valid = match && csrfTokenManager.isValid(headerToken);
+        if (!valid) {
+            log.debug("[管理端 CSRF] Token 校验失败: headerCookieMatch={}, signatureValid={}", match, !match ? "N/A" : "false");
+        }
+        return valid;
     }
 
     private boolean hasValidOrigin(ServerHttpRequest request) {
