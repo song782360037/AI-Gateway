@@ -69,6 +69,11 @@ public class RequestLogService {
         rsp.setUpstreamHttpStatus(record.getUpstreamHttpStatus());
         rsp.setUpstreamErrorType(record.getUpstreamErrorType());
         rsp.setTerminalStage(record.getTerminalStage());
+        rsp.setThinkingEnabled(record.getThinkingEnabled());
+        rsp.setThinkingDepth(record.getThinkingDepth());
+        rsp.setThinkingMapped(record.getThinkingMapped());
+        rsp.setTraceDetailsJson(record.getTraceDetailsJson());
+        rsp.setFirstTokenLatencyMs(record.getFirstTokenLatencyMs());
         rsp.setIsStream(record.getIsStream());
         rsp.setPromptTokens(record.getPromptTokens());
         rsp.setCachedInputTokens(record.getCachedInputTokens());

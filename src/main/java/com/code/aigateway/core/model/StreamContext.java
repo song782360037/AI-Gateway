@@ -30,6 +30,10 @@ public class StreamContext {
     /** 模型名称，failover 后可能被更新为实际使用的模型 */
     private volatile String model;
     private final AtomicBoolean firstContentSent = new AtomicBoolean(false);
+    /** 请求开始时的毫秒时间戳（用于精确计算首token延迟） */
+    private final long startMs;
+    /** 首个 content token 发送的时间戳（毫秒） */
+    private volatile long firstTokenTimeMs = 0;
     /** 当前打开的 content block 索引，-1 表示无打开的块 */
     private volatile int openBlockIndex = -1;
     /** 当前打开的 content block 类型（"text"、"thinking"、"tool_use"），null 表示无打开的块 */
@@ -45,11 +49,29 @@ public class StreamContext {
         this.responseId = responseId;
         this.created = created;
         this.model = model;
+        // 使用当前毫秒时间戳作为请求起点，确保首token延迟计算精度
+        this.startMs = System.currentTimeMillis();
     }
 
     /** 尝试标记首个 content 已发送，返回 true 表示本次成功占位 */
     public boolean tryMarkFirstContentSent() {
-        return firstContentSent.compareAndSet(false, true);
+        boolean first = firstContentSent.compareAndSet(false, true);
+        if (first) {
+            // 记录首token时间戳
+            firstTokenTimeMs = System.currentTimeMillis();
+        }
+        return first;
+    }
+
+    /**
+     * 获取首token响应时间（毫秒），基于请求创建时的毫秒时间戳精确计算
+     * @return 首token延迟（ms），若尚未发送首token则返回 -1
+     */
+    public long getFirstTokenLatencyMs() {
+        if (firstTokenTimeMs <= 0) {
+            return -1;
+        }
+        return firstTokenTimeMs - startMs;
     }
 
     /** 标记指定索引的 content block 已打开 */

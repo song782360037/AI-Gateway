@@ -64,6 +64,8 @@ public class GeminiProtocolAdapter implements ProtocolAdapter {
         }
 
         if ("text_delta".equals(event.getType())) {
+            // 记录首token响应时间
+            ctx.tryMarkFirstContentSent();
             Map<String, Object> part = new LinkedHashMap<>();
             part.put("text", event.getTextDelta() != null ? event.getTextDelta() : "");
 

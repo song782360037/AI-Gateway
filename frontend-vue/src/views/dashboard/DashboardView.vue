@@ -15,45 +15,6 @@
           </div>
         </div>
         <div class="dashboard-header__right">
-          <!-- 实时指标条 -->
-          <div class="realtime-bar">
-            <div class="realtime-item">
-              <span class="realtime-item__label">RPM</span>
-              <span class="realtime-item__value">{{ formatNumber(realtime?.rpm ?? 0) }}</span>
-            </div>
-            <div class="realtime-divider" />
-            <div class="realtime-item">
-              <span class="realtime-item__label">TPM</span>
-              <span class="realtime-item__value">{{ formatTokenCount(realtime?.tpm ?? 0) }}</span>
-            </div>
-            <div class="realtime-divider" />
-            <div class="realtime-item">
-              <span class="realtime-item__label">成功率</span>
-              <span class="realtime-item__value" :class="(realtime?.successRate ?? 100) >= 99 ? 'text-success' : 'text-warning'">
-                {{ (realtime?.successRate ?? 100).toFixed(1) }}%
-              </span>
-            </div>
-            <div class="realtime-divider" />
-            <div class="realtime-item">
-              <span class="realtime-item__label">活跃通道</span>
-              <span class="realtime-item__value">{{ realtime?.activeProviders ?? 0 }}</span>
-            </div>
-            <div class="realtime-divider group-divider" />
-            <div class="realtime-item">
-              <span class="realtime-item__label">缓存命中</span>
-              <span class="realtime-item__value">{{ formatTokenCount(stats.cacheTokens.current) }}</span>
-            </div>
-            <div class="realtime-divider" />
-            <div class="realtime-item">
-              <span class="realtime-item__label">提供商</span>
-              <span class="realtime-item__value">{{ formatNumber(stats.providerCount) }}</span>
-            </div>
-            <div class="realtime-divider" />
-            <div class="realtime-item">
-              <span class="realtime-item__label">重定向规则</span>
-              <span class="realtime-item__value">{{ formatNumber(stats.redirectCount) }}</span>
-            </div>
-          </div>
           <el-icon :size="18" class="dashboard-header__notify">
             <Bell />
           </el-icon>
@@ -68,6 +29,130 @@
             >
               {{ opt.label }}
             </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== 实时指标卡片条 ====== -->
+      <div class="realtime-metrics-bar">
+        <!-- 实时请求 -->
+        <div class="realtime-metric" :class="{ 'realtime-metric--active': (realtime?.activeRequestCount ?? 0) > 0 }">
+          <div class="realtime-metric__icon" style="background: rgba(16,185,129,0.08); color: #10b981;">
+            <el-icon :size="18"><Odometer /></el-icon>
+            <span v-if="(realtime?.activeRequestCount ?? 0) > 0" class="realtime-metric__pulse" />
+          </div>
+          <div class="realtime-metric__info">
+            <span class="realtime-metric__label">实时请求</span>
+            <el-popover
+              placement="bottom"
+              :width="380"
+              trigger="hover"
+              :disabled="(realtime?.activeRequestCount ?? 0) === 0"
+            >
+              <template #reference>
+                <span class="realtime-metric__value">
+                  {{ realtime?.activeRequestCount ?? 0 }}
+                  <span v-if="(realtime?.activeRequestCount ?? 0) > 0" class="realtime-metric__detail">
+                    ({{ realtime?.activeClientCount ?? 0 }} 客户端)
+                  </span>
+                </span>
+              </template>
+              <!-- 活跃请求详情弹出框 -->
+              <div class="active-requests-popover">
+                <div class="active-requests-popover__header">当前实时请求分布</div>
+                <div v-if="realtime?.activeRequestGroups?.length" class="active-requests-popover__list">
+                  <div
+                    v-for="group in realtime.activeRequestGroups"
+                    :key="group.providerCode + group.targetModel"
+                    class="active-request-row"
+                  >
+                    <span class="active-request-row__provider">{{ group.providerCode }}</span>
+                    <span class="active-request-row__model">{{ group.targetModel }}</span>
+                    <span class="active-request-row__count">{{ group.count }}</span>
+                  </div>
+                </div>
+                <div v-else class="active-requests-popover__empty">暂无活跃请求</div>
+              </div>
+            </el-popover>
+          </div>
+        </div>
+
+        <!-- RPM -->
+        <div class="realtime-metric">
+          <div class="realtime-metric__icon" style="background: rgba(67,97,238,0.08); color: #4361ee;">
+            <el-icon :size="18"><Histogram /></el-icon>
+          </div>
+          <div class="realtime-metric__info">
+            <span class="realtime-metric__label">RPM</span>
+            <span class="realtime-metric__value">{{ formatNumber(realtime?.rpm ?? 0) }}</span>
+          </div>
+        </div>
+
+        <!-- TPM -->
+        <div class="realtime-metric">
+          <div class="realtime-metric__icon" style="background: rgba(6,182,212,0.08); color: #06b6d4;">
+            <el-icon :size="18"><TrendCharts /></el-icon>
+          </div>
+          <div class="realtime-metric__info">
+            <span class="realtime-metric__label">TPM</span>
+            <span class="realtime-metric__value">{{ formatTokenCount(realtime?.tpm ?? 0) }}</span>
+          </div>
+        </div>
+
+        <!-- 成功率 -->
+        <div class="realtime-metric">
+          <div class="realtime-metric__icon" style="background: rgba(16,185,129,0.08); color: #10b981;">
+            <el-icon :size="18"><CircleCheck /></el-icon>
+          </div>
+          <div class="realtime-metric__info">
+            <span class="realtime-metric__label">成功率</span>
+            <span class="realtime-metric__value" :class="(realtime?.successRate ?? 100) >= 99 ? 'text-success' : 'text-warning'">
+              {{ (realtime?.successRate ?? 100).toFixed(1) }}%
+            </span>
+          </div>
+        </div>
+
+        <!-- 活跃通道 -->
+        <div class="realtime-metric">
+          <div class="realtime-metric__icon" style="background: rgba(139,92,246,0.08); color: #8b5cf6;">
+            <el-icon :size="18"><SetUp /></el-icon>
+          </div>
+          <div class="realtime-metric__info">
+            <span class="realtime-metric__label">活跃通道</span>
+            <span class="realtime-metric__value">{{ realtime?.activeProviders ?? 0 }}</span>
+          </div>
+        </div>
+
+        <!-- 缓存命中 -->
+        <div class="realtime-metric">
+          <div class="realtime-metric__icon" style="background: rgba(14,165,233,0.08); color: #0ea5e9;">
+            <el-icon :size="18"><Collection /></el-icon>
+          </div>
+          <div class="realtime-metric__info">
+            <span class="realtime-metric__label">缓存命中</span>
+            <span class="realtime-metric__value">{{ formatTokenCount(stats.cacheTokens.current) }}</span>
+          </div>
+        </div>
+
+        <!-- 提供商 -->
+        <div class="realtime-metric">
+          <div class="realtime-metric__icon" style="background: rgba(99,102,241,0.08); color: #6366f1;">
+            <el-icon :size="18"><OfficeBuilding /></el-icon>
+          </div>
+          <div class="realtime-metric__info">
+            <span class="realtime-metric__label">提供商</span>
+            <span class="realtime-metric__value">{{ formatNumber(stats.providerCount) }}</span>
+          </div>
+        </div>
+
+        <!-- 重定向规则 -->
+        <div class="realtime-metric">
+          <div class="realtime-metric__icon" style="background: rgba(245,158,11,0.08); color: #f59e0b;">
+            <el-icon :size="18"><Switch /></el-icon>
+          </div>
+          <div class="realtime-metric__info">
+            <span class="realtime-metric__label">重定向规则</span>
+            <span class="realtime-metric__value">{{ formatNumber(stats.redirectCount) }}</span>
           </div>
         </div>
       </div>
@@ -347,11 +432,17 @@ import { ElMessage } from 'element-plus'
 import {
   ArrowRight,
   Bell,
+  CircleCheck,
   Coin,
+  Collection,
   Connection,
   Document,
+  Histogram,
   Lightning,
   OfficeBuilding,
+  Odometer,
+  SetUp,
+  Switch,
   Timer,
   TrendCharts,
   Warning,
@@ -825,41 +916,105 @@ onUnmounted(() => {
   color: #f59e0b;
 }
 
-/* 实时指标条 */
-.realtime-bar {
+/* 实时指标卡片条 */
+.realtime-metrics-bar {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 12px;
+  padding: 16px 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card);
+  transition: box-shadow var(--transition-normal);
+}
+
+.realtime-metrics-bar:hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+.realtime-metric {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 4px 0;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  transition: background var(--transition-fast);
 }
 
-.realtime-item {
+.realtime-metric:hover {
+  background: #f8fafc;
+}
+
+.realtime-metric__icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  transition: transform var(--transition-fast);
+}
+
+.realtime-metric:hover .realtime-metric__icon {
+  transform: scale(1.05);
+}
+
+/* 活跃状态脉冲动画 */
+.realtime-metric__pulse {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  border: 2px solid #fff;
+  animation: active-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes active-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+.realtime-metric__info {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
   gap: 2px;
+  min-width: 0;
 }
 
-.realtime-item__label {
-  font-size: 10px;
+.realtime-metric__label {
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 
-.realtime-item__value {
-  font-size: 15px;
+.realtime-metric__value {
+  font-size: 16px;
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.realtime-divider {
-  width: 1px;
-  height: 22px;
-  background: var(--border-light);
+.realtime-metric__detail {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-left: 2px;
+}
+
+/* 活跃状态高亮 */
+.realtime-metric--active .realtime-metric__value {
+  color: #10b981;
 }
 
 /* 迷你趋势条 */
@@ -874,11 +1029,62 @@ onUnmounted(() => {
   height: 100%;
 }
 
-/* 分组分隔线 */
-.realtime-divider.group-divider {
-  height: 28px;
-  background: var(--border-default);
-  margin: 0 4px;
+/* 活跃请求弹出框 */
+.active-requests-popover__header {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #1e293b);
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.active-requests-popover__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.active-request-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.active-request-row__provider {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary, #1e293b);
+  background: rgba(67, 97, 238, 0.08);
+  padding: 2px 8px;
+  border-radius: 4px;
+  min-width: 60px;
+  text-align: center;
+}
+
+.active-request-row__model {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.active-request-row__count {
+  font-size: 13px;
+  font-weight: 700;
+  color: #10b981;
+  min-width: 20px;
+  text-align: right;
+}
+
+.active-requests-popover__empty {
+  font-size: 12px;
+  color: var(--text-placeholder, #94a3b8);
+  text-align: center;
+  padding: 8px 0;
 }
 
 /* 图表区 */
@@ -995,6 +1201,10 @@ onUnmounted(() => {
 
 /* 响应式 */
 @media (max-width: 1280px) {
+  .realtime-metrics-bar {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
   .charts-section {
     grid-template-columns: 1fr;
   }
@@ -1024,8 +1234,10 @@ onUnmounted(() => {
     flex-wrap: wrap;
   }
 
-  .realtime-bar {
-    flex-wrap: wrap;
+  .realtime-metrics-bar {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    padding: 12px;
   }
 
   .overview-grid--primary,

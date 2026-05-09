@@ -149,6 +149,36 @@ export function isErrorStatus(status?: string | null): boolean {
 }
 
 /**
+ * 将 budget_tokens 数值映射为 effort 等级
+ * 参照 Anthropic adaptive thinking 的 effort 语义划分：
+ *   low: < 5000    — 浅度思考
+ *   medium: 5K~19K  — 中度思考
+ *   high: 20K~79K   — 深度思考
+ *   xhigh: >= 80K   — 极深度思考
+ */
+function budgetTokensToEffort(tokens: number): string {
+  if (tokens < 5000) return 'low'
+  if (tokens < 20000) return 'medium'
+  if (tokens < 80000) return 'high'
+  return 'xhigh'
+}
+
+/**
+ * 格式化思考深度
+ * - 纯数字（budgetTokens）：换算为 low/medium/high/xhigh 等级，并附原始值
+ * - 非数字（effort 如 high/medium/low）：原样展示
+ */
+export function formatThinkingDepth(depth?: string | null): string {
+  if (!depth) return '-'
+  const num = Number(depth)
+  if (!isNaN(num) && depth.trim() !== '') {
+    const effort = budgetTokensToEffort(num)
+    return `${effort} (${num.toLocaleString()})`
+  }
+  return depth
+}
+
+/**
  * 判断是否有治理信号（重试、failover、熔断跳过）
  */
 export function hasGovernanceSignals(row: { retryCount?: number | null; failoverCount?: number | null; circuitOpenSkippedCount?: number | null }): boolean {

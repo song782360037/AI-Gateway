@@ -66,6 +66,21 @@ public class RequestLogRsp {
     /** 链路终止阶段 */
     private String terminalStage;
 
+    /** 是否开启思考 */
+    private Boolean thinkingEnabled;
+
+    /** 思考深度（budgetTokens或effort） */
+    private String thinkingDepth;
+
+    /** 是否映射思考（ReasoningSemanticMapper） */
+    private Boolean thinkingMapped;
+
+    /** 详细链路追踪信息（JSON格式） */
+    private String traceDetailsJson;
+
+    /** 首token响应时间（毫秒） */
+    private Integer firstTokenLatencyMs;
+
     /** 是否流式请求 */
     private Boolean isStream;
 

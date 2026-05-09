@@ -113,4 +113,20 @@ export interface RealtimeMetrics {
   successRate: number
   /** 活跃通道数 */
   activeProviders: number
+  /** 当前正在请求的总数 */
+  activeRequestCount: number
+  /** 当前正在请求的唯一客户端数量 */
+  activeClientCount: number
+  /** 当前活跃请求按提供商+模型分组 */
+  activeRequestGroups: ActiveRequestGroup[]
+}
+
+/** 活跃请求分组信息 */
+export interface ActiveRequestGroup {
+  /** 提供商编码 */
+  providerCode: string
+  /** 目标模型 */
+  targetModel: string
+  /** 该分组的请求数量 */
+  count: number
 }

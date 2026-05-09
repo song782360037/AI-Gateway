@@ -12,12 +12,14 @@ import com.code.aigateway.admin.model.rsp.ModelUsageRankRsp;
 import com.code.aigateway.admin.model.rsp.ProviderDistributionRsp;
 import com.code.aigateway.admin.model.rsp.RecentRequestRsp;
 import com.code.aigateway.admin.model.rsp.RealtimeMetricsRsp;
+import com.code.aigateway.core.stats.ActiveRequestTracker;
 import com.code.aigateway.core.stats.ModelPriceTable;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -49,6 +51,7 @@ public class DashboardServiceImpl implements IDashboardService {
     private final DashboardCacheService dashboardCacheService;
     private final ProviderConfigMapper providerConfigMapper;
     private final ModelRedirectConfigMapper modelRedirectConfigMapper;
+    private final ActiveRequestTracker activeRequestTracker;
 
     @Override
     public DashboardOverviewRsp getOverview(String period) {
@@ -287,7 +290,10 @@ public class DashboardServiceImpl implements IDashboardService {
     public RealtimeMetricsRsp getRealtimeMetrics() {
         RealtimeMetricsRsp cached = dashboardCacheService.getRealtime();
         if (cached != null) {
-            return cached;
+            // 缓存只保存可复用的近一分钟聚合指标，活跃请求字段每次返回前实时填充。
+            RealtimeMetricsRsp copy = deepCopyRealtimeAggregate(cached);
+            fillActiveRequests(copy);
+            return copy;
         }
 
         LocalDateTime oneMinuteAgo = LocalDateTime.now().minusMinutes(1);
@@ -299,8 +305,34 @@ public class DashboardServiceImpl implements IDashboardService {
         rsp.setSuccessRate(agg == null ? 100.0 : round(agg.successRate()));
         rsp.setActiveProviders(providerConfigMapper.selectAllEnabled().size());
 
-        dashboardCacheService.setRealtime(rsp);
+        dashboardCacheService.setRealtime(deepCopyRealtimeAggregate(rsp));
+
+        // 填充活跃请求数据（实时数据，不缓存）
+        fillActiveRequests(rsp);
         return rsp;
+    }
+
+    /**
+     * 从 ActiveRequestTracker 填充当前活跃请求的实时数据
+     */
+    private void fillActiveRequests(RealtimeMetricsRsp rsp) {
+        rsp.setActiveRequestCount(activeRequestTracker.getActiveCount());
+        rsp.setActiveClientCount(activeRequestTracker.getActiveClientCount());
+
+        // 按提供商+模型分组聚合
+        Map<String, Integer> grouped = activeRequestTracker.getActiveGroupByProviderModel();
+        List<RealtimeMetricsRsp.ActiveRequestGroup> groups = new ArrayList<>();
+        for (Map.Entry<String, Integer> entry : grouped.entrySet()) {
+            String[] parts = entry.getKey().split("\\|", 2);
+            RealtimeMetricsRsp.ActiveRequestGroup group = new RealtimeMetricsRsp.ActiveRequestGroup();
+            group.setProviderCode(parts[0]);
+            group.setTargetModel(parts.length > 1 ? parts[1] : "unknown");
+            group.setCount(entry.getValue());
+            groups.add(group);
+        }
+        // 按数量降序排列
+        groups.sort((a, b) -> Integer.compare(b.getCount(), a.getCount()));
+        rsp.setActiveRequestGroups(groups);
     }
 
     // ==================== 时间范围计算 ====================
@@ -408,5 +440,23 @@ public class DashboardServiceImpl implements IDashboardService {
 
     private double round(double value) {
         return BigDecimal.valueOf(value).setScale(2, RoundingMode.HALF_UP).doubleValue();
+    }
+
+    /**
+     * 复制实时聚合指标。
+     * <p>
+     * 活跃请求来自当前 JVM 内存状态，不能写入 Redis 缓存。
+     * </p>
+     */
+    private RealtimeMetricsRsp deepCopyRealtimeAggregate(RealtimeMetricsRsp source) {
+        RealtimeMetricsRsp copy = new RealtimeMetricsRsp();
+        copy.setRpm(source.getRpm());
+        copy.setTpm(source.getTpm());
+        copy.setSuccessRate(source.getSuccessRate());
+        copy.setActiveProviders(source.getActiveProviders());
+        copy.setActiveRequestCount(0);
+        copy.setActiveClientCount(0);
+        copy.setActiveRequestGroups(Collections.emptyList());
+        return copy;
     }
 }

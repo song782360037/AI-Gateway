@@ -6,6 +6,8 @@ import com.code.aigateway.admin.mapper.RequestLogMapper;
 import com.code.aigateway.admin.mapper.RequestStatHourlyMapper;
 import com.code.aigateway.admin.model.rsp.DashboardOverviewRsp;
 import com.code.aigateway.admin.model.rsp.ModelUsageRankRsp;
+import com.code.aigateway.admin.model.rsp.RealtimeMetricsRsp;
+import com.code.aigateway.core.stats.ActiveRequestTracker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -25,6 +27,7 @@ class DashboardServiceImplTest {
     private DashboardCacheService dashboardCacheService;
     private ProviderConfigMapper providerConfigMapper;
     private ModelRedirectConfigMapper modelRedirectConfigMapper;
+    private ActiveRequestTracker activeRequestTracker;
     private DashboardServiceImpl dashboardService;
 
     @BeforeEach
@@ -34,8 +37,9 @@ class DashboardServiceImplTest {
         dashboardCacheService = Mockito.mock(DashboardCacheService.class);
         providerConfigMapper = Mockito.mock(ProviderConfigMapper.class);
         modelRedirectConfigMapper = Mockito.mock(ModelRedirectConfigMapper.class);
+        activeRequestTracker = new ActiveRequestTracker();
         dashboardService = new DashboardServiceImpl(requestLogMapper, requestStatHourlyMapper, dashboardCacheService,
-                providerConfigMapper, modelRedirectConfigMapper);
+                providerConfigMapper, modelRedirectConfigMapper, activeRequestTracker);
     }
 
     @Test
@@ -118,6 +122,29 @@ class DashboardServiceImplTest {
         assertEquals(0L, result.getTpm());
         assertEquals(100.0, result.getSuccessRate());
         assertEquals(0, result.getActiveProviders());
+    }
+
+    @Test
+    void getRealtimeMetrics_withCachedAggregate_refreshesActiveRequests() {
+        RealtimeMetricsRsp cached = new RealtimeMetricsRsp();
+        cached.setRpm(12L);
+        cached.setTpm(1200L);
+        cached.setSuccessRate(99.5);
+        cached.setActiveProviders(2);
+        cached.setActiveRequestCount(0);
+        Mockito.when(dashboardCacheService.getRealtime()).thenReturn(cached);
+
+        activeRequestTracker.register("cid-1", "10.0.0.1", "gpt-4o", true);
+        activeRequestTracker.updateRoute("cid-1", "openai", "gpt-4o-mini");
+
+        var result = dashboardService.getRealtimeMetrics();
+
+        assertEquals(12L, result.getRpm());
+        assertEquals(1, result.getActiveRequestCount());
+        assertEquals(1, result.getActiveClientCount());
+        assertEquals(1, result.getActiveRequestGroups().size());
+        assertEquals("openai", result.getActiveRequestGroups().getFirst().getProviderCode());
+        assertEquals("gpt-4o-mini", result.getActiveRequestGroups().getFirst().getTargetModel());
     }
 
     @Test

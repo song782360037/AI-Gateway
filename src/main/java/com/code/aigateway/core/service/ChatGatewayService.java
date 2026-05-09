@@ -2,6 +2,7 @@ package com.code.aigateway.core.service;
 
 import com.code.aigateway.core.capability.CapabilityChecker;
 import com.code.aigateway.core.model.StreamContext;
+import com.code.aigateway.core.model.UnifiedReasoningConfig;
 import com.code.aigateway.core.model.UnifiedRequest;
 import com.code.aigateway.core.model.UnifiedStreamEvent;
 import com.code.aigateway.core.model.UnifiedUsage;
@@ -9,6 +10,7 @@ import com.code.aigateway.core.protocol.ProtocolAdapter;
 import com.code.aigateway.core.resilience.FailoverStrategy;
 import com.code.aigateway.core.router.ModelRouter;
 import com.code.aigateway.core.router.RouteResult;
+import com.code.aigateway.core.stats.ActiveRequestTracker;
 import com.code.aigateway.core.stats.RequestStatsCollector;
 import com.code.aigateway.core.stats.RequestStatsContext;
 import com.code.aigateway.provider.ProviderClient;
@@ -56,11 +58,17 @@ public class ChatGatewayService {
     /** 故障转移策略 */
     private final FailoverStrategy failoverStrategy;
 
+    /** 活跃请求跟踪器 */
+    private final ActiveRequestTracker activeRequestTracker;
+
     /**
      * 处理非流式聊天请求（含 usage 统计 + 故障转移）
      */
     public Mono<?> chatWithStats(Object rawRequest, ProtocolAdapter adapter, RequestStatsContext context) {
         UnifiedRequest unifiedRequest = adapter.parse(rawRequest);
+        // 提取思考配置信息
+        applyThinkingConfig(unifiedRequest, context);
+        applyActiveRequestInfo(unifiedRequest, context);
         List<RouteResult> candidates = resolveCandidates(unifiedRequest, context);
         String correlationId = context != null ? context.getCorrelationId() : null;
 
@@ -82,6 +90,9 @@ public class ChatGatewayService {
      */
     public Flux<?> streamChat(Object rawRequest, ProtocolAdapter adapter, RequestStatsContext context) {
         UnifiedRequest unifiedRequest = adapter.parse(rawRequest);
+        // 提取思考配置信息
+        applyThinkingConfig(unifiedRequest, context);
+        applyActiveRequestInfo(unifiedRequest, context);
         List<RouteResult> candidates = resolveCandidates(unifiedRequest, context);
         String correlationId = context != null ? context.getCorrelationId() : null;
 
@@ -133,15 +144,64 @@ public class ChatGatewayService {
                     return adapter.encodeStreamError(ex, streamCtx);
                 })
                 .doOnComplete(() -> {
+                // 记录首token响应时间（仅流式请求支持，非流式不经过 StreamContext）
+                if (context != null && streamCtx.getFirstTokenLatencyMs() >= 0) {
+                    context.setFirstTokenLatencyMs(streamCtx.getFirstTokenLatencyMs());
+                }
                     if (streamErrorRef.get() == null) {
                         requestStatsCollector.collectStreamSuccess(context, finalUsageRef.get());
                     }
                 })
                 .doOnCancel(() -> {
+                    // 记录首token响应时间（仅流式请求支持）
+                    if (context != null && streamCtx.getFirstTokenLatencyMs() >= 0) {
+                        context.setFirstTokenLatencyMs(streamCtx.getFirstTokenLatencyMs());
+                    }
                     if (streamErrorRef.get() == null && !terminalEventSeen.get()) {
                         requestStatsCollector.collectStreamCancelled(context, finalUsageRef.get());
                     }
                 });
+    }
+
+    /**
+     * 将解析后的请求模型和流式状态同步到活跃请求跟踪器。
+     */
+    private void applyActiveRequestInfo(UnifiedRequest unifiedRequest, RequestStatsContext context) {
+        if (context == null || unifiedRequest == null) {
+            return;
+        }
+        activeRequestTracker.updateRequestInfo(
+                context.getCorrelationId(),
+                unifiedRequest.getModel(),
+                unifiedRequest.getStream()
+        );
+    }
+
+    /**
+     * 提取请求中的思考配置信息，写入统计上下文
+     * <p>
+     * 仅当请求中存在 reasoning 配置时才设置，避免污染无思考需求的请求日志。
+     * </p>
+     */
+    private void applyThinkingConfig(UnifiedRequest unifiedRequest, RequestStatsContext context) {
+        if (context == null || unifiedRequest == null || unifiedRequest.getGenerationConfig() == null) {
+            return;
+        }
+        UnifiedReasoningConfig reasoning = unifiedRequest.getGenerationConfig().getReasoning();
+        if (reasoning == null) {
+            return;
+        }
+        // 记录客户端是否开启了思考（保留 null 语义：null 表示未知/未配置，false 表示明确关闭）
+        context.setThinkingEnabled(reasoning.getEnabled());
+        // 记录思考深度：优先记录 budgetTokens（直接存数值），其次记录 effort（直接存如 high/medium/low）
+        if (reasoning.getBudgetTokens() != null) {
+            context.setThinkingDepth(String.valueOf(reasoning.getBudgetTokens()));
+        } else if (reasoning.getEffort() != null && !reasoning.getEffort().isBlank()) {
+            context.setThinkingDepth(reasoning.getEffort());
+        }
+        // NOTE: thinkingMapped 当前始终为 null，因 ReasoningSemanticMapper 尚未接入。
+        // 接入后在此处写入映射结果：context.setThinkingMapped(mapper.isMapped(reasoning));
+        // 保持 null 而非 false，以区分"未映射"和"未接入"两种状态。
     }
 
     /**
@@ -178,12 +238,19 @@ public class ChatGatewayService {
 
     /**
      * 将最终命中的路由摘要写入统计上下文，供日志与详情页复用。
+     * 同时更新活跃请求跟踪器中的提供商和目标模型信息。
      */
     private void applyFinalRouteContext(RequestStatsContext context, RouteResult routeResult) {
         context.setRouteResult(routeResult);
         context.setFinalProviderCode(routeResult.getProviderName());
         context.setFinalProviderType(routeResult.getProviderType().name());
         context.setFinalTargetModel(routeResult.getTargetModel());
+        // 更新活跃请求跟踪器中的路由信息
+        activeRequestTracker.updateRoute(
+                context.getCorrelationId(),
+                routeResult.getProviderName(),
+                routeResult.getTargetModel()
+        );
     }
 
     /**

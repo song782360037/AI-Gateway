@@ -42,9 +42,35 @@
                 <InfoItem label="响应协议" :value="data.responseProtocol" />
                 <InfoItem label="模型别名" :value="data.aliasModel" />
                 <InfoItem label="目标模型" :value="data.targetModel" />
-                <InfoItem label="通道" :value="data.providerCode" />
+                <InfoItem label="提供商" :value="data.providerCode" />
                 <InfoItem label="来源 IP" :value="maskIp(data.sourceIp)" />
                 <InfoItem label="流式请求" :value="booleanLabel(data.isStream)" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 阶段1.5：思考配置 -->
+        <div
+          v-if="data.thinkingEnabled !== null && data.thinkingEnabled !== undefined"
+          class="timeline-node"
+          :class="['timeline-node--' + getStageStatus('thinking')]"
+        >
+          <div class="timeline-dot">
+            <el-icon><MagicStick /></el-icon>
+          </div>
+          <div class="timeline-content">
+            <div class="timeline-title">
+              思考配置
+              <el-tag :type="data.thinkingEnabled ? 'primary' : 'info'" size="small" effect="plain" class="stage-tag">
+                {{ data.thinkingEnabled ? '已启用' : '已关闭' }}
+              </el-tag>
+            </div>
+            <div class="timeline-body">
+              <div class="info-grid">
+                <InfoItem label="是否开启思考" :value="booleanLabel(data.thinkingEnabled)" />
+                <InfoItem label="思考深度" :value="formatThinkingDepth(data.thinkingDepth)" />
+                <InfoItem label="是否映射思考" :value="booleanLabel(data.thinkingMapped)" />
               </div>
             </div>
           </div>
@@ -126,6 +152,43 @@
                 <InfoItem label="上游错误类型" :value="data.upstreamErrorType" />
                 <InfoItem label="最终提供商" :value="data.providerCode" />
                 <InfoItem label="提供商类型" :value="providerLabel(data.providerType)" />
+                <InfoItem label="首Token响应时间" :value="data.firstTokenLatencyMs != null ? formatDuration(data.firstTokenLatencyMs) : null" />
+              </div>
+              <!-- 详细链路追踪信息 -->
+              <div v-if="parsedTraceDetails" class="trace-details-section">
+                <div class="trace-details-title">候选提供商尝试详情</div>
+                <div class="trace-candidates">
+                  <div
+                    v-for="attempt in parsedTraceDetails.candidateAttempts"
+                    :key="attempt.index"
+                    class="trace-candidate-item"
+                    :class="['trace-candidate--' + attempt.status.toLowerCase()]"
+                  >
+                    <div class="trace-candidate-header">
+                      <span class="trace-candidate-index">#{{ attempt.index + 1 }}</span>
+                      <span class="trace-candidate-provider">{{ attempt.providerCode }}</span>
+                      <span class="trace-candidate-model">{{ attempt.targetModel }}</span>
+                      <el-tag
+                        :type="candidateStatusType(attempt.status)"
+                        size="small"
+                        effect="plain"
+                      >
+                        {{ candidateStatusLabel(attempt.status) }}
+                      </el-tag>
+                      <span v-if="attempt.retryCount > 0" class="trace-candidate-retry">
+                        重试 {{ attempt.retryCount }}
+                      </span>
+                    </div>
+                    <div v-if="attempt.errorMessage" class="trace-candidate-error">
+                      {{ attempt.errorMessage }}
+                    </div>
+                    <div class="trace-candidate-meta">
+                      <span v-if="attempt.httpStatus">HTTP {{ attempt.httpStatus }}</span>
+                      <span v-if="attempt.errorType">{{ attempt.errorType }}</span>
+                      <span v-if="attempt.durationMs != null">{{ attempt.durationMs }}ms</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -155,21 +218,31 @@
                 <div class="token-section__title">Token 用量</div>
                 <div class="token-bar">
                   <div class="token-bar__item token-bar__input">
-                    <div class="token-bar__value">{{ data.promptTokens ?? 0 }}</div>
+                    <div class="token-bar__value">{{ (data.promptTokens ?? 0).toLocaleString() }}</div>
                     <div class="token-bar__label">输入</div>
                   </div>
                   <div v-if="(data.cachedInputTokens ?? 0) > 0" class="token-bar__item token-bar__cached">
-                    <div class="token-bar__value">{{ data.cachedInputTokens }}</div>
+                    <div class="token-bar__value">{{ (data.cachedInputTokens ?? 0).toLocaleString() }}</div>
                     <div class="token-bar__label">缓存命中</div>
                   </div>
                   <div class="token-bar__item token-bar__output">
-                    <div class="token-bar__value">{{ data.completionTokens ?? 0 }}</div>
+                    <div class="token-bar__value">{{ (data.completionTokens ?? 0).toLocaleString() }}</div>
                     <div class="token-bar__label">输出</div>
                   </div>
                   <div class="token-bar__item token-bar__total">
-                    <div class="token-bar__value">{{ data.totalTokens }}</div>
+                    <div class="token-bar__value">{{ (data.totalTokens ?? 0).toLocaleString() }}</div>
                     <div class="token-bar__label">总计</div>
                   </div>
+                </div>
+                <div class="token-detail-hint">
+                  <span class="token-hint-input">{{ (data.promptTokens ?? 0).toLocaleString() }} 输入</span>
+                  <span v-if="(data.cachedInputTokens ?? 0) > 0" class="token-hint-cached">
+                    （含缓存 {{ (data.cachedInputTokens ?? 0).toLocaleString() }}）
+                  </span>
+                  <span class="token-hint-separator">+</span>
+                  <span class="token-hint-output">{{ (data.completionTokens ?? 0).toLocaleString() }} 输出</span>
+                  <span class="token-hint-separator">=</span>
+                  <span class="token-hint-total">{{ (data.totalTokens ?? 0).toLocaleString() }} 总计</span>
                 </div>
               </div>
             </div>
@@ -186,7 +259,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Document, Key, Share, Promotion, CircleCheck, CircleClose } from '@element-plus/icons-vue'
+import { Document, Key, Share, Promotion, CircleCheck, CircleClose, MagicStick } from '@element-plus/icons-vue'
 import InfoItem from './InfoItem.vue'
 import {
   providerLabel,
@@ -201,8 +274,9 @@ import {
   maskIp,
   isErrorStatus,
   hasGovernanceSignals,
+  formatThinkingDepth,
 } from '../../utils/request-log'
-import type { RequestLogRsp } from '../../types/request-log'
+import type { RequestLogRsp, TraceDetails } from '../../types/request-log'
 
 const props = defineProps<{
   modelValue: boolean
@@ -295,13 +369,17 @@ function getStageStatus(stage: string): string {
       }
       return 'success'
 
+    case 'thinking':
+      // 思考配置阶段，明确开启或关闭都表示配置已被识别
+      return props.data.thinkingEnabled === true ? 'success' : 'skipped'
+
     case 'upstream': {
       // 如果终止阶段在调用之前，此阶段未执行
       if (terminalStage === 'AUTH' || terminalStage === 'RATE_LIMIT' || terminalStage === 'ROUTING') {
         return 'skipped'
       }
-      // 有熔断跳过
-      if ((circuitOpenSkippedCount ?? 0) > 0) {
+      // 仅当请求因熔断完全未到达上游时才标记为 skipped
+      if (terminalStage === 'FAILOVER' && (circuitOpenSkippedCount ?? 0) > 0 && (failoverCount ?? 0) === 0) {
         return 'skipped'
       }
       if (terminalStage === 'FAILOVER') {
@@ -328,6 +406,72 @@ function getStageStatus(stage: string): string {
 
     default:
       return 'pending'
+  }
+}
+
+/**
+ * 解析链路追踪详情 JSON
+ * <p>
+ * 增加运行时类型校验，防止后端 JSON 结构变更导致前端静默失败或渲染异常。
+ * 校验不通过时返回 null，UI 会隐藏链路追踪详情区域。
+ * </p>
+ */
+const parsedTraceDetails = computed<TraceDetails | null>(() => {
+  if (!props.data?.traceDetailsJson) return null
+  try {
+    const parsed = JSON.parse(props.data.traceDetailsJson)
+    if (!isValidTraceDetails(parsed)) {
+      return null
+    }
+    return parsed as TraceDetails
+  } catch {
+    return null
+  }
+})
+
+/**
+ * 运行时校验 TraceDetails 结构
+ */
+function isValidTraceDetails(obj: unknown): obj is TraceDetails {
+  if (obj === null || typeof obj !== 'object') return false
+  const td = obj as Record<string, unknown>
+  // candidateAttempts 是必有的数组字段
+  if (!Array.isArray(td.candidateAttempts)) return false
+  // 校验每个候选尝试记录的基本结构
+  for (const attempt of td.candidateAttempts) {
+    if (typeof attempt !== 'object' || attempt === null) return false
+    const a = attempt as Record<string, unknown>
+    if (typeof a.index !== 'number') return false
+    if (typeof a.status !== 'string') return false
+  }
+  return true
+}
+
+/**
+ * 候选状态标签类型
+ */
+function candidateStatusType(status: string): string {
+  switch (status) {
+    case 'SUCCESS': return 'success'
+    case 'FAILED': return 'danger'
+    case 'CIRCUIT_OPEN': return 'warning'
+    case 'SKIPPED': return 'info'
+    case 'STREAMING': return 'warning'
+    default: return 'info'
+  }
+}
+
+/**
+ * 候选状态标签文本
+ */
+function candidateStatusLabel(status: string): string {
+  switch (status) {
+    case 'SUCCESS': return '成功'
+    case 'FAILED': return '失败'
+    case 'CIRCUIT_OPEN': return '熔断跳过'
+    case 'SKIPPED': return '已跳过'
+    case 'STREAMING': return '流式中断'
+    default: return status
   }
 }
 
@@ -576,6 +720,7 @@ async function copyText(text: string) {
 
 .token-bar__total {
   border-top: 3px solid var(--el-color-info);
+  background: var(--el-fill-color);
 }
 
 .token-bar__value {
@@ -585,9 +730,155 @@ async function copyText(text: string) {
   line-height: 1.2;
 }
 
+.token-bar__total .token-bar__value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--el-color-info);
+}
+
 .token-bar__label {
   font-size: 11px;
   color: var(--text-secondary);
   margin-top: 4px;
+}
+
+/* Token 用量详细提示 */
+.token-detail-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 10px;
+  padding: 6px 10px;
+  background: var(--el-fill-color-light);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.token-hint-input {
+  color: var(--el-color-primary);
+  font-weight: 500;
+}
+
+.token-hint-cached {
+  color: var(--el-color-success);
+  font-weight: 500;
+}
+
+.token-hint-output {
+  color: var(--el-color-warning);
+  font-weight: 500;
+}
+
+.token-hint-total {
+  color: var(--el-color-info);
+  font-weight: 600;
+}
+
+.token-hint-separator {
+  color: var(--text-placeholder);
+  font-weight: 500;
+}
+
+/* 链路追踪详情区域 */
+.trace-details-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--el-border-color-light);
+}
+
+.trace-details-title {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.trace-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trace-candidate-item {
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--el-border-color-lighter);
+  background: var(--el-fill-color-blank);
+}
+
+.trace-candidate--success {
+  border-left: 3px solid var(--el-color-success);
+}
+
+.trace-candidate--failed {
+  border-left: 3px solid var(--el-color-danger);
+}
+
+.trace-candidate--circuit_open {
+  border-left: 3px solid var(--el-color-warning);
+}
+
+.trace-candidate--skipped {
+  border-left: 3px solid var(--el-color-info);
+}
+
+.trace-candidate-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.trace-candidate-index {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 24px;
+}
+
+.trace-candidate-provider {
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.trace-candidate-model {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: monospace;
+}
+
+.trace-candidate-retry {
+  font-size: 11px;
+  color: var(--el-color-warning);
+  font-weight: 500;
+}
+
+.trace-candidate-error {
+  font-size: 12px;
+  color: var(--el-color-danger);
+  margin: 4px 0;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.trace-candidate-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-placeholder);
+}
+
+/* 思考配置标签 */
+.thinking-tags {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: wrap;
 }
 </style>

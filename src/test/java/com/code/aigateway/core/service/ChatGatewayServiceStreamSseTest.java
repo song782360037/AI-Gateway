@@ -69,7 +69,7 @@ class ChatGatewayServiceStreamSseTest {
 
         chatGatewayService = new ChatGatewayService(
                 modelRouter, capabilityChecker, providerClientFactory,
-                requestStatsCollector, failoverStrategy);
+                requestStatsCollector, failoverStrategy, Mockito.mock(com.code.aigateway.core.stats.ActiveRequestTracker.class));
 
         Mockito.when(providerClientFactory.getClient(ProviderType.OPENAI)).thenReturn(providerClient);
     }

@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -256,6 +257,145 @@ class FailoverStrategyTest {
         assertEquals(2, context.getAttemptCount());
         assertEquals(1, context.getFailoverCount());
         assertEquals("FAILOVER", context.getTerminalStage());
+    }
+
+    @Test
+    void executeWithFailover_recordsRetryCountForCandidateAttempt() {
+        List<RouteResult> candidates = List.of(routeResult("provider-a", "model-x"));
+        RequestStatsContext context = new RequestStatsContext();
+
+        Mono<String> result = failoverStrategy.executeWithFailover(
+                candidates,
+                candidate -> {
+                    context.incrementRetryCount();
+                    context.incrementRetryCount();
+                    return Mono.just("success");
+                },
+                "test-correlation-id",
+                context
+        );
+
+        StepVerifier.create(result)
+                .expectNext("success")
+                .verifyComplete();
+
+        assertNotNull(context.getTraceDetails());
+        assertEquals(1, context.getTraceDetails().getCandidateAttemptsSnapshot().size());
+        assertEquals(2, context.getTraceDetails().getCandidateAttemptsSnapshot().getFirst().getRetryCount());
+    }
+
+    @Test
+    void executeStreamWithFailover_cancelAfterFirstToken_recordsStreamingAttempt() {
+        List<RouteResult> candidates = List.of(routeResult("provider-a", "model-x"));
+        RequestStatsContext context = new RequestStatsContext();
+
+        Flux<String> result = failoverStrategy.executeStreamWithFailover(
+                candidates,
+                candidate -> Flux.just("token-1", "token-2"),
+                "test-correlation-id",
+                context
+        );
+
+        StepVerifier.create(result)
+                .expectNext("token-1")
+                .thenCancel()
+                .verify();
+
+        assertNotNull(context.getTraceDetails());
+        assertEquals(1, context.getTraceDetails().getCandidateAttemptsSnapshot().size());
+        assertEquals("STREAMING", context.getTraceDetails().getCandidateAttemptsSnapshot().getFirst().getStatus());
+        assertEquals("provider-a", context.getTraceDetails().getFinalProviderCode());
+    }
+
+    @Test
+    void executeStreamWithFailover_singleCandidateErrorAfterFirstToken_keepsStreamingTrace() {
+        List<RouteResult> candidates = List.of(routeResult("provider-a", "model-x"));
+        RequestStatsContext context = new RequestStatsContext();
+        GatewayException serverError = new GatewayException(ErrorCode.PROVIDER_SERVER_ERROR, "server error");
+
+        Flux<String> result = failoverStrategy.executeStreamWithFailover(
+                candidates,
+                candidate -> Flux.concat(Flux.just("token-1"), Flux.error(serverError)),
+                "test-correlation-id",
+                context
+        );
+
+        StepVerifier.create(result)
+                .expectNext("token-1")
+                .expectErrorSatisfies(error -> {
+                    assertTrue(error instanceof GatewayException);
+                    assertEquals(ErrorCode.PROVIDER_SERVER_ERROR, ((GatewayException) error).getErrorCode());
+                })
+                .verify(Duration.ofSeconds(5));
+
+        assertEquals(1, context.getAttemptCount());
+        assertEquals("STREAMING", context.getTerminalStage());
+        assertEquals(1, context.getTraceDetails().getCandidateAttemptsSnapshot().size());
+        assertEquals("STREAMING", context.getTraceDetails().getCandidateAttemptsSnapshot().getFirst().getStatus());
+        assertEquals("provider-a", context.getTraceDetails().getFinalProviderCode());
+    }
+
+    @Test
+    void executeStreamWithFailover_errorAfterFirstToken_doesNotFailover() {
+        List<RouteResult> candidates = List.of(
+                routeResult("provider-a", "model-x"),
+                routeResult("provider-b", "model-y")
+        );
+        RequestStatsContext context = new RequestStatsContext();
+        GatewayException serverError = new GatewayException(ErrorCode.PROVIDER_SERVER_ERROR, "server error");
+
+        Flux<String> result = failoverStrategy.executeStreamWithFailover(
+                candidates,
+                candidate -> {
+                    if ("provider-a".equals(candidate.getProviderName())) {
+                        return Flux.concat(Flux.just("token-1"), Flux.error(serverError));
+                    }
+                    return Flux.just("token-from-b");
+                },
+                "test-correlation-id",
+                context
+        );
+
+        StepVerifier.create(result)
+                .expectNext("token-1")
+                .expectErrorSatisfies(error -> {
+                    assertTrue(error instanceof GatewayException);
+                    assertEquals(ErrorCode.PROVIDER_SERVER_ERROR, ((GatewayException) error).getErrorCode());
+                })
+                .verify(Duration.ofSeconds(5));
+
+        assertEquals(1, context.getAttemptCount());
+        assertEquals(0, context.getFailoverCount());
+        assertEquals("STREAMING", context.getTerminalStage());
+        assertEquals(1, context.getTraceDetails().getCandidateAttemptsSnapshot().size());
+        assertEquals("STREAMING", context.getTraceDetails().getCandidateAttemptsSnapshot().getFirst().getStatus());
+    }
+
+    @Test
+    void executeStreamWithFailover_singleCandidateCircuitOpen_returnsGatewayException() {
+        when(circuitBreakerManager.isCircuitOpen(anyString(), anyString())).thenReturn(true);
+        List<RouteResult> candidates = List.of(routeResult("provider-a", "model-x"));
+        RequestStatsContext context = new RequestStatsContext();
+
+        Flux<String> result = failoverStrategy.executeStreamWithFailover(
+                candidates,
+                candidate -> Flux.just("never"),
+                "test-correlation-id",
+                context
+        );
+
+        StepVerifier.create(result)
+                .expectErrorSatisfies(error -> {
+                    assertTrue(error instanceof GatewayException);
+                    assertEquals(ErrorCode.PROVIDER_CIRCUIT_OPEN, ((GatewayException) error).getErrorCode());
+                })
+                .verify(Duration.ofSeconds(5));
+
+        assertEquals(1, context.getAttemptCount());
+        assertEquals(1, context.getCircuitOpenSkippedCount());
+        assertEquals("FAILOVER", context.getTerminalStage());
+        assertEquals(1, context.getTraceDetails().getCandidateAttemptsSnapshot().size());
+        assertEquals("CIRCUIT_OPEN", context.getTraceDetails().getCandidateAttemptsSnapshot().getFirst().getStatus());
     }
 
     @Test

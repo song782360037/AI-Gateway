@@ -74,6 +74,7 @@ public class RequestStatsCollector {
         if (context == null || context.getRequestInfo() == null || !context.tryMarkCollected()) {
             return;
         }
+        // 活跃请求由 RequestStatsContextFilter.doFinally 兜底移除，此处不重复操作
         RequestLogDO logDO = buildLog(context, "SUCCESS", null, null);
         applyUsage(logDO, usage);
         emit(logDO);
@@ -86,6 +87,7 @@ public class RequestStatsCollector {
         if (context == null || context.getRequestInfo() == null || !context.tryMarkCollected()) {
             return;
         }
+        // 活跃请求由 RequestStatsContextFilter.doFinally 兜底移除
         RequestLogDO logDO = buildLog(context, "SUCCESS", null, null);
         applyUsage(logDO, usage);
         emit(logDO);
@@ -101,6 +103,7 @@ public class RequestStatsCollector {
         if (context == null || context.getRequestInfo() == null || !context.tryMarkCollected()) {
             return;
         }
+        // 活跃请求由 RequestStatsContextFilter.doFinally 兜底移除
         if (context.getTerminalStage() == null) {
             context.setTerminalStage("STREAMING");
         }
@@ -121,6 +124,7 @@ public class RequestStatsCollector {
         if (context == null || context.getRequestInfo() == null || !context.tryMarkCollected()) {
             return;
         }
+        // 活跃请求由 RequestStatsContextFilter.doFinally 兜底移除
         String errorCode = resolveErrorCode(ex);
         String errorMessage = resolveErrorMessage(ex);
         applyErrorContext(context, ex);
@@ -140,6 +144,7 @@ public class RequestStatsCollector {
         if (context == null || !context.tryMarkCollected()) {
             return;
         }
+        // 活跃请求由 RequestStatsContextFilter.doFinally 兜底移除
         RequestLogDO logDO = buildLog(context, "REJECTED", errorCode, errorMessage);
         emit(logDO);
     }
@@ -236,6 +241,14 @@ public class RequestStatsCollector {
         logDO.setErrorMessage(errorMessage);
         logDO.setSourceIp(context.getSourceIp());
         logDO.setCreateTime(LocalDateTime.now());
+        // 思考配置字段
+        logDO.setThinkingEnabled(context.getThinkingEnabled());
+        logDO.setThinkingDepth(context.getThinkingDepth());
+        logDO.setThinkingMapped(context.getThinkingMapped());
+        // 首token响应时间（Long → Integer 安全转换：防止时钟回拨等异常场景导致溢出）
+        logDO.setFirstTokenLatencyMs(safeLongToInt(context.getFirstTokenLatencyMs()));
+        // 详细链路追踪信息
+        logDO.setTraceDetailsJson(context.getTraceDetailsJson());
         return logDO;
     }
 
@@ -323,6 +336,21 @@ public class RequestStatsCollector {
 
     private int nullToZero(Integer value) {
         return value != null ? value : 0;
+    }
+
+    /**
+     * 安全地将 Long 转换为 Integer，防止时钟回拨等异常场景导致溢出。
+     * 负值（如未计算的首token延迟）返回 null。
+     */
+    private Integer safeLongToInt(Long value) {
+        if (value == null || value < 0) {
+            return null;
+        }
+        if (value > Integer.MAX_VALUE) {
+            log.warn("[请求统计] firstTokenLatencyMs 超出 Integer 范围，截断为 MAX_VALUE: {}ms", value);
+            return Integer.MAX_VALUE;
+        }
+        return value.intValue();
     }
 
     /**

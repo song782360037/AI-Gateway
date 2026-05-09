@@ -162,6 +162,9 @@ public class AnthropicProtocolAdapter implements ProtocolAdapter {
             events.add(buildTextContentBlockStart(blockSeq));
         }
 
+        // 记录首token响应时间
+        ctx.tryMarkFirstContentSent();
+
         // content_block_delta：使用当前打开的块索引
         int blockSeq = ctx.getOpenBlockIndex();
         Map<String, Object> delta = new LinkedHashMap<>();

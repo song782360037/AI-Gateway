@@ -47,7 +47,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="通道">
+        <el-form-item label="提供商">
           <el-input
             v-model="query.providerCode"
             placeholder="providerCode"
@@ -104,30 +104,7 @@
       </el-form>
 
       <el-table v-loading="loading" :data="page.list" stripe element-loading-text="正在加载...">
-        <el-table-column label="请求时间" min-width="170" align="center">
-          <template #default="{ row }">{{ formatTime(row.createTime) }}</template>
-        </el-table-column>
-        <el-table-column
-          prop="aliasModel"
-          label="请求模型"
-          min-width="140"
-          show-overflow-tooltip
-          align="center"
-        />
-        <el-table-column
-          prop="targetModel"
-          label="目标模型"
-          min-width="140"
-          show-overflow-tooltip
-          align="center"
-        />
-        <el-table-column
-          prop="providerCode"
-          label="通道"
-          min-width="120"
-          show-overflow-tooltip
-          align="center"
-        />
+        <!-- 1. 提供商类型 -->
         <el-table-column label="提供商类型" min-width="127" align="center">
           <template #default="{ row }">
             <el-tag size="small" :type="providerTagType(row.providerType)">
@@ -135,6 +112,89 @@
             </el-tag>
           </template>
         </el-table-column>
+        <!-- 2. 提供商 -->
+        <el-table-column
+          prop="providerCode"
+          label="提供商"
+          min-width="120"
+          show-overflow-tooltip
+          align="center"
+        />
+        <!-- 3. 请求模型 -->
+        <el-table-column
+          prop="aliasModel"
+          label="请求模型"
+          min-width="140"
+          show-overflow-tooltip
+          align="center"
+        />
+        <!-- 4. 目标模型 -->
+        <el-table-column
+          prop="targetModel"
+          label="目标模型"
+          min-width="140"
+          show-overflow-tooltip
+          align="center"
+        />
+        <!-- 5. 流式 -->
+        <el-table-column label="流式" min-width="70" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.isStream" type="success" size="small">是</el-tag>
+            <el-tag v-else type="info" size="small">否</el-tag>
+          </template>
+        </el-table-column>
+        <!-- 6. 思考 -->
+        <el-table-column label="思考" min-width="130" align="center">
+          <template #default="{ row }">
+            <div v-if="row.thinkingEnabled === true" class="thinking-tags">
+              <el-tag type="primary" size="small">开启</el-tag>
+              <el-tag v-if="row.thinkingDepth" type="info" size="small">{{ formatThinkingDepth(row.thinkingDepth) }}</el-tag>
+              <el-tag v-if="row.thinkingMapped" type="warning" size="small">映射</el-tag>
+            </div>
+            <el-tag v-else-if="row.thinkingEnabled === false" type="info" size="small">关闭</el-tag>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
+        <!-- 7. Token 用量 -->
+        <el-table-column label="Token 用量" min-width="190" align="center">
+          <template #default="{ row }">
+            <span v-if="row.totalTokens != null" class="token-usage">
+              <span class="token-total">{{ row.totalTokens.toLocaleString() }}</span>
+              <span class="token-detail"
+                >({{ row.promptTokens ?? 0 }} / {{ row.completionTokens ?? 0 }})</span
+              >
+              <span v-if="(row.cachedInputTokens ?? 0) > 0" class="token-cached">
+                缓存: {{ row.cachedInputTokens?.toLocaleString() }}
+              </span>
+            </span>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
+        <!-- 8. 耗时（首Token + 全部耗时） -->
+        <el-table-column label="耗时" min-width="130" align="center">
+          <template #default="{ row }">
+            <div v-if="row.durationMs != null" class="duration-cell">
+              <span v-if="row.firstTokenLatencyMs != null" class="duration-first-token">
+                首T: {{ formatDuration(row.firstTokenLatencyMs) }}
+              </span>
+              <span class="duration-total">{{ formatDuration(row.durationMs) }}</span>
+            </div>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
+        <!-- 9. 状态 -->
+        <el-table-column label="状态" min-width="80" align="center">
+          <template #default="{ row }">
+            <el-tag :type="statusTagType(row.status)" size="small">
+              {{ statusLabel(row.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <!-- 10. 请求时间 -->
+        <el-table-column label="请求时间" min-width="170" align="center">
+          <template #default="{ row }">{{ formatTime(row.createTime) }}</template>
+        </el-table-column>
+        <!-- 11. 治理 -->
         <el-table-column label="治理" min-width="180" align="center">
           <template #default="{ row }">
             <div class="governance-tags">
@@ -155,39 +215,7 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="流式" min-width="70" align="center">
-          <template #default="{ row }">
-            <el-tag v-if="row.isStream" type="success" size="small">是</el-tag>
-            <el-tag v-else type="info" size="small">否</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="Token 用量" min-width="190" align="center">
-          <template #default="{ row }">
-            <span v-if="row.totalTokens != null" class="token-usage">
-              <span class="token-total">{{ row.totalTokens.toLocaleString() }}</span>
-              <span class="token-detail"
-                >({{ row.promptTokens ?? 0 }} / {{ row.completionTokens ?? 0 }})</span
-              >
-              <span v-if="(row.cachedInputTokens ?? 0) > 0" class="token-cached">
-                缓存: {{ row.cachedInputTokens?.toLocaleString() }}
-              </span>
-            </span>
-            <span v-else class="text-muted">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" min-width="80" align="center">
-          <template #default="{ row }">
-            <el-tag :type="statusTagType(row.status)" size="small">
-              {{ statusLabel(row.status) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="耗时" min-width="90" align="center">
-          <template #default="{ row }">
-            <span v-if="row.durationMs != null">{{ formatDuration(row.durationMs) }}</span>
-            <span v-else class="text-muted">-</span>
-          </template>
-        </el-table-column>
+        <!-- 12. 终止阶段 -->
         <el-table-column
           prop="terminalStage"
           label="终止阶段"
@@ -200,6 +228,7 @@
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
+        <!-- 13. 错误码 -->
         <el-table-column
           prop="errorCode"
           label="错误码"
@@ -212,6 +241,7 @@
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
+        <!-- 14. 错误详情 -->
         <el-table-column
           prop="errorMessage"
           label="错误详情"
@@ -224,6 +254,7 @@
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
+        <!-- 15. 操作 -->
         <el-table-column label="操作" min-width="100" fixed="right" align="center">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row.requestId)">详情</el-button>
@@ -293,6 +324,7 @@ import {
   formatDuration,
   formatTime,
   hasGovernanceSignals,
+  formatThinkingDepth,
 } from '../../utils/request-log'
 import { fetchRequestLogDetail, fetchRequestLogPage } from '../../api/request-log'
 import type { PageResult } from '../../types/common'
@@ -422,9 +454,10 @@ onMounted(loadData)
 <style scoped>
 .token-usage {
   display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  flex-wrap: wrap;
+  flex-direction: column; /* 纵向堆叠，确保每行都水平居中 */
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
 }
 
 .token-total {
@@ -460,5 +493,24 @@ onMounted(loadData)
   justify-content: center;
   gap: 4px;
   flex-wrap: wrap;
+}
+
+.duration-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.duration-first-token {
+  font-size: 11px;
+  color: var(--el-color-primary);
+  font-weight: 500;
+}
+
+.duration-total {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-weight: 500;
 }
 </style>

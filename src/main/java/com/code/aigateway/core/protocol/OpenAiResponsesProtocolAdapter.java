@@ -146,6 +146,8 @@ public class OpenAiResponsesProtocolAdapter implements ProtocolAdapter {
 
         Flux<ServerSentEvent<String>> framing = Flux.empty();
         if (cfg.openBlockCas().getAsBoolean()) {
+            // 记录首token响应时间（首次打开块时标记）
+            ctx.tryMarkFirstContentSent();
             int outputIndex = event.getOutputIndex() != null ? event.getOutputIndex() : responsesState.nextOutputItemIndex();
             if (outputIndex < 0) {
                 outputIndex = 0;

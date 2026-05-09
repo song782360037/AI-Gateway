@@ -370,6 +370,13 @@ public abstract class AbstractProviderClient implements ProviderClient {
         } else if (inputTokens != null && outputTokens != null) {
             usage.setTotalTokens(inputTokens + outputTokens);
         }
+
+        // 解析缓存命中 Token（OpenAI Chat Completions: prompt_tokens_details.cached_tokens）
+        JsonNode cachedTokensNode = usageNode.path("prompt_tokens_details").path("cached_tokens");
+        if (!cachedTokensNode.isMissingNode() && !cachedTokensNode.isNull()) {
+            usage.setCachedInputTokens(cachedTokensNode.asInt());
+        }
+
         return usage;
     }
 

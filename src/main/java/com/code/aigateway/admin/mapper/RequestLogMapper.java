@@ -33,6 +33,11 @@ public interface RequestLogMapper {
             @Result(property = "upstreamHttpStatus", column = "upstream_http_status"),
             @Result(property = "upstreamErrorType", column = "upstream_error_type"),
             @Result(property = "terminalStage", column = "terminal_stage"),
+            @Result(property = "thinkingEnabled", column = "thinking_enabled"),
+            @Result(property = "thinkingDepth", column = "thinking_depth"),
+            @Result(property = "thinkingMapped", column = "thinking_mapped"),
+            @Result(property = "traceDetailsJson", column = "trace_details_json"),
+            @Result(property = "firstTokenLatencyMs", column = "first_token_latency_ms"),
             @Result(property = "isStream", column = "is_stream"),
             @Result(property = "promptTokens", column = "prompt_tokens"),
             @Result(property = "cachedInputTokens", column = "cached_input_tokens"),
@@ -50,6 +55,7 @@ public interface RequestLogMapper {
                    response_protocol, request_path, http_method, api_key_prefix,
                    candidate_count, attempt_count, failover_count, retry_count, circuit_open_skipped_count,
                    rate_limit_triggered, upstream_http_status, upstream_error_type, terminal_stage,
+                   thinking_enabled, thinking_depth, thinking_mapped, trace_details_json, first_token_latency_ms,
                    is_stream, prompt_tokens, cached_input_tokens, completion_tokens, total_tokens, duration_ms,
                    status, error_code, error_message, source_ip, create_time
             FROM request_log
@@ -62,6 +68,7 @@ public interface RequestLogMapper {
                    response_protocol, request_path, http_method, api_key_prefix,
                    candidate_count, attempt_count, failover_count, retry_count, circuit_open_skipped_count,
                    rate_limit_triggered, upstream_http_status, upstream_error_type, terminal_stage,
+                   thinking_enabled, thinking_depth, thinking_mapped, trace_details_json, first_token_latency_ms,
                    is_stream, prompt_tokens, cached_input_tokens, completion_tokens, total_tokens, duration_ms,
                    status, error_code, error_message, source_ip, create_time
             FROM request_log
@@ -80,6 +87,7 @@ public interface RequestLogMapper {
                 response_protocol, request_path, http_method, api_key_prefix,
                 candidate_count, attempt_count, failover_count, retry_count, circuit_open_skipped_count,
                 rate_limit_triggered, upstream_http_status, upstream_error_type, terminal_stage,
+                thinking_enabled, thinking_depth, thinking_mapped, trace_details_json, first_token_latency_ms,
                 is_stream, prompt_tokens, cached_input_tokens, completion_tokens, total_tokens, duration_ms,
                 status, error_code, error_message, source_ip, create_time
             ) VALUES (
@@ -87,6 +95,7 @@ public interface RequestLogMapper {
                 #{responseProtocol}, #{requestPath}, #{httpMethod}, #{apiKeyPrefix},
                 #{candidateCount}, #{attemptCount}, #{failoverCount}, #{retryCount}, #{circuitOpenSkippedCount},
                 #{rateLimitTriggered}, #{upstreamHttpStatus}, #{upstreamErrorType}, #{terminalStage},
+                #{thinkingEnabled}, #{thinkingDepth}, #{thinkingMapped}, #{traceDetailsJson}, #{firstTokenLatencyMs},
                 #{isStream}, #{promptTokens}, #{cachedInputTokens}, #{completionTokens}, #{totalTokens}, #{durationMs},
                 #{status}, #{errorCode}, #{errorMessage}, #{sourceIp}, #{createTime}
             )
@@ -116,6 +125,7 @@ public interface RequestLogMapper {
                    response_protocol, request_path, http_method, api_key_prefix,
                    candidate_count, attempt_count, failover_count, retry_count, circuit_open_skipped_count,
                    rate_limit_triggered, upstream_http_status, upstream_error_type, terminal_stage,
+                   thinking_enabled, thinking_depth, thinking_mapped, trace_details_json, first_token_latency_ms,
                    is_stream, prompt_tokens, cached_input_tokens, completion_tokens, total_tokens, duration_ms,
                    status, error_code, error_message, source_ip, create_time
             FROM request_log

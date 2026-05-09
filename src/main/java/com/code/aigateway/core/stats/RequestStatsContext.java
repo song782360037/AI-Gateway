@@ -98,6 +98,24 @@ public class RequestStatsContext {
     /** 链路终止阶段：AUTH / RATE_LIMIT / ROUTING / FAILOVER / UPSTREAM / STREAMING / UNKNOWN */
     private String terminalStage;
 
+    /** 是否开启思考 */
+    private Boolean thinkingEnabled;
+
+    /** 思考深度（budgetTokens或effort） */
+    private String thinkingDepth;
+
+    /** 是否映射思考（ReasoningSemanticMapper） */
+    private Boolean thinkingMapped;
+
+    /** 首token响应时间（毫秒） */
+    private Long firstTokenLatencyMs;
+
+    /** 详细链路追踪信息（JSON格式） */
+    private String traceDetailsJson;
+
+    /** 链路追踪详情对象（运行时临时使用，不持久化） */
+    private transient TraceDetails traceDetails;
+
     /** 是否已经完成过一次统计采集，使用 AtomicBoolean 保证线程安全 */
     private final AtomicBoolean collected = new AtomicBoolean(false);
 
