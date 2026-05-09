@@ -87,6 +87,10 @@
           <el-icon><Document /></el-icon>
           <span>请求日志</span>
         </el-menu-item>
+        <el-menu-item index="/system-monitor">
+          <el-icon><Monitor /></el-icon>
+          <span>系统监控</span>
+        </el-menu-item>
       </el-menu>
 
       <!-- 侧边栏底部：用户信息 + 账号操作 -->
@@ -241,6 +245,7 @@ import {
   DataAnalysis,
   Document,
   Key,
+  Monitor,
   Operation,
   Setting,
   SwitchButton,

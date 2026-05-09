@@ -77,6 +77,17 @@ const router = createRouter({
         tag: '日志',
       },
     },
+    {
+      path: '/system-monitor',
+      name: 'system-monitor',
+      component: () => import('../views/system-monitor/SystemMonitorView.vue'),
+      meta: {
+        eyebrow: '系统监控',
+        title: '系统监控',
+        description: '实时监控系统 CPU、内存、JVM、线程和连接池等运行时指标。',
+        tag: '监控',
+      },
+    },
   ],
 })
 
