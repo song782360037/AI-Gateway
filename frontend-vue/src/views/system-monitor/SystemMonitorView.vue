@@ -375,12 +375,6 @@ function formatUptime(seconds: number): string {
   return `${m}分钟`
 }
 
-/** 格式化启动时间（完整格式） */
-function formatStartupTime(ms: number): string {
-  if (!ms) return '-'
-  return new Date(ms).toLocaleString('zh-CN')
-}
-
 /** 格式化启动时间（简短格式，用于 KPI 卡片） */
 function formatStartupTimeBrief(ms: number): string {
   if (!ms) return '-'
