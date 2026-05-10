@@ -48,6 +48,12 @@ FROM eclipse-temurin:21-jre-alpine
 # 设置工作目录
 WORKDIR /app
 
+# 设置时区为上海时间
+ENV TZ=Asia/Shanghai
+RUN apk add --no-cache tzdata && \
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
+    echo $TZ > /etc/timezone
+
 # 创建非root用户
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
