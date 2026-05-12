@@ -1,6 +1,6 @@
 package com.code.aigateway.provider;
 
-import com.code.aigateway.core.error.ErrorCode;
+import com.code.aigateway.sdk.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;

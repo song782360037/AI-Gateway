@@ -30,7 +30,7 @@ public class GeminiProtocolAdapter extends AbstractSdkProtocolAdapter {
     }
 
     @Override
-    public ProtocolType getProtocol() {
+    public ProtocolType getProtocolType() {
         return ProtocolType.GEMINI;
     }
 }

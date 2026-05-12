@@ -1,6 +1,6 @@
 package com.code.aigateway.core.resilience;
 
-import com.code.aigateway.core.error.ErrorCode;
+import com.code.aigateway.sdk.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.router.RouteResult;
 import com.code.aigateway.core.stats.RequestStatsContext;

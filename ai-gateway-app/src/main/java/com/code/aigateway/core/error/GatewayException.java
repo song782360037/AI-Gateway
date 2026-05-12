@@ -1,5 +1,6 @@
 package com.code.aigateway.core.error;
 
+import com.code.aigateway.sdk.error.ErrorCode;
 import lombok.Getter;
 
 /**

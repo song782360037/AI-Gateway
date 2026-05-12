@@ -2,7 +2,7 @@ package com.code.aigateway.provider.anthropic;
 
 import com.code.aigateway.config.GatewayProperties;
 import com.code.aigateway.core.capability.ReasoningSemanticMapper;
-import com.code.aigateway.core.error.ErrorCode;
+import com.code.aigateway.sdk.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.sdk.model.UnifiedGenerationConfig;
 import com.code.aigateway.sdk.model.UnifiedMessage;

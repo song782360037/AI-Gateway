@@ -57,6 +57,18 @@ public enum ErrorCode {
     /** 流式解析错误 */
     STREAM_PARSE_ERROR,
 
+    /** 配置不存在 */
+    CONFIG_NOT_FOUND,
+
+    /** 配置冲突 */
+    CONFIG_CONFLICT,
+
+    /** 配置被并发修改 */
+    CONFIG_CONCURRENT_MODIFIED,
+
+    /** 运行时配置刷新失败 */
+    CONFIG_REFRESH_FAILED,
+
     /** 内部错误 */
     INTERNAL_ERROR
 }

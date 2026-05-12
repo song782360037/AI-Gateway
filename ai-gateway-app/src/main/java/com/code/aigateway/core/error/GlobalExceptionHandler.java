@@ -2,6 +2,7 @@ package com.code.aigateway.core.error;
 
 import com.code.aigateway.core.protocol.ProtocolAdapter;
 import com.code.aigateway.core.protocol.ProtocolResolver;
+import com.code.aigateway.sdk.error.ErrorCode;
 import com.code.aigateway.core.stats.RequestStatsCollector;
 import com.code.aigateway.core.stats.RequestStatsContext;
 import jakarta.validation.ConstraintViolationException;
@@ -163,10 +164,10 @@ public class GlobalExceptionHandler {
     private ProtocolAdapter resolveAdapter(ServerWebExchange exchange) {
         com.code.aigateway.sdk.model.ProtocolType protocol = ProtocolResolver.fromExchange(exchange);
         return protocolAdapters.stream()
-                .filter(a -> a.getProtocol() == protocol)
+                .filter(a -> a.getProtocolType() == protocol)
                 .findFirst()
                 .orElseGet(() -> protocolAdapters.stream()
-                        .filter(a -> a.getProtocol() == com.code.aigateway.sdk.model.ProtocolType.OPENAI_CHAT)
+                        .filter(a -> a.getProtocolType() == com.code.aigateway.sdk.model.ProtocolType.OPENAI_CHAT)
                         .findFirst()
                         .orElseThrow(() -> new IllegalStateException("no OpenAI Chat protocol adapter found")));
     }
@@ -180,7 +181,11 @@ public class GlobalExceptionHandler {
             case PROVIDER_CIRCUIT_OPEN -> HttpStatus.SERVICE_UNAVAILABLE;
             case PROVIDER_AUTH_ERROR, PROVIDER_BAD_REQUEST, PROVIDER_RESOURCE_NOT_FOUND -> HttpStatus.BAD_GATEWAY;
             case PROVIDER_NOT_FOUND, PROVIDER_DISABLED, PROVIDER_ERROR, STREAM_PARSE_ERROR -> HttpStatus.BAD_GATEWAY;
+            case PROVIDER_SERVER_ERROR -> HttpStatus.BAD_GATEWAY;
             case PROVIDER_TIMEOUT -> HttpStatus.GATEWAY_TIMEOUT;
+            case CONFIG_NOT_FOUND, CONFIG_CONFLICT -> HttpStatus.BAD_REQUEST;
+            case CONFIG_CONCURRENT_MODIFIED -> HttpStatus.CONFLICT;
+            case CONFIG_REFRESH_FAILED -> HttpStatus.INTERNAL_SERVER_ERROR;
             default -> HttpStatus.INTERNAL_SERVER_ERROR;
         };
     }

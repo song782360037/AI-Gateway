@@ -105,7 +105,7 @@ public class ChatGatewayService {
         AtomicReference<UnifiedUsage> finalUsageRef = new AtomicReference<>();
         AtomicBoolean terminalEventSeen = new AtomicBoolean(false);
 
-        // StreamContext 必须在流链外创建，确保 firstContentSent 标志跨事件共享
+        // StreamContext 必须在流链外创建，确保首 token 延迟统计标志跨事件共享
         String streamModel = context != null && context.getRouteResult() != null
                 ? context.getRouteResult().getTargetModel() : "";
         StreamContext streamCtx = new StreamContext(responseId, created, streamModel, objectMapper);

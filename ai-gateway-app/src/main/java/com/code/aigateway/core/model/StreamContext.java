@@ -3,29 +3,23 @@ package com.code.aigateway.core.model;
 import com.code.aigateway.sdk.protocol.StreamEncodeContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * 流式编码上下文
+ * 流式编码上下文（App 层）
  * <p>
- * 在流式请求处理过程中，维护需要跨事件共享的可变状态。
+ * 在流式请求处理过程中，维护 App 层特有状态（首 token 延迟统计等），
+ * 并通过 {@link #sdkContext()} 懒初始化提供 SDK 层的 {@link StreamEncodeContext}。
+ * </p>
+ * <p>
+ * 协议编码状态（content block 管理、firstContentSent 等）已全部下沉到 SDK 的
+ * {@link StreamEncodeContext}，本类不再重复维护。
+ * </p>
+ * <p>
  * 设计用于 Reactor 单 subscriber 管道，不应跨线程共享实例。
  * </p>
- * <p>
- * 线程安全：AtomicBoolean/AtomicInteger 字段通过 CAS 保证状态切换原子性（如块打开/关闭）；
- * volatile 字段依赖单 subscriber 语义保证可见性，不保证多线程并发安全。
- * </p>
- * <ul>
- *   <li>responseId — 响应唯一标识，所有 SSE chunk 共用</li>
- *   <li>created — 创建时间戳（Unix 秒）</li>
- *   <li>model — 模型名称，failover 后可能被更新</li>
- *   <li>firstContentSent — 首个 content chunk 是否已发送（CAS 保护）</li>
- *   <li>openBlockIndex — 当前打开的 content block 索引（-1 表示无）</li>
- *   <li>nextContentBlockSeq — Anthropic content block 序号分配器（原子递增）</li>
- *   <li>inputTokens — 输入 token 数（Anthropic message_start 事件）</li>
- * </ul>
  */
 public class StreamContext {
 
@@ -33,28 +27,27 @@ public class StreamContext {
     private final long created;
     /** 模型名称，failover 后可能被更新为实际使用的模型 */
     private volatile String model;
-    private final AtomicBoolean firstContentSent = new AtomicBoolean(false);
     /** 请求开始时的毫秒时间戳（用于精确计算首token延迟） */
     private final long startMs;
     /** 首个 content token 发送的时间戳（毫秒） */
     private volatile long firstTokenTimeMs = 0;
-    /** 当前打开的 content block 索引，-1 表示无打开的块 */
-    private volatile int openBlockIndex = -1;
-    /** 当前打开的 content block 类型（"text"、"thinking"、"tool_use"），null 表示无打开的块 */
-    private volatile String openBlockType;
-    /** 下一个 content block 的 Anthropic 序号（跨块递增，独立于 Provider 的 outputIndex） */
-    private final AtomicInteger nextContentBlockSeq = new AtomicInteger(0);
-    /** 输入 token 数，用于 Anthropic message_start 的 usage */
+    /** 标记首 token 是否已发送（App 层用于延迟统计，SDK 层有独立的 firstContentSent） */
+    private final AtomicBoolean firstTokenSent = new AtomicBoolean(false);
+
+    /** 输入 token 数本地缓存，SDK 上下文创建前可用于兜底 */
     private volatile int inputTokens;
-    /** OpenAI Responses 专属流状态，保持协议私有状态从通用上下文中剥离 */
-    private final OpenAiResponsesStreamState responsesState = new OpenAiResponsesStreamState();
 
     /** SDK 流式编码上下文（CAS 懒初始化，保证并发安全） */
     private final AtomicReference<StreamEncodeContext> sdkContextRef = new AtomicReference<>();
     /** ObjectMapper 用于创建 SDK StreamEncodeContext */
     private final ObjectMapper objectMapper;
 
-    /** 兼容旧调用方的三参数构造器（无 SDK 上下文支持） */
+    /**
+     * 兼容旧调用方的三参数构造器（无 SDK 上下文支持）
+     * @deprecated 请使用四参数构造器 {@link #StreamContext(String, long, String, ObjectMapper)}，
+     * 三参数构造器无法创建 SDK 上下文，调用 {@link #sdkContext()} 将抛出 IllegalStateException。
+     */
+    @Deprecated
     public StreamContext(String responseId, long created, String model) {
         this.responseId = responseId;
         this.created = created;
@@ -82,7 +75,7 @@ public class StreamContext {
      * 获取或创建 SDK StreamEncodeContext（懒初始化）
      * <p>
      * 首次调用时创建，后续复用同一实例。
-     * 每次调用同步主项目中的 inputTokens 到 SDK 上下文。
+     * 每次调用同步 App 层的可变字段（model、inputTokens）到 SDK 上下文。
      * </p>
      *
      * @return SDK 流式编码上下文
@@ -102,16 +95,23 @@ public class StreamContext {
             }
             ctx = newCtx;
         }
-        // 每次调用时同步 inputTokens（setter 可能在 sdkContext 创建之后被调用）
-        ctx.setInputTokens(inputTokens);
+        // 仅当 App 层可变字段与 SDK 上下文不一致时才同步，避免高频流式场景下的冗余赋值
+        if (!Objects.equals(this.model, ctx.getModel())) {
+            ctx.setModel(this.model);
+        }
+        if (this.inputTokens != ctx.getInputTokens()) {
+            ctx.setInputTokens(inputTokens);
+        }
         return ctx;
     }
 
-    /** 尝试标记首个 content 已发送，返回 true 表示本次成功占位 */
-    public boolean tryMarkFirstContentSent() {
-        boolean first = firstContentSent.compareAndSet(false, true);
+    /**
+     * 尝试标记首 token 已发送，返回 true 表示本次成功占位
+     * <p>用于 App 层的首 token 延迟统计，与 SDK 层的 firstContentSent 独立。</p>
+     */
+    public boolean tryMarkFirstTokenSent() {
+        boolean first = firstTokenSent.compareAndSet(false, true);
         if (first) {
-            // 记录首token时间戳
             firstTokenTimeMs = System.currentTimeMillis();
         }
         return first;
@@ -128,57 +128,6 @@ public class StreamContext {
         return firstTokenTimeMs - startMs;
     }
 
-    /** 标记指定索引的 content block 已打开 */
-    public void openContentBlock(int index) {
-        this.openBlockIndex = index;
-    }
-
-    /**
-     * 分配下一个 Anthropic content block 序号并打开块
-     * @param type 块类型（"text"、"thinking"、"tool_use"）
-     * @return 分配的序号
-     */
-    public int allocateAndOpenContentBlock(String type) {
-        int seq = nextContentBlockSeq.getAndIncrement();
-        this.openBlockIndex = seq;
-        this.openBlockType = type;
-        return seq;
-    }
-
-    /**
-     * 尝试关闭当前打开的 content block
-     * @return 关闭的块索引，-1 表示没有打开的块
-     */
-    public int closeContentBlock() {
-        int idx = this.openBlockIndex;
-        this.openBlockIndex = -1;
-        this.openBlockType = null;
-        return idx;
-    }
-
-    /** 当前是否有未关闭的 content block */
-    public boolean hasOpenContentBlock() {
-        return openBlockIndex >= 0;
-    }
-
-    /** 获取当前打开的 content block 索引，-1 表示无打开的块 */
-    public int getOpenBlockIndex() {
-        return openBlockIndex;
-    }
-
-    /** 获取当前打开的 content block 类型，null 表示无打开的块 */
-    public String getOpenBlockType() {
-        return openBlockType;
-    }
-
-    public int getInputTokens() {
-        return inputTokens;
-    }
-
-    public void setInputTokens(int inputTokens) {
-        this.inputTokens = inputTokens;
-    }
-
     public String getResponseId() {
         return responseId;
     }
@@ -191,12 +140,28 @@ public class StreamContext {
         return model;
     }
 
-    /** failover 切换候选后，更新为实际使用的模型名称 */
+    /** failover 切换候选后，更新为实际使用的模型名称，并同步到 SDK 上下文 */
     public void setModel(String model) {
         this.model = model;
+        // 同步更新已创建的 SDK 上下文中的 model
+        StreamEncodeContext ctx = sdkContextRef.get();
+        if (ctx != null) {
+            ctx.setModel(model);
+        }
     }
 
-    public OpenAiResponsesStreamState responses() {
-        return responsesState;
+    /** 获取输入 token 数（优先从 SDK 上下文读取，兜底读取本地缓存） */
+    public int getInputTokens() {
+        StreamEncodeContext ctx = sdkContextRef.get();
+        return ctx != null ? ctx.getInputTokens() : inputTokens;
+    }
+
+    /** 设置输入 token 数，同时同步到 SDK 上下文 */
+    public void setInputTokens(int inputTokens) {
+        this.inputTokens = inputTokens;
+        StreamEncodeContext ctx = sdkContextRef.get();
+        if (ctx != null) {
+            ctx.setInputTokens(inputTokens);
+        }
     }
 }

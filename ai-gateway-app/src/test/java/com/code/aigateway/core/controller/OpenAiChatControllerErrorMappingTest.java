@@ -1,7 +1,7 @@
 package com.code.aigateway.core.controller;
 
 import com.code.aigateway.api.response.OpenAiChatCompletionResponse;
-import com.code.aigateway.core.error.ErrorCode;
+import com.code.aigateway.sdk.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.error.GlobalExceptionHandler;
 import com.code.aigateway.core.protocol.OpenAiChatProtocolAdapter;

@@ -2,7 +2,7 @@ package com.code.aigateway.provider;
 
 import com.code.aigateway.common.util.CustomHeaderUtils;
 import com.code.aigateway.config.GatewayProperties;
-import com.code.aigateway.core.error.ErrorCode;
+import com.code.aigateway.sdk.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.resilience.CircuitBreakerManager;
 import com.code.aigateway.core.stats.RequestStatsContext;

@@ -1,6 +1,6 @@
 package com.code.aigateway.core.capability;
 
-import com.code.aigateway.core.error.ErrorCode;
+import com.code.aigateway.sdk.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.sdk.model.UnifiedGenerationConfig;
 import com.code.aigateway.sdk.model.UnifiedMessage;

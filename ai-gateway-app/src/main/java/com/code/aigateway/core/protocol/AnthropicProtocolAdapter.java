@@ -30,7 +30,7 @@ public class AnthropicProtocolAdapter extends AbstractSdkProtocolAdapter {
     }
 
     @Override
-    public ProtocolType getProtocol() {
+    public ProtocolType getProtocolType() {
         return ProtocolType.ANTHROPIC;
     }
 }

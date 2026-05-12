@@ -28,7 +28,7 @@ public class OpenAiChatProtocolAdapter extends AbstractSdkProtocolAdapter {
     }
 
     @Override
-    public ProtocolType getProtocol() {
+    public ProtocolType getProtocolType() {
         return ProtocolType.OPENAI_CHAT;
     }
 }
