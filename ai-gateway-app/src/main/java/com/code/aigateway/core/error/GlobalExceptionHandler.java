@@ -1,8 +1,9 @@
 package com.code.aigateway.core.error;
 
-import com.code.aigateway.core.protocol.ProtocolAdapter;
 import com.code.aigateway.core.protocol.ProtocolResolver;
+import com.code.aigateway.sdk.AiGatewaySdk;
 import com.code.aigateway.sdk.error.ErrorCode;
+import com.code.aigateway.sdk.protocol.ProtocolAdapter;
 import com.code.aigateway.core.stats.RequestStatsCollector;
 import com.code.aigateway.core.stats.RequestStatsContext;
 import jakarta.validation.ConstraintViolationException;
@@ -17,7 +18,6 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.ServerWebInputException;
 import reactor.core.publisher.Mono;
 
-import java.util.List;
 import java.util.stream.Collectors;
 
 /**
@@ -33,11 +33,11 @@ public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     private final RequestStatsCollector requestStatsCollector;
-    private final List<ProtocolAdapter> protocolAdapters;
+    private final AiGatewaySdk sdk;
 
-    public GlobalExceptionHandler(RequestStatsCollector requestStatsCollector, List<ProtocolAdapter> protocolAdapters) {
+    public GlobalExceptionHandler(RequestStatsCollector requestStatsCollector, AiGatewaySdk sdk) {
         this.requestStatsCollector = requestStatsCollector;
-        this.protocolAdapters = protocolAdapters;
+        this.sdk = sdk;
     }
 
     /**
@@ -163,13 +163,13 @@ public class GlobalExceptionHandler {
      */
     private ProtocolAdapter resolveAdapter(ServerWebExchange exchange) {
         com.code.aigateway.sdk.model.ProtocolType protocol = ProtocolResolver.fromExchange(exchange);
-        return protocolAdapters.stream()
-                .filter(a -> a.getProtocolType() == protocol)
-                .findFirst()
-                .orElseGet(() -> protocolAdapters.stream()
-                        .filter(a -> a.getProtocolType() == com.code.aigateway.sdk.model.ProtocolType.OPENAI_CHAT)
-                        .findFirst()
-                        .orElseThrow(() -> new IllegalStateException("no OpenAI Chat protocol adapter found")));
+        try {
+            return sdk.adapter(protocol);
+        } catch (java.util.NoSuchElementException e) {
+            // 协议类型未注册时降级到 OpenAI Chat 格式，避免异常处理器自身抛异常
+            log.warn("[网关] no adapter for protocol: {}, fallback to OPENAI_CHAT", protocol);
+            return sdk.adapter(com.code.aigateway.sdk.model.ProtocolType.OPENAI_CHAT);
+        }
     }
 
     private HttpStatus mapStatus(ErrorCode errorCode) {

@@ -1,6 +1,7 @@
 package com.code.aigateway.core.controller;
 
 import com.code.aigateway.api.response.OpenAiChatCompletionResponse;
+import com.code.aigateway.sdk.AiGatewaySdk;
 import com.code.aigateway.sdk.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.error.GlobalExceptionHandler;
@@ -29,7 +30,7 @@ class OpenAiChatControllerErrorMappingTest {
         );
         OpenAiChatController controller = new OpenAiChatController(chatGatewayService, protocolAdapter);
         webTestClient = WebTestClient.bindToController(controller)
-                .controllerAdvice(new GlobalExceptionHandler(Mockito.mock(RequestStatsCollector.class), java.util.List.of(protocolAdapter)))
+                .controllerAdvice(new GlobalExceptionHandler(Mockito.mock(RequestStatsCollector.class), new AiGatewaySdk(new ObjectMapper())))
                 .build();
     }
 
