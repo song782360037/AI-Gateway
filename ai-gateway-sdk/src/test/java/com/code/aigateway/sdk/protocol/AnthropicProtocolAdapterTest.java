@@ -309,35 +309,87 @@ class AnthropicProtocolAdapterTest {
         }
 
         @Test
-        @DisplayName("initialStreamEvents 生成 message_start")
-        void initialStreamEvents_generatesMessageStart() {
+        @DisplayName("initialStreamEvents 延迟生成 message_start，返回空列表")
+        void initialStreamEvents_deferred() {
             List<EncodedEvent> events = adapter.initialStreamEvents(ctx);
 
-            assertThat(events).hasSize(1);
+            // message_start 延迟到首个事件到达时生成，以便包含真实的 input_tokens 和 cache_read_input_tokens
+            assertThat(events).isEmpty();
+        }
+
+        @Test
+        @DisplayName("首个事件到达时自动生成 message_start")
+        void encodeStreamEvent_firstEvent_generatesMessageStart() {
+            UnifiedStreamEvent event = UnifiedStreamEvent.textDelta("Hello");
+
+            List<EncodedEvent> events = adapter.encodeStreamEvent(event, ctx);
+
+            // 首个事件应先发送 message_start，再发送内容事件
+            assertThat(events).hasSizeGreaterThanOrEqualTo(3);
             assertThat(events.get(0).eventName()).isEqualTo("message_start");
-            assertThat(events.get(0).data()).contains("message_start");
             assertThat(events.get(0).data()).contains("msg-001");
         }
 
         @Test
-        @DisplayName("text_delta 编码生成 content_block_start + content_block_delta")
+        @DisplayName("usage_only 事件仅触发 message_start，不产生额外 SSE 事件")
+        void encodeStreamEvent_usageOnly_generatesMessageStart() {
+            UnifiedStreamEvent usageEvent = new UnifiedStreamEvent();
+            usageEvent.setType(UnifiedStreamEvent.TYPE_USAGE_ONLY);
+            UnifiedUsage usage = new UnifiedUsage();
+            usage.setInputTokens(100);
+            usage.setCachedInputTokens(50);
+            usageEvent.setUsage(usage);
+
+            List<EncodedEvent> events = adapter.encodeStreamEvent(usageEvent, ctx);
+
+            // usage_only 事件仅触发 message_start
+            assertThat(events).hasSize(1);
+            assertThat(events.get(0).eventName()).isEqualTo("message_start");
+            assertThat(events.get(0).data()).contains("100");  // input_tokens
+            assertThat(events.get(0).data()).contains("50");   // cache_read_input_tokens
+        }
+
+        @Test
+        @DisplayName("usage_only 事件携带 cache_creation_input_tokens 时正确编码到 message_start")
+        void encodeStreamEvent_usageOnly_withCacheCreationInputTokens() {
+            UnifiedStreamEvent usageEvent = new UnifiedStreamEvent();
+            usageEvent.setType(UnifiedStreamEvent.TYPE_USAGE_ONLY);
+            UnifiedUsage usage = new UnifiedUsage();
+            usage.setInputTokens(100);
+            usage.setCachedInputTokens(50);
+            usage.setCacheCreationInputTokens(30);
+            usageEvent.setUsage(usage);
+
+            List<EncodedEvent> events = adapter.encodeStreamEvent(usageEvent, ctx);
+
+            // usage_only 事件仅触发 message_start
+            assertThat(events).hasSize(1);
+            assertThat(events.get(0).eventName()).isEqualTo("message_start");
+            assertThat(events.get(0).data()).contains("100");  // input_tokens
+            assertThat(events.get(0).data()).contains("50");   // cache_read_input_tokens
+            assertThat(events.get(0).data()).contains("30");   // cache_creation_input_tokens
+        }
+
+        @Test
+        @DisplayName("text_delta 编码生成 message_start + content_block_start + content_block_delta")
         void encodeStreamEvent_textDelta() {
             UnifiedStreamEvent event = UnifiedStreamEvent.textDelta("Hello");
 
             List<EncodedEvent> events = adapter.encodeStreamEvent(event, ctx);
 
-            // 首次 text_delta 应先创建 text 块（content_block_start），再发送 delta
-            assertThat(events).hasSize(2);
-            assertThat(events.get(0).eventName()).isEqualTo("content_block_start");
-            assertThat(events.get(1).eventName()).isEqualTo("content_block_delta");
-            assertThat(events.get(1).data()).contains("text_delta");
-            assertThat(events.get(1).data()).contains("Hello");
+            // 首次 text_delta：message_start + content_block_start + content_block_delta
+            assertThat(events).hasSize(3);
+            assertThat(events.get(0).eventName()).isEqualTo("message_start");
+            assertThat(events.get(1).eventName()).isEqualTo("content_block_start");
+            assertThat(events.get(2).eventName()).isEqualTo("content_block_delta");
+            assertThat(events.get(2).data()).contains("text_delta");
+            assertThat(events.get(2).data()).contains("Hello");
         }
 
         @Test
-        @DisplayName("连续 text_delta 不重复创建 content_block_start")
+        @DisplayName("连续 text_delta 不重复创建 message_start 和 content_block_start")
         void encodeStreamEvent_consecutiveTextDelta() {
-            // 第一次 text_delta
+            // 第一次 text_delta（包含 message_start）
             adapter.encodeStreamEvent(UnifiedStreamEvent.textDelta("Hello"), ctx);
             // 第二次 text_delta
             List<EncodedEvent> events = adapter.encodeStreamEvent(UnifiedStreamEvent.textDelta(" World"), ctx);
@@ -348,40 +400,43 @@ class AnthropicProtocolAdapterTest {
         }
 
         @Test
-        @DisplayName("thinking_delta 编码生成 content_block_start(thinking) + delta")
+        @DisplayName("thinking_delta 编码生成 message_start + content_block_start(thinking) + delta")
         void encodeStreamEvent_thinkingDelta() {
             UnifiedStreamEvent event = UnifiedStreamEvent.thinkingDelta("thinking...");
 
             List<EncodedEvent> events = adapter.encodeStreamEvent(event, ctx);
 
-            assertThat(events).hasSize(2);
-            assertThat(events.get(0).eventName()).isEqualTo("content_block_start");
-            assertThat(events.get(1).eventName()).isEqualTo("content_block_delta");
-            assertThat(events.get(1).data()).contains("thinking_delta");
+            assertThat(events).hasSize(3);
+            assertThat(events.get(0).eventName()).isEqualTo("message_start");
+            assertThat(events.get(1).eventName()).isEqualTo("content_block_start");
+            assertThat(events.get(2).eventName()).isEqualTo("content_block_delta");
+            assertThat(events.get(2).data()).contains("thinking_delta");
         }
 
         @Test
-        @DisplayName("tool_call 编码生成 content_block_start(tool_use)")
+        @DisplayName("tool_call 编码生成 message_start + content_block_start(tool_use)")
         void encodeStreamEvent_toolCall() {
             UnifiedStreamEvent event = UnifiedStreamEvent.toolCall("tu_001", "search", null);
 
             List<EncodedEvent> events = adapter.encodeStreamEvent(event, ctx);
 
-            assertThat(events).hasSize(1);
-            assertThat(events.get(0).eventName()).isEqualTo("content_block_start");
-            assertThat(events.get(0).data()).contains("tool_use");
-            assertThat(events.get(0).data()).contains("search");
+            assertThat(events).hasSize(2);
+            assertThat(events.get(0).eventName()).isEqualTo("message_start");
+            assertThat(events.get(1).eventName()).isEqualTo("content_block_start");
+            assertThat(events.get(1).data()).contains("tool_use");
+            assertThat(events.get(1).data()).contains("search");
         }
 
         @Test
         @DisplayName("tool_call_delta 编码生成 input_json_delta")
         void encodeStreamEvent_toolCallDelta() {
-            // 先打开一个 tool_use 块
+            // 先打开一个 tool_use 块（同时触发 message_start）
             adapter.encodeStreamEvent(UnifiedStreamEvent.toolCall("tu_001", "search", null), ctx);
 
             UnifiedStreamEvent delta = UnifiedStreamEvent.toolCallDelta(0, "{\"q\":");
             List<EncodedEvent> events = adapter.encodeStreamEvent(delta, ctx);
 
+            // message_start 已发送，后续事件只产生 content_block_delta
             assertThat(events).hasSize(1);
             assertThat(events.get(0).eventName()).isEqualTo("content_block_delta");
             assertThat(events.get(0).data()).contains("input_json_delta");
@@ -390,7 +445,7 @@ class AnthropicProtocolAdapterTest {
         @Test
         @DisplayName("done 事件生成 message_delta + 关闭打开的块")
         void encodeStreamEvent_done() {
-            // 先打开一个 text 块
+            // 先打开一个 text 块（同时触发 message_start）
             adapter.encodeStreamEvent(UnifiedStreamEvent.textDelta("Hi"), ctx);
 
             UnifiedStreamEvent done = UnifiedStreamEvent.done("stop");

@@ -595,7 +595,7 @@ public class GeminiProviderClient extends AbstractProviderClient {
         };
     }
 
-    /** 解析 Gemini usage（promptTokenCount / candidatesTokenCount / totalTokenCount） */
+    /** 解析 Gemini usage（promptTokenCount / candidatesTokenCount / totalTokenCount / cachedContentTokenCount） */
     private UnifiedUsage parseGeminiUsage(JsonNode usageNode) {
         if (usageNode == null || usageNode.isNull() || usageNode.isMissingNode()) {
             return null;
@@ -607,6 +607,11 @@ public class GeminiProviderClient extends AbstractProviderClient {
                 ? null : usageNode.path("candidatesTokenCount").asInt());
         usage.setTotalTokens(usageNode.path("totalTokenCount").isMissingNode()
                 ? null : usageNode.path("totalTokenCount").asInt());
+        // 解析缓存命中 Token：Gemini API 返回 cachedContentTokenCount 表示缓存内容的 token 数
+        JsonNode cachedNode = usageNode.path("cachedContentTokenCount");
+        if (!cachedNode.isMissingNode() && !cachedNode.isNull()) {
+            usage.setCachedInputTokens(cachedNode.asInt());
+        }
         return usage;
     }
 

@@ -7,6 +7,8 @@ class AnthropicStreamState {
     String messageId;
     Integer inputTokens;
     Integer outputTokens;
+    Integer cachedInputTokens;
+    Integer cacheCreationInputTokens;
     Integer totalTokens;
     String currentToolId;
     String currentToolName;

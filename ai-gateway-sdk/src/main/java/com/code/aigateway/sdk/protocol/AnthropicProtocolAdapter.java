@@ -111,6 +111,14 @@ public class AnthropicProtocolAdapter extends AbstractProtocolAdapter {
             Map<String, Object> usage = new LinkedHashMap<>();
             usage.put("input_tokens", response.getUsage().getInputTokens());
             usage.put("output_tokens", response.getUsage().getOutputTokens());
+            // 编码缓存命中 Token：Anthropic 格式为 cache_read_input_tokens
+            if (response.getUsage().getCachedInputTokens() != null) {
+                usage.put("cache_read_input_tokens", response.getUsage().getCachedInputTokens());
+            }
+            // 编码缓存写入 Token：Anthropic 格式为 cache_creation_input_tokens
+            if (response.getUsage().getCacheCreationInputTokens() != null) {
+                usage.put("cache_creation_input_tokens", response.getUsage().getCacheCreationInputTokens());
+            }
             result.put("usage", usage);
         }
 
@@ -121,46 +129,45 @@ public class AnthropicProtocolAdapter extends AbstractProtocolAdapter {
 
     @Override
     public List<EncodedEvent> initialStreamEvents(StreamEncodeContext ctx) {
-        // 构建 Anthropic message_start 事件
-        Map<String, Object> message = new LinkedHashMap<>();
-        message.put("id", ctx.getResponseId());
-        message.put("type", "message");
-        message.put("role", "assistant");
-        message.put("content", List.of());
-        message.put("model", ctx.getModel());
-        message.put("stop_reason", null);
-        message.put("stop_sequence", null);
-
-        Map<String, Object> usage = new LinkedHashMap<>();
-        usage.put("input_tokens", ctx.getInputTokens());
-        usage.put("output_tokens", 0);
-        message.put("usage", usage);
-
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("type", "message_start");
-        payload.put("message", message);
-
-        return List.of(EncodedEvent.named("message_start", ctx.toJson(payload)));
+        // 延迟 message_start 的生成：等上游返回首个事件后再生成，
+        // 以便在 message_start 的 usage 中包含真实的 input_tokens 和 cache_read_input_tokens
+        return List.of();
     }
 
     @Override
     public List<EncodedEvent> encodeStreamEvent(UnifiedStreamEvent event, StreamEncodeContext ctx) {
+        // 首个事件到达时，先生成 message_start（若尚未发送）
+        List<EncodedEvent> events = new ArrayList<>();
+        if (!ctx.isMessageStartSent()) {
+            events.addAll(buildMessageStart(event.getUsage(), ctx));
+            ctx.setMessageStartSent(true);
+        }
+
+        if (UnifiedStreamEvent.TYPE_USAGE_ONLY.equals(event.getType())) {
+            // usage_only 事件仅用于触发 message_start，本身不产生额外 SSE 事件
+            return events;
+        }
         if ("done".equals(event.getType())) {
-            return encodeDoneEvent(event, ctx);
+            events.addAll(encodeDoneEvent(event, ctx));
+            return events;
         }
         if ("text_delta".equals(event.getType())) {
-            return encodeTextDeltaEvent(event, ctx);
+            events.addAll(encodeTextDeltaEvent(event, ctx));
+            return events;
         }
         if ("thinking_delta".equals(event.getType())) {
-            return encodeThinkingDeltaEvent(event, ctx);
+            events.addAll(encodeThinkingDeltaEvent(event, ctx));
+            return events;
         }
         if ("tool_call".equals(event.getType())) {
-            return encodeToolCallEvent(event, ctx);
+            events.addAll(encodeToolCallEvent(event, ctx));
+            return events;
         }
         if ("tool_call_delta".equals(event.getType())) {
-            return encodeToolCallDeltaEvent(event, ctx);
+            events.addAll(encodeToolCallDeltaEvent(event, ctx));
+            return events;
         }
-        return List.of();
+        return events;
     }
 
     @Override
@@ -177,6 +184,18 @@ public class AnthropicProtocolAdapter extends AbstractProtocolAdapter {
         errorDetail.put("type", errorType);
         errorDetail.put("message", message);
         return Map.of("type", "error", "error", errorDetail);
+    }
+
+    @Override
+    public List<EncodedEvent> encodeStreamError(Throwable throwable, StreamEncodeContext ctx) {
+        List<EncodedEvent> events = new ArrayList<>();
+        // 如果 message_start 尚未发送，先发送它以确保协议事件序列完整
+        if (!ctx.isMessageStartSent()) {
+            events.addAll(buildMessageStart(null, ctx));
+            ctx.setMessageStartSent(true);
+        }
+        events.addAll(super.encodeStreamError(throwable, ctx));
+        return events;
     }
 
     @Override
@@ -328,6 +347,62 @@ public class AnthropicProtocolAdapter extends AbstractProtocolAdapter {
     }
 
     // ===================== 流式编码辅助方法 =====================
+
+    /**
+     * 构建 message_start 事件。
+     * <p>若首个事件携带了 usage（usage_only 事件），使用真实的 input_tokens 和 cache_read_input_tokens；
+     * 否则从上下文中取值；若上下文也未设置，则不输出该字段（避免用 0 掩盖真实值）。</p>
+     */
+    private List<EncodedEvent> buildMessageStart(UnifiedUsage eventUsage, StreamEncodeContext ctx) {
+        // 优先从事件 usage 取值，其次从上下文取值；若均未设置则保持 null，不在 message_start 中输出 0
+        Integer inputTokens = eventUsage != null && eventUsage.getInputTokens() != null
+                ? eventUsage.getInputTokens() : (ctx.getInputTokens() > 0 ? ctx.getInputTokens() : null);
+        Integer cachedInputTokens = eventUsage != null ? eventUsage.getCachedInputTokens() : ctx.getCachedInputTokens();
+        Integer cacheCreationInputTokens = eventUsage != null
+                ? eventUsage.getCacheCreationInputTokens() : ctx.getCacheCreationInputTokens();
+
+        // 将事件 usage 的值回写到 ctx，确保后续代码路径（如 encodeStreamError）能从 ctx 读取到真实值
+        if (inputTokens != null && ctx.getInputTokens() <= 0) {
+            ctx.setInputTokens(inputTokens);
+        }
+        if (cachedInputTokens != null && ctx.getCachedInputTokens() == null) {
+            ctx.setCachedInputTokens(cachedInputTokens);
+        }
+        if (cacheCreationInputTokens != null && ctx.getCacheCreationInputTokens() == null) {
+            ctx.setCacheCreationInputTokens(cacheCreationInputTokens);
+        }
+
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("id", ctx.getResponseId());
+        message.put("type", "message");
+        message.put("role", "assistant");
+        message.put("content", List.of());
+        message.put("model", ctx.getModel());
+        message.put("stop_reason", null);
+        message.put("stop_sequence", null);
+
+        Map<String, Object> usage = new LinkedHashMap<>();
+        // 仅在已知时输出 input_tokens，避免 0 值误导客户端
+        if (inputTokens != null) {
+            usage.put("input_tokens", inputTokens);
+        }
+        usage.put("output_tokens", 0);
+        // 缓存命中 Token：Anthropic 协议在 message_start 的 usage 中返回 cache_read_input_tokens
+        if (cachedInputTokens != null) {
+            usage.put("cache_read_input_tokens", cachedInputTokens);
+        }
+        // 缓存写入 Token：Anthropic 协议在 message_start 的 usage 中返回 cache_creation_input_tokens
+        if (cacheCreationInputTokens != null) {
+            usage.put("cache_creation_input_tokens", cacheCreationInputTokens);
+        }
+        message.put("usage", usage);
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("type", "message_start");
+        payload.put("message", message);
+
+        return List.of(EncodedEvent.named("message_start", ctx.toJson(payload)));
+    }
 
     /** 构建文本类型的 content_block_start 事件 */
     private EncodedEvent buildTextContentBlockStart(int index, StreamEncodeContext ctx) {

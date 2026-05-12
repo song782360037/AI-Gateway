@@ -144,9 +144,14 @@ public class OpenAiChatProtocolAdapter extends AbstractProtocolAdapter {
 
     private List<EncodedEvent> encodeDoneEvent(UnifiedStreamEvent event, StreamEncodeContext ctx) {
         Map<String, Object> delta = new LinkedHashMap<>();
-        return List.of(EncodedEvent.data(ctx.toJson(buildChunk(delta,
+        Map<String, Object> chunk = buildChunk(delta,
                 event.getFinishReason() == null ? "stop" : event.getFinishReason(),
-                event.getOutputIndex(), ctx))));
+                event.getOutputIndex(), ctx);
+        // 若 done 事件携带 usage，编码到最终 chunk 中（支持 stream_options.include_usage 场景）
+        if (event.getUsage() != null) {
+            chunk.put("usage", encodeUsage(event.getUsage()));
+        }
+        return List.of(EncodedEvent.data(ctx.toJson(chunk)));
     }
 
     private List<EncodedEvent> encodeToolCallEvent(UnifiedStreamEvent event, StreamEncodeContext ctx) {
@@ -223,6 +228,10 @@ public class OpenAiChatProtocolAdapter extends AbstractProtocolAdapter {
         result.put("prompt_tokens", usage.getInputTokens());
         result.put("completion_tokens", usage.getOutputTokens());
         result.put("total_tokens", usage.getTotalTokens());
+        // 编码缓存命中 Token：OpenAI Chat Completions 格式为 prompt_tokens_details.cached_tokens
+        if (usage.getCachedInputTokens() != null) {
+            result.put("prompt_tokens_details", Map.of("cached_tokens", usage.getCachedInputTokens()));
+        }
         return result;
     }
 }

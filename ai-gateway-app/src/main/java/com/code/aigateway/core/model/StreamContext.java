@@ -37,6 +37,12 @@ public class StreamContext {
     /** 输入 token 数本地缓存，SDK 上下文创建前可用于兜底 */
     private volatile int inputTokens;
 
+    /** 缓存命中 token 数本地缓存（null 表示未知/未设置） */
+    private volatile Integer cachedInputTokens;
+
+    /** 缓存写入 token 数本地缓存（null 表示未知/未设置，对应 Anthropic cache_creation_input_tokens） */
+    private volatile Integer cacheCreationInputTokens;
+
     /** SDK 流式编码上下文（CAS 懒初始化，保证并发安全） */
     private final AtomicReference<StreamEncodeContext> sdkContextRef = new AtomicReference<>();
     /** ObjectMapper 用于创建 SDK StreamEncodeContext */
@@ -102,6 +108,12 @@ public class StreamContext {
         if (this.inputTokens != ctx.getInputTokens()) {
             ctx.setInputTokens(inputTokens);
         }
+        if (!Objects.equals(this.cachedInputTokens, ctx.getCachedInputTokens())) {
+            ctx.setCachedInputTokens(cachedInputTokens);
+        }
+        if (!Objects.equals(this.cacheCreationInputTokens, ctx.getCacheCreationInputTokens())) {
+            ctx.setCacheCreationInputTokens(cacheCreationInputTokens);
+        }
         return ctx;
     }
 
@@ -162,6 +174,36 @@ public class StreamContext {
         StreamEncodeContext ctx = sdkContextRef.get();
         if (ctx != null) {
             ctx.setInputTokens(inputTokens);
+        }
+    }
+
+    /** 获取缓存命中 token 数（优先从 SDK 上下文读取，兜底读取本地缓存） */
+    public Integer getCachedInputTokens() {
+        StreamEncodeContext ctx = sdkContextRef.get();
+        return ctx != null ? ctx.getCachedInputTokens() : cachedInputTokens;
+    }
+
+    /** 设置缓存命中 token 数，同时同步到 SDK 上下文 */
+    public void setCachedInputTokens(Integer cachedInputTokens) {
+        this.cachedInputTokens = cachedInputTokens;
+        StreamEncodeContext ctx = sdkContextRef.get();
+        if (ctx != null) {
+            ctx.setCachedInputTokens(cachedInputTokens);
+        }
+    }
+
+    /** 获取缓存写入 token 数（优先从 SDK 上下文读取，兜底读取本地缓存） */
+    public Integer getCacheCreationInputTokens() {
+        StreamEncodeContext ctx = sdkContextRef.get();
+        return ctx != null ? ctx.getCacheCreationInputTokens() : cacheCreationInputTokens;
+    }
+
+    /** 设置缓存写入 token 数，同时同步到 SDK 上下文 */
+    public void setCacheCreationInputTokens(Integer cacheCreationInputTokens) {
+        this.cacheCreationInputTokens = cacheCreationInputTokens;
+        StreamEncodeContext ctx = sdkContextRef.get();
+        if (ctx != null) {
+            ctx.setCacheCreationInputTokens(cacheCreationInputTokens);
         }
     }
 }

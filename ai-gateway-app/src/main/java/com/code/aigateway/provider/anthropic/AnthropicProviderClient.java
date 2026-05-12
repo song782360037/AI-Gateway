@@ -483,12 +483,25 @@ public class AnthropicProviderClient extends AbstractProviderClient {
         };
     }
 
-    /** message_start: 捕获消息 ID 和初始 usage */
+    /** message_start: 捕获消息 ID 和初始 usage，发射 usage_only 事件供协议适配器生成 message_start */
     private Flux<UnifiedStreamEvent> handleStart(JsonNode json, AnthropicStreamState state) {
         JsonNode message = json.path("message");
         state.messageId = textOrNull(message.get("id"));
         mergeAnthropicUsage(state, message.get("usage"));
-        return Flux.empty();
+        // 发射 usage_only 事件，携带初始 usage（input_tokens + cache_read_input_tokens + cache_creation_input_tokens）
+        // 协议适配器据此在首个事件前生成 message_start，确保 usage 字段出现在正确位置
+        UnifiedUsage usage = new UnifiedUsage();
+        usage.setInputTokens(state.inputTokens);
+        usage.setOutputTokens(state.outputTokens != null ? state.outputTokens : 0);
+        usage.setCachedInputTokens(state.cachedInputTokens);
+        usage.setCacheCreationInputTokens(state.cacheCreationInputTokens);
+        if (state.totalTokens != null) {
+            usage.setTotalTokens(state.totalTokens);
+        }
+        UnifiedStreamEvent event = new UnifiedStreamEvent();
+        event.setType(UnifiedStreamEvent.TYPE_USAGE_ONLY);
+        event.setUsage(usage);
+        return Flux.just(event);
     }
 
     /** content_block_start: tool_use 块开始时发射 tool_call 事件 */
@@ -571,6 +584,8 @@ public class AnthropicProviderClient extends AbstractProviderClient {
         UnifiedUsage usage = new UnifiedUsage();
         usage.setInputTokens(state.inputTokens);
         usage.setOutputTokens(state.outputTokens);
+        usage.setCachedInputTokens(state.cachedInputTokens);
+        usage.setCacheCreationInputTokens(state.cacheCreationInputTokens);
         if (state.totalTokens != null) {
             usage.setTotalTokens(state.totalTokens);
         } else if (usage.getInputTokens() != null && usage.getOutputTokens() != null) {
@@ -604,7 +619,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
         };
     }
 
-    /** 解析 Anthropic usage（input_tokens / output_tokens） */
+    /** 解析 Anthropic usage（input_tokens / output_tokens / cache_read_input_tokens / cache_creation_input_tokens） */
     private UnifiedUsage parseAnthropicUsage(JsonNode usageNode) {
         if (usageNode == null || usageNode.isNull() || usageNode.isMissingNode()) {
             return null;
@@ -612,6 +627,16 @@ public class AnthropicProviderClient extends AbstractProviderClient {
         UnifiedUsage usage = new UnifiedUsage();
         usage.setInputTokens(readIntField(usageNode, "input_tokens"));
         usage.setOutputTokens(readIntField(usageNode, "output_tokens"));
+        // 解析缓存读取命中 Token：Anthropic API 返回 cache_read_input_tokens
+        Integer cacheReadTokens = readIntField(usageNode, "cache_read_input_tokens");
+        if (cacheReadTokens != null) {
+            usage.setCachedInputTokens(cacheReadTokens);
+        }
+        // 解析缓存写入 Token：Anthropic API 返回 cache_creation_input_tokens
+        Integer cacheCreationTokens = readIntField(usageNode, "cache_creation_input_tokens");
+        if (cacheCreationTokens != null) {
+            usage.setCacheCreationInputTokens(cacheCreationTokens);
+        }
         Integer totalTokens = readIntField(usageNode, "total_tokens");
         if (totalTokens != null) {
             usage.setTotalTokens(totalTokens);
@@ -631,12 +656,22 @@ public class AnthropicProviderClient extends AbstractProviderClient {
         Integer inputTokens = readIntField(usageNode, "input_tokens");
         Integer outputTokens = readIntField(usageNode, "output_tokens");
         Integer totalTokens = readIntField(usageNode, "total_tokens");
+        // 流式场景下合并缓存读取命中 Token
+        Integer cacheReadTokens = readIntField(usageNode, "cache_read_input_tokens");
+        // 流式场景下合并缓存写入 Token
+        Integer cacheCreationTokens = readIntField(usageNode, "cache_creation_input_tokens");
 
         if (inputTokens != null) {
             state.inputTokens = inputTokens;
         }
         if (outputTokens != null) {
             state.outputTokens = outputTokens;
+        }
+        if (cacheReadTokens != null) {
+            state.cachedInputTokens = cacheReadTokens;
+        }
+        if (cacheCreationTokens != null) {
+            state.cacheCreationInputTokens = cacheCreationTokens;
         }
         if (totalTokens != null) {
             state.totalTokens = totalTokens;

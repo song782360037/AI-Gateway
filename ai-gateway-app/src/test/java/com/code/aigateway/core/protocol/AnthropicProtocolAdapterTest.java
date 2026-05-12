@@ -70,11 +70,13 @@ class AnthropicProtocolAdapterTest {
     @Test
     void encodeStreamError_producesSse() {
         StreamContext ctx = new StreamContext("msg-123", 1710000000L, "claude-3-opus", objectMapper);
-        ServerSentEvent<String> sse = adapter.encodeStreamError(
-                new RuntimeException("test error"), ctx).blockFirst();
+        // 错误编码在 message_start 未发送时会先发送 message_start，再发送错误事件
+        List<ServerSentEvent<String>> events = adapter.encodeStreamError(
+                new RuntimeException("test error"), ctx).collectList().block();
 
-        assertNotNull(sse);
-        assertNotNull(sse.data());
-        assertTrue(sse.data().contains("test error"));
+        assertNotNull(events);
+        // 应包含 message_start + error 事件
+        assertTrue(events.size() >= 2);
+        assertTrue(events.stream().anyMatch(e -> e.data() != null && e.data().contains("test error")));
     }
 }

@@ -190,6 +190,11 @@ class AnthropicProviderClientTest {
 
         StepVerifier.create(providerClient.streamChat(buildBasicRequest(true)))
                 .assertNext(event -> {
+                    // message_start 事件产生 usage_only 事件，携带初始 input_tokens
+                    assertEquals(UnifiedStreamEvent.TYPE_USAGE_ONLY, event.getType());
+                    assertEquals(17, event.getUsage().getInputTokens());
+                })
+                .assertNext(event -> {
                     assertEquals("text_delta", event.getType());
                     assertEquals("你好", event.getTextDelta());
                 })
@@ -225,6 +230,10 @@ class AnthropicProviderClientTest {
 
         StepVerifier.create(providerClient.streamChat(buildBasicRequest(true)))
                 .assertNext(event -> {
+                    // message_start 事件产生 usage_only 事件（此时 usage 为空，input_tokens 在 message_delta 中延迟出现）
+                    assertEquals(UnifiedStreamEvent.TYPE_USAGE_ONLY, event.getType());
+                })
+                .assertNext(event -> {
                     assertEquals("text_delta", event.getType());
                     assertEquals("hello", event.getTextDelta());
                 })
@@ -234,6 +243,88 @@ class AnthropicProviderClientTest {
                     assertEquals(23, event.getUsage().getInputTokens());
                     assertEquals(7, event.getUsage().getOutputTokens());
                     assertEquals(30, event.getUsage().getTotalTokens());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void streamChat_withCachedInputTokens_parsesCacheReadInputTokens() {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.TEXT_EVENT_STREAM_VALUE, """
+                    data: {"type":"message_start","message":{"id":"msg_cache","type":"message","role":"assistant","model":"claude-3-5-sonnet-20241022","usage":{"input_tokens":100,"cache_read_input_tokens":50}}}
+
+                    data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"cached"}}
+
+                    data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":10}}
+
+                    data: {"type":"message_stop"}
+
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        StepVerifier.create(providerClient.streamChat(buildBasicRequest(true)))
+                .assertNext(event -> {
+                    // message_start 携带 input_tokens 和 cache_read_input_tokens
+                    assertEquals(UnifiedStreamEvent.TYPE_USAGE_ONLY, event.getType());
+                    assertNotNull(event.getUsage());
+                    assertEquals(100, event.getUsage().getInputTokens());
+                    assertEquals(50, event.getUsage().getCachedInputTokens());
+                })
+                .assertNext(event -> {
+                    assertEquals("text_delta", event.getType());
+                    assertEquals("cached", event.getTextDelta());
+                })
+                .assertNext(event -> {
+                    assertEquals("done", event.getType());
+                    assertNotNull(event.getUsage());
+                    // 最终 usage 应合并 input_tokens 和 output_tokens
+                    assertEquals(100, event.getUsage().getInputTokens());
+                    assertEquals(10, event.getUsage().getOutputTokens());
+                    assertEquals(50, event.getUsage().getCachedInputTokens());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void streamChat_withCacheCreationInputTokens_parsesBothCacheFields() {
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.TEXT_EVENT_STREAM_VALUE, """
+                    data: {"type":"message_start","message":{"id":"msg_cc","type":"message","role":"assistant","model":"claude-3-5-sonnet-20241022","usage":{"input_tokens":100,"cache_read_input_tokens":50,"cache_creation_input_tokens":30}}}
+
+                    data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}
+
+                    data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}
+
+                    data: {"type":"message_stop"}
+
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        StepVerifier.create(providerClient.streamChat(buildBasicRequest(true)))
+                .assertNext(event -> {
+                    // message_start 携带 input_tokens、cache_read_input_tokens 和 cache_creation_input_tokens
+                    assertEquals(UnifiedStreamEvent.TYPE_USAGE_ONLY, event.getType());
+                    assertNotNull(event.getUsage());
+                    assertEquals(100, event.getUsage().getInputTokens());
+                    assertEquals(50, event.getUsage().getCachedInputTokens());
+                    assertEquals(30, event.getUsage().getCacheCreationInputTokens());
+                })
+                .assertNext(event -> {
+                    assertEquals("text_delta", event.getType());
+                    assertEquals("hi", event.getTextDelta());
+                })
+                .assertNext(event -> {
+                    assertEquals("done", event.getType());
+                    assertNotNull(event.getUsage());
+                    // 最终 usage 应合并所有缓存字段
+                    assertEquals(100, event.getUsage().getInputTokens());
+                    assertEquals(5, event.getUsage().getOutputTokens());
+                    assertEquals(50, event.getUsage().getCachedInputTokens());
+                    assertEquals(30, event.getUsage().getCacheCreationInputTokens());
                 })
                 .verifyComplete();
     }
@@ -263,6 +354,11 @@ class AnthropicProviderClientTest {
         providerClient = newProviderClient(5);
 
         StepVerifier.create(providerClient.streamChat(buildBasicRequest(true)))
+                .assertNext(event -> {
+                    // message_start 事件产生 usage_only 事件，携带初始 input_tokens
+                    assertEquals(UnifiedStreamEvent.TYPE_USAGE_ONLY, event.getType());
+                    assertEquals(19, event.getUsage().getInputTokens());
+                })
                 .assertNext(event -> {
                     assertEquals("tool_call", event.getType());
                     assertEquals("toolu_s1", event.getToolCallId());

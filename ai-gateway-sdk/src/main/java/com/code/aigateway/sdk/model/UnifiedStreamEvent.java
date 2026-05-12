@@ -12,6 +12,9 @@ import lombok.Data;
 @Data
 public class UnifiedStreamEvent {
 
+    /** 仅携带 usage 的事件类型，用于触发协议适配器生成 message_start 等初始化事件 */
+    public static final String TYPE_USAGE_ONLY = "usage_only";
+
     /** 事件类型 */
     private String type;
 

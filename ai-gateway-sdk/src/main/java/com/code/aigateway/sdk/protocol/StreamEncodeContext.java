@@ -28,8 +28,22 @@ public class StreamEncodeContext {
     private String openBlockType;
     private int nextContentBlockSeq;
 
-    /** 输入 token 数 */
+    /**
+     * 输入 token 数。
+     * <p>0 表示尚未收到真实值（ Anthropic 流式场景下 input_tokens 可能延迟到 message_delta 才出现）。
+     * 与 {@link #cachedInputTokens} 的 null 语义区分：0 是"已知为 0"，但当前实现中 0 也作为初始默认值，
+     * 因此协议编码层应通过 {@code > 0} 或结合业务上下文判断是否已设置真实值。</p>
+     */
     private int inputTokens;
+
+    /** 缓存命中 token 数（null 表示未知/未设置） */
+    private Integer cachedInputTokens;
+
+    /** 缓存写入 token 数（null 表示未知/未设置，对应 Anthropic cache_creation_input_tokens） */
+    private Integer cacheCreationInputTokens;
+
+    /** Anthropic message_start 是否已发送 */
+    private boolean messageStartSent;
 
     /** OpenAI Responses 专属流状态 */
     private final ResponsesStreamState responsesState = new ResponsesStreamState();
@@ -100,6 +114,12 @@ public class StreamEncodeContext {
     public void setModel(String model) { this.model = model; }
     public int getInputTokens() { return inputTokens; }
     public void setInputTokens(int inputTokens) { this.inputTokens = inputTokens; }
+    public Integer getCachedInputTokens() { return cachedInputTokens; }
+    public void setCachedInputTokens(Integer cachedInputTokens) { this.cachedInputTokens = cachedInputTokens; }
+    public Integer getCacheCreationInputTokens() { return cacheCreationInputTokens; }
+    public void setCacheCreationInputTokens(Integer cacheCreationInputTokens) { this.cacheCreationInputTokens = cacheCreationInputTokens; }
+    public boolean isMessageStartSent() { return messageStartSent; }
+    public void setMessageStartSent(boolean messageStartSent) { this.messageStartSent = messageStartSent; }
     public ResponsesStreamState responses() { return responsesState; }
 
     // ===================== OpenAI Responses 流状态 =====================
