@@ -1,0 +1,283 @@
+package com.code.aigateway.core.service;
+
+import com.code.aigateway.core.capability.CapabilityChecker;
+import com.code.aigateway.core.model.StreamContext;
+import com.code.aigateway.sdk.model.UnifiedReasoningConfig;
+import com.code.aigateway.sdk.model.UnifiedRequest;
+import com.code.aigateway.sdk.model.UnifiedStreamEvent;
+import com.code.aigateway.sdk.model.UnifiedUsage;
+import com.code.aigateway.core.protocol.ProtocolAdapter;
+import com.code.aigateway.core.resilience.FailoverStrategy;
+import com.code.aigateway.core.router.ModelRouter;
+import com.code.aigateway.core.router.RouteResult;
+import com.code.aigateway.core.stats.ActiveRequestTracker;
+import com.code.aigateway.core.stats.RequestStatsCollector;
+import com.code.aigateway.core.stats.RequestStatsContext;
+import com.code.aigateway.provider.ProviderClient;
+import com.code.aigateway.provider.ProviderClientFactory;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+
+/**
+ * 聊天网关核心服务
+ * <p>
+ * 协议无关的编排服务，负责：
+ * <ul>
+ *   <li>请求解析：委托 ProtocolAdapter 将原始请求转换为统一格式</li>
+ *   <li>模型路由：根据模型别名获取全部候选路由</li>
+ *   <li>能力检查：验证请求与目标模型的能力兼容性</li>
+ *   <li>故障转移：通过 FailoverStrategy 依次尝试候选 Provider</li>
+ *   <li>响应编码：委托 ProtocolAdapter 编码为协议特定格式</li>
+ * </ul>
+ * </p>
+ */
+@Service
+@RequiredArgsConstructor
+public class ChatGatewayService {
+
+    /** 模型路由器 */
+    private final ModelRouter modelRouter;
+
+    /** 能力检查器 */
+    private final CapabilityChecker capabilityChecker;
+
+    /** 提供商客户端工厂 */
+    private final ProviderClientFactory providerClientFactory;
+
+    /** 请求统计采集器 */
+    private final RequestStatsCollector requestStatsCollector;
+
+    /** 故障转移策略 */
+    private final FailoverStrategy failoverStrategy;
+
+    /** 活跃请求跟踪器 */
+    private final ActiveRequestTracker activeRequestTracker;
+
+    /** JSON 序列化器，用于创建支持 SDK 上下文的 StreamContext */
+    private final ObjectMapper objectMapper;
+
+    /**
+     * 处理非流式聊天请求（含 usage 统计 + 故障转移）
+     */
+    public Mono<?> chatWithStats(Object rawRequest, ProtocolAdapter adapter, RequestStatsContext context) {
+        UnifiedRequest unifiedRequest = adapter.parse(rawRequest);
+        // 提取思考配置信息
+        applyThinkingConfig(unifiedRequest, context);
+        applyActiveRequestInfo(unifiedRequest, context);
+        List<RouteResult> candidates = resolveCandidates(unifiedRequest, context);
+        String correlationId = context != null ? context.getCorrelationId() : null;
+
+        return failoverStrategy.executeWithFailover(candidates, routeResult -> {
+            applyRouteContext(unifiedRequest, routeResult, correlationId, context);
+            if (context != null) {
+                applyFinalRouteContext(context, routeResult);
+            }
+            ProviderClient client = providerClientFactory.getClient(routeResult.getProviderType());
+            return client.chat(unifiedRequest);
+        }, correlationId, context)
+                .doOnNext(response -> requestStatsCollector.collectSuccess(context, response.getUsage()))
+                .doOnError(ex -> requestStatsCollector.collectError(context, ex))
+                .map(adapter::encodeResponse);
+    }
+
+    /**
+     * 处理流式聊天请求（含 usage 统计 + 故障转移）
+     */
+    public Flux<?> streamChat(Object rawRequest, ProtocolAdapter adapter, RequestStatsContext context) {
+        UnifiedRequest unifiedRequest = adapter.parse(rawRequest);
+        // 提取思考配置信息
+        applyThinkingConfig(unifiedRequest, context);
+        applyActiveRequestInfo(unifiedRequest, context);
+        List<RouteResult> candidates = resolveCandidates(unifiedRequest, context);
+        String correlationId = context != null ? context.getCorrelationId() : null;
+
+        String responseId = "chatcmpl-" + UUID.randomUUID();
+        long created = Instant.now().getEpochSecond();
+        AtomicReference<UnifiedUsage> finalUsageRef = new AtomicReference<>();
+        AtomicBoolean terminalEventSeen = new AtomicBoolean(false);
+
+        // StreamContext 必须在流链外创建，确保 firstContentSent 标志跨事件共享
+        String streamModel = context != null && context.getRouteResult() != null
+                ? context.getRouteResult().getTargetModel() : "";
+        StreamContext streamCtx = new StreamContext(responseId, created, streamModel, objectMapper);
+
+        AtomicReference<Throwable> streamErrorRef = new AtomicReference<>();
+
+        return Flux.concat(
+                    // 流起始事件（如 Anthropic 的 message_start）
+                    adapter.initialStreamEvents(streamCtx),
+                    // 主事件流：每个 UnifiedStreamEvent 可能产生 0~N 个 SSE 事件
+                    failoverStrategy.executeStreamWithFailover(candidates, routeResult -> {
+                        applyRouteContext(unifiedRequest, routeResult, correlationId, context);
+                        if (context != null) {
+                            applyFinalRouteContext(context, routeResult);
+                        }
+                        // failover 后同步更新 StreamContext 中的实际模型名
+                        streamCtx.setModel(routeResult.getTargetModel());
+                        ProviderClient client = providerClientFactory.getClient(routeResult.getProviderType());
+                        return client.streamChat(unifiedRequest);
+                    }, correlationId, context)
+                            .doOnNext(event -> {
+                                // 记录 provider 已输出终止事件，避免正常结束后因连接关闭被误判为取消。
+                                if (isTerminalStreamEvent(event)) {
+                                    terminalEventSeen.set(true);
+                                }
+                                // "done" 事件携带 finish_reason 和可能的 usage。
+                                // "usage_only" 事件来自 OpenAI 的 usage-only chunk（choices:[]）。
+                                if ((isTerminalStreamEvent(event) || "usage_only".equals(event.getType()))
+                                        && event.getUsage() != null) {
+                                    finalUsageRef.set(event.getUsage());
+                                }
+                            })
+                            .concatMap(event -> adapter.encodeStreamEvent(event, streamCtx)),
+                    // 流终止事件（如 OpenAI 的 [DONE]、Anthropic 的 message_stop）
+                    adapter.terminalStreamEvents(streamCtx)
+                )
+                .doOnError(ex -> requestStatsCollector.collectError(context, ex))
+                .onErrorResume(ex -> {
+                    streamErrorRef.set(ex);
+                    return Flux.concat(
+                            adapter.encodeStreamError(ex, streamCtx),
+                            adapter.terminalStreamEvents(streamCtx)
+                    );
+                })
+                .doOnComplete(() -> {
+                // 记录首token响应时间（仅流式请求支持，非流式不经过 StreamContext）
+                if (context != null && streamCtx.getFirstTokenLatencyMs() >= 0) {
+                    context.setFirstTokenLatencyMs(streamCtx.getFirstTokenLatencyMs());
+                }
+                    if (streamErrorRef.get() == null) {
+                        requestStatsCollector.collectStreamSuccess(context, finalUsageRef.get());
+                    }
+                })
+                .doOnCancel(() -> {
+                    // 记录首token响应时间（仅流式请求支持）
+                    if (context != null && streamCtx.getFirstTokenLatencyMs() >= 0) {
+                        context.setFirstTokenLatencyMs(streamCtx.getFirstTokenLatencyMs());
+                    }
+                    if (streamErrorRef.get() == null && !terminalEventSeen.get()) {
+                        requestStatsCollector.collectStreamCancelled(context, finalUsageRef.get());
+                    }
+                });
+    }
+
+    /**
+     * 将解析后的请求模型和流式状态同步到活跃请求跟踪器。
+     */
+    private void applyActiveRequestInfo(UnifiedRequest unifiedRequest, RequestStatsContext context) {
+        if (context == null || unifiedRequest == null) {
+            return;
+        }
+        activeRequestTracker.updateRequestInfo(
+                context.getCorrelationId(),
+                unifiedRequest.getModel(),
+                unifiedRequest.getStream()
+        );
+    }
+
+    /**
+     * 提取请求中的思考配置信息，写入统计上下文
+     * <p>
+     * 仅当请求中存在 reasoning 配置时才设置，避免污染无思考需求的请求日志。
+     * </p>
+     */
+    private void applyThinkingConfig(UnifiedRequest unifiedRequest, RequestStatsContext context) {
+        if (context == null || unifiedRequest == null || unifiedRequest.getGenerationConfig() == null) {
+            return;
+        }
+        UnifiedReasoningConfig reasoning = unifiedRequest.getGenerationConfig().getReasoning();
+        if (reasoning == null) {
+            return;
+        }
+        // 记录客户端是否开启了思考（保留 null 语义：null 表示未知/未配置，false 表示明确关闭）
+        context.setThinkingEnabled(reasoning.getEnabled());
+        // 记录思考深度：优先记录 budgetTokens（直接存数值），其次记录 effort（直接存如 high/medium/low）
+        if (reasoning.getBudgetTokens() != null) {
+            context.setThinkingDepth(String.valueOf(reasoning.getBudgetTokens()));
+        } else if (reasoning.getEffort() != null && !reasoning.getEffort().isBlank()) {
+            context.setThinkingDepth(reasoning.getEffort());
+        }
+        // NOTE: thinkingMapped 当前始终为 null，因 ReasoningSemanticMapper 尚未接入。
+        // 接入后在此处写入映射结果：context.setThinkingMapped(mapper.isMapped(reasoning));
+        // 保持 null 而非 false，以区分"未映射"和"未接入"两种状态。
+    }
+
+    /**
+     * 解析请求并获取全部候选路由，同时校验能力
+     */
+    private List<RouteResult> resolveCandidates(UnifiedRequest unifiedRequest, RequestStatsContext context) {
+        List<RouteResult> candidates = modelRouter.routeAll(unifiedRequest);
+        if (context != null) {
+            context.setCandidateCount(candidates.size());
+            context.setTerminalStage("ROUTING");
+        }
+
+        // 对首选候选做能力校验
+        if (!candidates.isEmpty()) {
+            capabilityChecker.validate(unifiedRequest, candidates.get(0));
+            if (context != null) {
+                context.setRouteResult(candidates.get(0));
+                applyFinalRouteContext(context, candidates.get(0));
+            }
+        }
+
+        return candidates;
+    }
+
+    /**
+     * 将路由信息写入统一请求的执行上下文
+     */
+    private void applyRouteContext(UnifiedRequest unifiedRequest, RouteResult routeResult, String correlationId, RequestStatsContext context) {
+        unifiedRequest.setProvider(routeResult.getProviderType().name().toLowerCase());
+        unifiedRequest.setModel(routeResult.getTargetModel());
+        if (unifiedRequest.getMetadata() == null) {
+            unifiedRequest.setMetadata(new java.util.HashMap<>());
+        }
+        unifiedRequest.getMetadata().put("statsContext", context);
+        unifiedRequest.setExecutionContext(buildExecutionContext(routeResult, correlationId));
+    }
+
+    /**
+     * 将最终命中的路由摘要写入统计上下文，供日志与详情页复用。
+     * 同时更新活跃请求跟踪器中的提供商和目标模型信息。
+     */
+    private void applyFinalRouteContext(RequestStatsContext context, RouteResult routeResult) {
+        context.setRouteResult(routeResult);
+        context.setFinalProviderCode(routeResult.getProviderName());
+        context.setFinalProviderType(routeResult.getProviderType().name());
+        context.setFinalTargetModel(routeResult.getTargetModel());
+        // 更新活跃请求跟踪器中的路由信息
+        activeRequestTracker.updateRoute(
+                context.getCorrelationId(),
+                routeResult.getProviderName(),
+                routeResult.getTargetModel()
+        );
+    }
+
+    /**
+     * 判断是否为 provider 的正常终止事件。
+     */
+    private boolean isTerminalStreamEvent(UnifiedStreamEvent event) {
+        return "done".equals(event.getType());
+    }
+
+    private UnifiedRequest.ProviderExecutionContext buildExecutionContext(RouteResult routeResult, String correlationId) {
+        UnifiedRequest.ProviderExecutionContext ctx = new UnifiedRequest.ProviderExecutionContext();
+        ctx.setProviderName(routeResult.getProviderName());
+        ctx.setProviderBaseUrl(routeResult.getProviderBaseUrl());
+        ctx.setProviderTimeoutSeconds(routeResult.getProviderTimeoutSeconds());
+        ctx.setProviderApiKey(routeResult.getProviderApiKey());
+        ctx.setCorrelationId(correlationId);
+        ctx.setCustomHeaders(routeResult.getCustomHeaders());
+        return ctx;
+    }
+}
