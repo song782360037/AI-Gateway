@@ -6,12 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - Java 21，Spring Boot 3.3.5，WebFlux（响应式）
 - 构建（含前端）：`mvn clean package`
-- 全量测试：`mvn test`
-- 单测类：`mvn -Dtest=ClassName test`
-- 单测方法：`mvn -Dtest=ClassName#methodName test`
-- 本地启动：`mvn spring-boot:run -Plocal`（使用 `application-local.yml`）
+- 全量测试：`mvn test`（推荐，自动处理模块依赖顺序）
+- 单测类：`mvn test -pl ai-gateway-app`（前提：SDK 已安装到本地仓库 `mvn install -pl ai-gateway-sdk -DskipTests`）
+- 单测方法：`mvn -Dtest=ClassName#methodName -pl ai-gateway-app test`
+- 本地启动：`mvn spring-boot:run -Plocal -pl ai-gateway-app`（使用 `application-local.yml`）
 - 监控端点：`GET /actuator/health`、`GET /actuator/prometheus`
-- 前端开发：进入 `frontend-vue/` 后执行 `npm run dev`、`npm run build`、`npm run preview`
+- 前端开发：进入 `ai-gateway-app/frontend-vue/` 后执行 `npm run dev`、`npm run build`、`npm run preview`
+- SDK 测试：`mvn test -pl ai-gateway-sdk`
+- SDK 安装到本地仓库：`mvn install -pl ai-gateway-sdk -DskipTests`（当 ai-gateway-app 单独测试找不到 SDK 类时执行）
 
 ## 核心架构
 
@@ -35,11 +37,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | Anthropic Messages | `POST /v1/messages` | 命名 SSE（message_start, content_block_delta 等） |
 | Gemini | `POST /v1beta/models/{model}:generateContent` | NDJSON（非 SSE） |
 
+协议适配器分为两层：
+- **SDK 层**（`ai-gateway-sdk/.../sdk/protocol/`）：`ProtocolAdapter.java` — 核心接口（parse/encode/buildError），依赖仅 Jackson + Lombok + SLF4J
+- **App 层**（`ai-gateway-app/.../core/protocol/`）：`ProtocolAdapter.java` — Spring-aware 接口，返回 `Flux<ServerSentEvent<String>>`，通过 `AbstractSdkProtocolAdapter` 桥接 SDK 实例
+
 关键文件：
-- `core/protocol/ProtocolAdapter.java` — 协议适配器接口（parse/encode/buildError）
-- `core/protocol/ProtocolResolver.java` — 从 URL 路径或 exchange 属性解析协议
-- 四个实现：`OpenAiChatProtocolAdapter`、`OpenAiResponsesProtocolAdapter`、`AnthropicProtocolAdapter`、`GeminiProtocolAdapter`
-- `core/model/UnifiedRequest.java` / `UnifiedResponse.java` / `UnifiedStreamEvent.java` — 协议无关核心模型
+- `ai-gateway-sdk/.../sdk/protocol/ProtocolAdapter.java` — SDK 核心接口
+- `ai-gateway-sdk/.../sdk/protocol/AbstractProtocolAdapter.java` — SDK 共享基类
+- `ai-gateway-app/.../core/protocol/ProtocolAdapter.java` — App 层 Spring-aware 接口
+- `ai-gateway-app/.../core/protocol/AbstractSdkProtocolAdapter.java` — SDK ↔ App 桥接层（类型转换 + SSE 桥接）
+- `ai-gateway-app/.../core/protocol/ProtocolResolver.java` — 从 URL 路径或 exchange 属性解析协议
+- App 层四个实现：`OpenAiChatProtocolAdapter`、`OpenAiResponsesProtocolAdapter`、`AnthropicProtocolAdapter`、`GeminiProtocolAdapter`（均委托 SDK 对应类）
+- `ai-gateway-sdk/.../sdk/model/UnifiedRequest.java` 等 — SDK 版协议无关模型
+- `ai-gateway-app/.../core/model/UnifiedRequest.java` 等 — App 版模型（含 Spring 相关扩展字段）
+- `ai-gateway-sdk/.../sdk/model/ProtocolType.java` — 协议类型枚举（唯一定义，App 直接复用）
 
 Controller 是薄层：注入对应 ProtocolAdapter，调用 ChatGatewayService，处理 SSE/NDJSON vs JSON 响应。
 
@@ -136,7 +147,10 @@ Provider API Key 使用 AES-256-GCM 加密存储（`provider_config.api_key_ciph
 
 ## 修改时容易误判的点
 
-- 新增协议或 Provider 时，通常需要同步修改：`ProtocolAdapter` 实现、`core/protocol/`、Controller、Parser、Encoder、`ProviderType` 枚举、`ProviderClientFactory`、`AbstractProviderClient`（认证方式）、路由配置、Provider 支持协议。
+- 新增协议或 Provider 时，通常需要同步修改：SDK 的 `ProtocolAdapter` 实现 + SDK 的 `ProtocolType` 枚举 + App 层的 `ProtocolAdapter` 实现（委托 SDK）+ Controller + Provider 客户端 + 路由配置 + Provider 支持协议。
+- SDK 和 App 各自维护一套 Unified* 模型（SDK 版零 Spring 依赖，App 版含扩展字段）。新增字段时需同步两处，AbstractSdkProtocolAdapter 通过 ObjectMapper.convertValue 桥接。
+- App 层的 `ErrorCode`（21个值）是 SDK `ErrorCode`（17个值）的超集。SDK 只定义协议转换所需最小集合（不含 CONFIG_* 等 Admin 专用错误码）。新增 App ErrorCode 时，若需映射到协议错误类型，同步在 SDK 添加对应枚举值。
+- `ProtocolType` 在 SDK 中唯一定义，App 无独立协议枚举，直接复用。
 - 流式输出逻辑在 `ChatGatewayService` 中，不是单纯靠 DTO 序列化；SSE/NDJSON 格式由 `ProtocolAdapter.encodeStreamEvent()` 和 `terminalStreamEvents()` 决定。
 - 新增协议优先围绕 `core/model` 扩展，不要让 provider 专属 DTO 穿透到 controller/service 层。
 - Gemini 协议使用 NDJSON 而非 SSE，其 ProtocolAdapter 的 `isSse()` 返回 false。

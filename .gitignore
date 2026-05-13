@@ -1,8 +1,6 @@
 # Maven
 target/
 !.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
 
 # Kotlin
 .kotlin
@@ -69,10 +67,8 @@ hs_err_pid*
 replay_pid*
 
 ### Spring Boot ###
-application-local.yml
-application-local.properties
-src/main/resources/application-local.yml
-src/main/resources/application-local.properties
+ai-gateway-app/src/main/resources/application-local.yml
+ai-gateway-app/src/main/resources/application-local.properties
 
 ### Test ###
 test-output/
@@ -80,9 +76,9 @@ test-output/
 
 ### Node.js ###
 node_modules/
-frontend-vue/node/
-frontend-vue/node_modules/
-frontend-vue/dist/
+ai-gateway-app/frontend-vue/node/
+ai-gateway-app/frontend-vue/node_modules/
+ai-gateway-app/frontend-vue/dist/
 
 ### Claude Code ###
 .claude/

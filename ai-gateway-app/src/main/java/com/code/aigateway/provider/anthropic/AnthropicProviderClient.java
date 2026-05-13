@@ -1,0 +1,756 @@
+package com.code.aigateway.provider.anthropic;
+
+import com.code.aigateway.config.GatewayProperties;
+import com.code.aigateway.core.capability.ReasoningSemanticMapper;
+import com.code.aigateway.sdk.error.ErrorCode;
+import com.code.aigateway.core.error.GatewayException;
+import com.code.aigateway.core.resilience.CircuitBreakerManager;
+import com.code.aigateway.sdk.model.UnifiedMessage;
+import com.code.aigateway.sdk.model.UnifiedOutput;
+import com.code.aigateway.sdk.model.UnifiedPart;
+import com.code.aigateway.sdk.model.UnifiedReasoningConfig;
+import com.code.aigateway.sdk.model.UnifiedRequest;
+import com.code.aigateway.sdk.model.UnifiedResponse;
+import com.code.aigateway.sdk.model.UnifiedStreamEvent;
+import com.code.aigateway.sdk.model.UnifiedTool;
+import com.code.aigateway.sdk.model.UnifiedToolCall;
+import com.code.aigateway.sdk.model.UnifiedToolChoice;
+import com.code.aigateway.sdk.model.UnifiedUsage;
+import com.code.aigateway.provider.AbstractProviderClient;
+import com.code.aigateway.provider.ProviderType;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.BodyInserters;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import org.springframework.web.reactive.function.client.WebClient;
+
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+/**
+ * Anthropic Messages API 提供商客户端
+ * <p>
+ * 适配 Anthropic Claude 系列模型的 Messages API（/v1/messages），
+ * 支持流式/非流式、工具调用（含多轮）、错误处理与重试。
+ * </p>
+ *
+ * @author sst
+ */
+@Component
+@Slf4j
+public class AnthropicProviderClient extends AbstractProviderClient {
+
+    private static final String MESSAGES_PATH = "/v1/messages";
+    private static final String DEFAULT_ANTHROPIC_VERSION = "2023-06-01";
+    private static final int DEFAULT_MAX_TOKENS = 4096;
+
+    private final ReasoningSemanticMapper reasoningSemanticMapper;
+
+    public AnthropicProviderClient(ReactorClientHttpConnector httpConnector,
+                                   ObjectMapper objectMapper,
+                                   GatewayProperties gatewayProperties,
+                                   CircuitBreakerManager circuitBreakerManager,
+                                   ReasoningSemanticMapper reasoningSemanticMapper) {
+        super(httpConnector, objectMapper, gatewayProperties, circuitBreakerManager);
+        this.reasoningSemanticMapper = reasoningSemanticMapper;
+    }
+
+    @Override
+    public ProviderType getProviderType() {
+        return ProviderType.ANTHROPIC;
+    }
+
+    @Override
+    protected WebClient buildWebClient(ProviderRuntimeConfig config, String correlationId) {
+        // Anthropic 使用 x-api-key header 而非 Bearer Token
+        WebClient.Builder builder = WebClient.builder()
+                .clientConnector(httpConnector)
+                .baseUrl(config.baseUrl());
+        // 先设置自定义请求头（优先级最低）
+        com.code.aigateway.common.util.CustomHeaderUtils.applyCustomHeaders(builder, config.customHeaders(), "Provider客户端");
+        // 再设置认证头（优先级最高，不可被自定义头覆盖）
+        builder.defaultHeader("x-api-key", config.apiKey())
+               .defaultHeader("anthropic-version", resolveApiVersion())
+               .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
+        if (correlationId != null && !correlationId.isBlank()) {
+            builder.defaultHeader("X-Correlation-Id", correlationId);
+        }
+        return builder.build();
+    }
+
+    @Override
+    public Mono<UnifiedResponse> chat(UnifiedRequest request) {
+        ProviderRuntimeConfig config = resolveRuntimeConfig(request);
+        Map<String, Object> requestBody = buildRequestBody(request, false);
+
+        Mono<JsonNode> responseMono = buildWebClient(config, extractCorrelationId(request))
+                .post()
+                .uri(MESSAGES_PATH)
+                .body(BodyInserters.fromValue(requestBody))
+                .retrieve()
+                .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
+                .bodyToMono(JsonNode.class)
+                .timeout(Duration.ofSeconds(config.timeoutSeconds()));
+
+        if (config.maxRetries() > 0) {
+            responseMono = responseMono.retryWhen(buildRetrySpec(config, getStatsContext(request)));
+        }
+
+        return withCircuitBreaker(config.providerName(), request.getModel(), responseMono)
+                .onErrorMap(this::mapTransportError)
+                .map(this::parseResponse);
+    }
+
+    @Override
+    public Flux<UnifiedStreamEvent> streamChat(UnifiedRequest request) {
+        ProviderRuntimeConfig config = resolveRuntimeConfig(request);
+        Map<String, Object> requestBody = buildRequestBody(request, true);
+        AtomicBoolean firstTokenReceived = new AtomicBoolean(false);
+
+        // 流式状态跟踪器：累积 tool call 参数
+        AnthropicStreamState state = new AnthropicStreamState();
+
+        Flux<ServerSentEvent<String>> sseFlux = buildWebClient(config, extractCorrelationId(request))
+                .post()
+                .uri(MESSAGES_PATH)
+                .body(BodyInserters.fromValue(requestBody))
+                .retrieve()
+                .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
+                .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
+                .timeout(Duration.ofSeconds(config.timeoutSeconds()));
+
+        if (config.maxRetries() > 0) {
+            sseFlux = sseFlux
+                    .doOnNext(event -> firstTokenReceived.set(true))
+                    .retryWhen(buildStreamRetrySpec(config, firstTokenReceived, getStatsContext(request)));
+        }
+
+        return withCircuitBreakerFlux(config.providerName(), request.getModel(), sseFlux)
+                .onErrorMap(this::mapTransportError)
+                .flatMap(event -> parseStreamEvent(event, state));
+    }
+
+    // ==================== 请求构建 ====================
+
+    /**
+     * 构建 Anthropic Messages API 请求体
+     */
+    private Map<String, Object> buildRequestBody(UnifiedRequest request, boolean stream) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", request.getModel());
+        body.put("stream", stream);
+
+        // max_tokens 是 Anthropic 必填字段
+        int maxTokens = DEFAULT_MAX_TOKENS;
+        if (request.getGenerationConfig() != null && request.getGenerationConfig().getMaxOutputTokens() != null) {
+            maxTokens = request.getGenerationConfig().getMaxOutputTokens();
+        }
+        body.put("max_tokens", maxTokens);
+
+        // system prompt 单独传入
+        if (request.getSystemPrompt() != null && !request.getSystemPrompt().isBlank()) {
+            body.put("system", request.getSystemPrompt());
+        }
+
+        // 转换消息列表（角色映射 + 连续 tool_result 合并）
+        body.put("messages", buildMessages(request));
+
+        // 生成配置
+        if (request.getGenerationConfig() != null) {
+            if (request.getGenerationConfig().getTemperature() != null) {
+                body.put("temperature", request.getGenerationConfig().getTemperature());
+            }
+            if (request.getGenerationConfig().getTopP() != null) {
+                body.put("top_p", request.getGenerationConfig().getTopP());
+            }
+            boolean simplified = isSimplifiedThinkingMode(request);
+            if (request.getGenerationConfig().getTopK() != null) {
+                body.put("top_k", request.getGenerationConfig().getTopK());
+            }
+            if (request.getGenerationConfig().getStopSequences() != null && !request.getGenerationConfig().getStopSequences().isEmpty()) {
+                body.put("stop_sequences", request.getGenerationConfig().getStopSequences());
+            }
+            if (request.getGenerationConfig().getReasoning() != null) {
+                // 根据 thinkingCompatMode 决定是否使用简化模式
+                // 第三方 Anthropic 兼容 API（如 MiMo）不支持 budget_tokens、summary 等扩展字段，
+                // 收到不认识的字段会返回 400 Param Incorrect
+                Map<String, Object> thinking = reasoningSemanticMapper.toAnthropicThinking(
+                        request.getGenerationConfig().getReasoning(), simplified);
+                if (thinking != null && !thinking.isEmpty()) {
+                    body.put("thinking", thinking);
+                }
+            }
+        }
+
+        // 工具定义
+        if (request.getTools() != null && !request.getTools().isEmpty()) {
+            body.put("tools", buildTools(request.getTools()));
+        }
+        if (request.getToolChoice() != null) {
+            body.put("tool_choice", buildToolChoice(request.getToolChoice()));
+        }
+        return body;
+    }
+
+    /**
+     * 构建消息列表，处理角色映射和连续 tool_result 合并
+     * <p>
+     * Anthropic 要求 user/assistant 严格交替，连续的 tool_result 需合并到单条 user 消息中。
+     * </p>
+     */
+    private List<Map<String, Object>> buildMessages(UnifiedRequest request) {
+        if (request.getMessages() == null) {
+            return List.of();
+        }
+
+        // 判断是否为简化思考模式（第三方 API 如 MiMo 不支持 thinking 块的 signature 等扩展字段）
+        boolean simplifiedThinking = isSimplifiedThinkingMode(request);
+
+        List<Map<String, Object>> messages = new ArrayList<>();
+        for (UnifiedMessage msg : request.getMessages()) {
+            switch (msg.getRole()) {
+                case "user" -> messages.add(buildUserMessage(msg));
+                case "assistant" -> messages.add(buildAssistantMessage(msg, simplifiedThinking));
+                case "tool" -> {
+                    // tool → user + tool_result content block
+                    Map<String, Object> toolResult = new LinkedHashMap<>();
+                    toolResult.put("type", "tool_result");
+                    toolResult.put("tool_use_id", msg.getToolCallId() != null ? msg.getToolCallId() : "");
+                    toolResult.put("content", extractTextContent(msg));
+
+                    // 如果前一条也是 tool_result 合并到同一个 user 消息中
+                    if (!messages.isEmpty()) {
+                        Map<String, Object> last = messages.get(messages.size() - 1);
+                        if ("user".equals(last.get("role")) && last.get("content") instanceof List<?> list) {
+                            if (!list.isEmpty() && list.getFirst() instanceof Map<?, ?> firstBlock
+                                    && "tool_result".equals(firstBlock.get("type"))) {
+                                List<Object> merged = new ArrayList<>(list);
+                                merged.add(toolResult);
+                                last.put("content", merged);
+                                continue;
+                            }
+                        }
+                    }
+                    // 新建可变的 user 消息（后续可能被合并修改）
+                    Map<String, Object> userMsg = new LinkedHashMap<>();
+                    userMsg.put("role", "user");
+                    userMsg.put("content", new ArrayList<>(List.of(toolResult)));
+                    messages.add(userMsg);
+                }
+                default -> log.warn("[Anthropic] 忽略不支持的角色: {}", msg.getRole());
+            }
+        }
+        return messages;
+    }
+
+    private Map<String, Object> buildUserMessage(UnifiedMessage msg) {
+        if (msg.getParts() == null || msg.getParts().isEmpty()) {
+            return Map.of("role", "user", "content", "");
+        }
+
+        // 检查是否只有文本内容（走快速路径）
+        boolean hasOnlyText = msg.getParts().stream().allMatch(p -> "text".equals(p.getType()));
+        if (hasOnlyText) {
+            return Map.of("role", "user", "content", extractTextContent(msg));
+        }
+
+        // 包含图片等非文本内容，构建 content 数组
+        List<Object> content = new ArrayList<>();
+        for (UnifiedPart part : msg.getParts()) {
+            if ("text".equals(part.getType())) {
+                String text = part.getText() != null ? part.getText() : "";
+                if (!text.isEmpty()) {
+                    content.add(Map.of("type", "text", "text", text));
+                }
+            } else if ("image".equals(part.getType())) {
+                content.add(buildAnthropicImageBlock(part));
+            }
+        }
+
+        // 单个文本块简化为字符串
+        if (content.size() == 1 && content.getFirst() instanceof Map<?, ?> map
+                && "text".equals(map.get("type"))) {
+            return Map.of("role", "user", "content", map.get("text"));
+        }
+        return Map.of("role", "user", "content", content);
+    }
+
+    /**
+     * 构建 Anthropic 图片 content block
+     * <p>
+     * 格式：{type:"image", source:{type:"base64", media_type:"image/jpeg", data:"..."}}
+     * 或：  {type:"image", source:{type:"url", url:"https://..."}}
+     * </p>
+     */
+    private Map<String, Object> buildAnthropicImageBlock(UnifiedPart part) {
+        Map<String, Object> source = new LinkedHashMap<>();
+        if (part.getBase64Data() != null && !part.getBase64Data().isBlank()) {
+            // base64 编码图片
+            source.put("type", "base64");
+            source.put("media_type", part.getMimeType() != null ? part.getMimeType() : "image/png");
+            source.put("data", part.getBase64Data());
+        } else if (part.getUrl() != null && !part.getUrl().isBlank()) {
+            // URL 引用图片
+            source.put("type", "url");
+            source.put("url", part.getUrl());
+        } else {
+            throw new GatewayException(ErrorCode.INVALID_REQUEST, "image part is missing base64 data or url");
+        }
+        return Map.of("type", "image", "source", source);
+    }
+
+    /**
+     * 构建 assistant 消息。
+     * 如果包含 tool_calls，将其转换为 Anthropic 的 tool_use content block。
+     * <p>
+     * 简化思考模式下（simplified=true），第三方 API（如 MiMo）：
+     * <ul>
+     *   <li>保留 thinking 内容块（多轮工具调用必须回传，否则 400）</li>
+     *   <li>去除 signature 字段（第三方 API 不认识此字段会 400）</li>
+     *   <li>redacted_thinking 统一转为 thinking</li>
+     * </ul>
+     * </p>
+     */
+    private Map<String, Object> buildAssistantMessage(UnifiedMessage msg, boolean simplifiedThinking) {
+        List<Object> content = new ArrayList<>();
+
+        // 按原始顺序重建 content 块：text / thinking / tool_use
+        if (msg.getParts() != null) {
+            for (UnifiedPart part : msg.getParts()) {
+                if ("text".equals(part.getType())) {
+                    if (part.getText() != null && !part.getText().isEmpty()) {
+                        content.add(Map.of("type", "text", "text", part.getText()));
+                    }
+                } else if ("thinking".equals(part.getType())) {
+                    Map<String, Object> thinking = new LinkedHashMap<>();
+                    // 简化模式：统一用 "thinking" 类型，去除 signature
+                    // 完整模式：恢复原始类型（redacted_thinking → redacted_thinking），保留 signature
+                    if (simplifiedThinking) {
+                        thinking.put("type", "thinking");
+                    } else {
+                        String originalType = part.getAttributes() != null
+                                && "redacted_thinking".equals(part.getAttributes().get("anthropic_type"))
+                                ? "redacted_thinking" : "thinking";
+                        thinking.put("type", originalType);
+                    }
+                    thinking.put("thinking", part.getText() != null ? part.getText() : "");
+                    if (!simplifiedThinking
+                            && part.getAttributes() != null
+                            && part.getAttributes().get("signature") instanceof String sig) {
+                        thinking.put("signature", sig);
+                    }
+                    content.add(thinking);
+                }
+            }
+        }
+
+        // tool_calls → tool_use content blocks
+        if (msg.getToolCalls() != null) {
+            for (UnifiedToolCall tc : msg.getToolCalls()) {
+                Map<String, Object> toolUse = new LinkedHashMap<>();
+                toolUse.put("type", "tool_use");
+                toolUse.put("id", tc.getId() != null ? tc.getId() : "");
+                toolUse.put("name", tc.getToolName());
+                // Anthropic 的 input 是 object 而非 JSON string
+                toolUse.put("input", parseJsonArgs(tc.getArgumentsJson()));
+                content.add(toolUse);
+            }
+        }
+
+        if (content.size() == 1 && content.getFirst() instanceof Map<?, ?> map
+                && "text".equals(map.get("type"))) {
+            // 纯文本消息用字符串简化
+            return Map.of("role", "assistant", "content", map.get("text"));
+        }
+        return Map.of("role", "assistant", "content", content);
+    }
+
+    /**
+     * 构建工具定义（Anthropic 用 input_schema 而非 parameters）
+     */
+    private List<Map<String, Object>> buildTools(List<UnifiedTool> tools) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (UnifiedTool tool : tools) {
+            Map<String, Object> toolDef = new LinkedHashMap<>();
+            toolDef.put("name", tool.getName());
+            if (tool.getDescription() != null) {
+                toolDef.put("description", tool.getDescription());
+            }
+            if (tool.getInputSchema() != null) {
+                toolDef.put("input_schema", tool.getInputSchema());
+            }
+            result.add(toolDef);
+        }
+        return result;
+    }
+
+    /**
+     * 构建 tool_choice（Anthropic 格式）
+     * <p>
+     * auto → {"type":"auto"}, required → {"type":"any"}, specific → {"type":"tool","name":...}
+     * </p>
+     */
+    private Object buildToolChoice(UnifiedToolChoice choice) {
+        if (choice.getType() == null) {
+            return null;
+        }
+        return switch (choice.getType()) {
+            case "auto" -> Map.of("type", "auto");
+            case "required" -> Map.of("type", "any");
+            case "specific" -> Map.of("type", "tool", "name", choice.getToolName());
+            default -> null;
+        };
+    }
+
+    // ==================== 响应解析 ====================
+
+    /**
+     * 解析非流式响应
+     */
+    private UnifiedResponse parseResponse(JsonNode json) {
+        if ("error".equals(textOrNull(json.get("type")))) {
+            String msg = json.path("error").path("message").asText("unknown error");
+            throw new GatewayException(ErrorCode.PROVIDER_ERROR, "Anthropic error: " + msg);
+        }
+
+        List<UnifiedToolCall> toolCalls = new ArrayList<>();
+        List<UnifiedPart> thinkingParts = new ArrayList<>();
+        StringBuilder textBuilder = new StringBuilder();
+        JsonNode contentArray = json.path("content");
+
+        if (contentArray.isArray()) {
+            for (JsonNode block : contentArray) {
+                String blockType = block.path("type").asText();
+                if ("text".equals(blockType)) {
+                    textBuilder.append(block.path("text").asText());
+                } else if ("thinking".equals(blockType) || "redacted_thinking".equals(blockType)) {
+                    UnifiedPart thinkingPart = new UnifiedPart();
+                    thinkingPart.setType("thinking");
+                    thinkingPart.setText(block.has("thinking") ? block.path("thinking").asText() : block.path("text").asText());
+                    Map<String, Object> attributes = new LinkedHashMap<>();
+                    attributes.put("anthropic_type", blockType);
+                    if (block.has("signature")) {
+                        attributes.put("signature", block.path("signature").asText());
+                    }
+                    thinkingPart.setAttributes(attributes);
+                    thinkingParts.add(thinkingPart);
+                } else if ("tool_use".equals(blockType)) {
+                    UnifiedToolCall call = new UnifiedToolCall();
+                    call.setId(textOrNull(block.get("id")));
+                    call.setType("function");
+                    call.setToolName(block.path("name").asText());
+                    // Anthropic input 是 object，序列化为 JSON string
+                    call.setArgumentsJson(objectToString(block.get("input")));
+                    toolCalls.add(call);
+                }
+            }
+        }
+
+        UnifiedOutput output = new UnifiedOutput();
+        output.setRole("assistant");
+        List<UnifiedPart> outputParts = new ArrayList<>();
+        if (!textBuilder.isEmpty()) {
+            UnifiedPart part = new UnifiedPart();
+            part.setType("text");
+            part.setText(textBuilder.toString());
+            outputParts.add(part);
+        }
+        outputParts.addAll(thinkingParts);
+        output.setParts(outputParts);
+        output.setToolCalls(toolCalls.isEmpty() ? null : toolCalls);
+
+        UnifiedResponse response = new UnifiedResponse();
+        response.setId(textOrNull(json.get("id")));
+        response.setModel(textOrNull(json.get("model")));
+        response.setProvider("anthropic");
+        response.setCreated(longOrNull(json.get("created_at")));
+        response.setFinishReason(mapFinishReason(textOrNull(json.get("stop_reason"))));
+        response.setUsage(parseAnthropicUsage(json.get("usage")));
+        response.setOutputs(List.of(output));
+        return response;
+    }
+
+    /**
+     * 解析流式 SSE 事件（6 种 Anthropic event type）
+     */
+    private Flux<UnifiedStreamEvent> parseStreamEvent(ServerSentEvent<String> event, AnthropicStreamState state) {
+        String data = event.data();
+        if (data == null || data.isBlank()) {
+            return Flux.empty();
+        }
+
+        JsonNode json;
+        try {
+            json = objectMapper.readTree(data);
+        } catch (JsonProcessingException e) {
+            return Flux.error(new GatewayException(ErrorCode.STREAM_PARSE_ERROR, "failed to parse Anthropic stream chunk"));
+        }
+
+        String eventType = textOrNull(json.get("type"));
+        if (eventType == null) {
+            return Flux.empty();
+        }
+
+        return switch (eventType) {
+            case "message_start" -> handleStart(json, state);
+            case "content_block_start" -> handleContentBlockStart(json, state);
+            case "content_block_delta" -> handleContentBlockDelta(json, state);
+            case "content_block_stop" -> handleContentBlockStop(json, state);
+            case "message_delta" -> handleMessageDelta(json, state);
+            case "message_stop" -> Flux.empty();
+            case "ping" -> Flux.empty();
+            case "error" -> Flux.error(new GatewayException(ErrorCode.PROVIDER_ERROR,
+                    json.path("error").path("message").asText("Anthropic stream error")));
+            default -> Flux.empty();
+        };
+    }
+
+    /** message_start: 捕获消息 ID 和初始 usage，发射 usage_only 事件供协议适配器生成 message_start */
+    private Flux<UnifiedStreamEvent> handleStart(JsonNode json, AnthropicStreamState state) {
+        JsonNode message = json.path("message");
+        state.messageId = textOrNull(message.get("id"));
+        mergeAnthropicUsage(state, message.get("usage"));
+        // 发射 usage_only 事件，携带初始 usage（input_tokens + cache_read_input_tokens + cache_creation_input_tokens）
+        // 协议适配器据此在首个事件前生成 message_start，确保 usage 字段出现在正确位置
+        UnifiedUsage usage = new UnifiedUsage();
+        usage.setInputTokens(state.inputTokens);
+        usage.setOutputTokens(state.outputTokens != null ? state.outputTokens : 0);
+        usage.setCachedInputTokens(state.cachedInputTokens);
+        usage.setCacheCreationInputTokens(state.cacheCreationInputTokens);
+        usage.setRawInputTokens(state.rawInputTokens);
+        if (state.totalTokens != null) {
+            usage.setTotalTokens(state.totalTokens);
+        }
+        UnifiedStreamEvent event = new UnifiedStreamEvent();
+        event.setType(UnifiedStreamEvent.TYPE_USAGE_ONLY);
+        event.setUsage(usage);
+        return Flux.just(event);
+    }
+
+    /** content_block_start: tool_use 块开始时发射 tool_call 事件 */
+    private Flux<UnifiedStreamEvent> handleContentBlockStart(JsonNode json, AnthropicStreamState state) {
+        int index = json.path("index").asInt();
+        JsonNode block = json.path("content_block");
+        String blockType = block.path("type").asText();
+
+        if ("tool_use".equals(blockType)) {
+            state.currentToolId = textOrNull(block.get("id"));
+            state.currentToolName = block.path("name").asText();
+            state.currentToolArgs = new StringBuilder();
+            state.currentToolIndex = index;
+
+            UnifiedStreamEvent e = new UnifiedStreamEvent();
+            e.setType("tool_call");
+            e.setOutputIndex(index);
+            e.setToolCallId(state.currentToolId);
+            e.setToolName(state.currentToolName);
+            return Flux.just(e);
+        }
+        return Flux.empty();
+    }
+
+    /** content_block_delta: 文本增量或工具参数增量 */
+    private Flux<UnifiedStreamEvent> handleContentBlockDelta(JsonNode json, AnthropicStreamState state) {
+        int index = json.path("index").asInt();
+        JsonNode delta = json.path("delta");
+        String deltaType = delta.path("type").asText();
+
+        if ("text_delta".equals(deltaType)) {
+            UnifiedStreamEvent e = new UnifiedStreamEvent();
+            e.setType("text_delta");
+            e.setOutputIndex(index);
+            e.setTextDelta(delta.path("text").asText());
+            return Flux.just(e);
+        }
+
+        if ("thinking_delta".equals(deltaType)) {
+            UnifiedStreamEvent e = new UnifiedStreamEvent();
+            e.setType("thinking_delta");
+            e.setOutputIndex(index);
+            e.setThinkingDelta(delta.path("thinking").asText());
+            return Flux.just(e);
+        }
+
+        if ("input_json_delta".equals(deltaType)) {
+            String partial = delta.path("partial_json").asText();
+            state.currentToolArgs.append(partial);
+
+            UnifiedStreamEvent e = new UnifiedStreamEvent();
+            e.setType("tool_call_delta");
+            e.setOutputIndex(index);
+            e.setToolCallId(state.currentToolId);
+            e.setArgumentsDelta(partial);
+            return Flux.just(e);
+        }
+        return Flux.empty();
+    }
+
+    /** content_block_stop: tool_use 块结束时发射 tool_call_end */
+    private Flux<UnifiedStreamEvent> handleContentBlockStop(JsonNode json, AnthropicStreamState state) {
+        int index = json.path("index").asInt();
+        if (index == state.currentToolIndex && state.currentToolId != null) {
+            // 重置工具状态
+            state.currentToolId = null;
+            state.currentToolName = null;
+            state.currentToolArgs = null;
+            state.currentToolIndex = -1;
+        }
+        return Flux.empty();
+    }
+
+    /** message_delta: 发射 done 事件（含 finish_reason 和 usage） */
+    private Flux<UnifiedStreamEvent> handleMessageDelta(JsonNode json, AnthropicStreamState state) {
+        JsonNode delta = json.path("delta");
+        JsonNode usageNode = json.path("usage");
+        mergeAnthropicUsage(state, usageNode);
+
+        UnifiedUsage usage = new UnifiedUsage();
+        usage.setInputTokens(state.inputTokens);
+        usage.setOutputTokens(state.outputTokens);
+        usage.setCachedInputTokens(state.cachedInputTokens);
+        usage.setCacheCreationInputTokens(state.cacheCreationInputTokens);
+        usage.setRawInputTokens(state.rawInputTokens);
+        if (state.totalTokens != null) {
+            usage.setTotalTokens(state.totalTokens);
+        } else if (usage.getInputTokens() != null && usage.getOutputTokens() != null) {
+            usage.setTotalTokens(usage.getInputTokens() + usage.getOutputTokens());
+        }
+
+        UnifiedStreamEvent e = new UnifiedStreamEvent();
+        e.setType("done");
+        e.setFinishReason(mapFinishReason(textOrNull(delta.get("stop_reason"))));
+        e.setUsage(usage);
+        return Flux.just(e);
+    }
+
+    // ==================== 工具方法 ====================
+
+    private String resolveApiVersion() {
+        // 优先从 YAML 配置读取 provider 版本
+        // 如果没有配置，使用默认值
+        return DEFAULT_ANTHROPIC_VERSION;
+    }
+
+    /** Anthropic stop_reason → 统一 finishReason */
+    private String mapFinishReason(String stopReason) {
+        if (stopReason == null) return null;
+        return switch (stopReason) {
+            case "end_turn" -> "stop";
+            case "max_tokens" -> "length";
+            case "tool_use" -> "tool_calls";
+            case "stop_sequence" -> "stop";
+            default -> stopReason;
+        };
+    }
+
+    /**
+     * 解析 Anthropic usage（input_tokens / output_tokens / cache_read_input_tokens / cache_creation_input_tokens）。
+     * <p>Anthropic 的 input_tokens 不含缓存部分，归一化为总输入 Token 以统一语义。</p>
+     */
+    private UnifiedUsage parseAnthropicUsage(JsonNode usageNode) {
+        if (usageNode == null || usageNode.isNull() || usageNode.isMissingNode()) {
+            return null;
+        }
+        UnifiedUsage usage = new UnifiedUsage();
+        usage.setInputTokens(readIntField(usageNode, "input_tokens"));
+        usage.setOutputTokens(readIntField(usageNode, "output_tokens"));
+        Integer cacheReadTokens = readIntField(usageNode, "cache_read_input_tokens");
+        if (cacheReadTokens != null) {
+            usage.setCachedInputTokens(cacheReadTokens);
+        }
+        Integer cacheCreationTokens = readIntField(usageNode, "cache_creation_input_tokens");
+        if (cacheCreationTokens != null) {
+            usage.setCacheCreationInputTokens(cacheCreationTokens);
+        }
+        // 保存原始值供协议编码还原，然后归一化为总量
+        usage.setRawInputTokens(usage.getInputTokens());
+        normalizeAnthropicInputTokens(usage);
+        return usage;
+    }
+
+    /**
+     * 合并流式 Anthropic usage，兼容输入 token 可能延迟出现在后续事件的情况。
+     * <p>归一化 inputTokens 以包含缓存部分，统一语义。
+     * 使用 rawInputTokens 作为"已归一化"标志，避免多次调用时重复累加。</p>
+     */
+    private void mergeAnthropicUsage(AnthropicStreamState state, JsonNode usageNode) {
+        if (usageNode == null || usageNode.isNull() || usageNode.isMissingNode()) {
+            return;
+        }
+        Integer inputTokens = readIntField(usageNode, "input_tokens");
+        Integer outputTokens = readIntField(usageNode, "output_tokens");
+        Integer totalTokens = readIntField(usageNode, "total_tokens");
+        Integer cacheReadTokens = readIntField(usageNode, "cache_read_input_tokens");
+        Integer cacheCreationTokens = readIntField(usageNode, "cache_creation_input_tokens");
+
+        if (inputTokens != null) {
+            state.inputTokens = inputTokens;
+            // 新的 input_tokens 到达，重置归一化标志
+            state.rawInputTokens = null;
+        }
+        if (outputTokens != null) {
+            state.outputTokens = outputTokens;
+        }
+        // 缓存字段变更时也需要重新归一化
+        boolean cacheChanged = false;
+        if (cacheReadTokens != null) {
+            cacheChanged = cacheChanged || !cacheReadTokens.equals(state.cachedInputTokens);
+            state.cachedInputTokens = cacheReadTokens;
+        }
+        if (cacheCreationTokens != null) {
+            cacheChanged = cacheChanged || !cacheCreationTokens.equals(state.cacheCreationInputTokens);
+            state.cacheCreationInputTokens = cacheCreationTokens;
+        }
+        // 归一化：rawInputTokens 未设置（首次/新inputTokens）或缓存字段发生变化时累加
+        int cachedTotal = nullToZero(state.cachedInputTokens) + nullToZero(state.cacheCreationInputTokens);
+        boolean needNormalize = state.inputTokens != null && cachedTotal > 0
+                && (state.rawInputTokens == null || cacheChanged);
+        if (needNormalize) {
+            state.rawInputTokens = state.inputTokens;
+            state.inputTokens += cachedTotal;
+        } else if (state.inputTokens != null && state.rawInputTokens == null) {
+            // 无缓存时 rawInputTokens 等于 inputTokens，保证字段始终可用
+            state.rawInputTokens = state.inputTokens;
+        }
+        if (totalTokens != null) {
+            state.totalTokens = needNormalize ? totalTokens + cachedTotal : totalTokens;
+        } else if (state.inputTokens != null && state.outputTokens != null) {
+            state.totalTokens = state.inputTokens + state.outputTokens;
+        }
+    }
+
+    /**
+     * 归一化 Anthropic inputTokens：将缓存读取和写入 Token 合并到 inputTokens，
+     * 使 UnifiedUsage.inputTokens 语义与 OpenAI 一致（总量而非净量）。
+     * <p>同时重新计算 totalTokens。</p>
+     */
+    private void normalizeAnthropicInputTokens(UnifiedUsage usage) {
+        int cachedTotal = nullToZero(usage.getCachedInputTokens()) + nullToZero(usage.getCacheCreationInputTokens());
+        if (usage.getInputTokens() != null && cachedTotal > 0) {
+            usage.setInputTokens(usage.getInputTokens() + cachedTotal);
+        }
+        if (usage.getInputTokens() != null && usage.getOutputTokens() != null) {
+            usage.setTotalTokens(usage.getInputTokens() + usage.getOutputTokens());
+        }
+    }
+
+    private static int nullToZero(Integer value) {
+        return value != null ? value : 0;
+    }
+
+}
