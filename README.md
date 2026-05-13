@@ -6,6 +6,25 @@
 
 <img src="img/img_2.png" alt="AI Gateway 架构图">
 
+## 项目模块
+
+本项目采用多模块 Maven 架构，SDK 层与应用层解耦，SDK 可被任何 Java 21+ 项目独立引用：
+
+| 模块 | Artifact ID | 说明 |
+|------|-------------|------|
+| **ai-gateway-sdk** | `ai-gateway-sdk` | 零 Spring 依赖的协议翻译 SDK，支持请求解析、响应编码、流式事件编码和错误构建。详见 [SDK README](ai-gateway-sdk/README.md) |
+| **ai-gateway-app** | `ai-gateway-app` | Spring Boot 主应用，包含路由、鉴权、统计、Admin 管理后台等完整网关功能 |
+
+```
+AI-Gateway/
+├── ai-gateway-sdk/       # 协议翻译 SDK（独立可复用）
+├── ai-gateway-app/       # 网关主应用
+│   ├── src/main/java/    # 后端代码
+│   └── frontend-vue/     # 管理后台前端
+├── pom.xml               # 父 POM（版本管理）
+└── README.md
+```
+
 ## 功能特性
 
 ### 多协议适配
@@ -245,37 +264,46 @@ curl -X POST http://localhost:8080/v1/messages \
 ## 项目结构
 
 ```text
-src/main/java/com/code/aigateway/
-├── admin/                    # 管理后台（认证 / Controller / Service / Mapper）
-├── common/                   # 通用工具（R 响应包装 / 异常定义）
-├── config/                   # Spring 配置类
-├── core/
-│   ├── auth/                 # API Key 鉴权 WebFilter
-│   ├── capability/           # 模型能力检查
-│   ├── controller/           # 协议 Controller（薄层）
-│   ├── error/                # 网关异常（ErrorCode / GlobalExceptionHandler）
-│   ├── model/                # 统一模型（UnifiedRequest / UnifiedResponse）
-│   ├── protocol/             # 协议适配器（策略模式）
-│   ├── router/               # 模型路由（Persistent / ConfigBased / Auto Route）
-│   ├── runtime/              # 运行时快照（RoutingSnapshotHolder）
-│   ├── stats/                # 请求统计采集
-│   └── service/              # ChatGatewayService（核心编排）
-├── provider/                 # Provider 客户端
-│   ├── AbstractProviderClient
-│   ├── openai/               # OpenAI Chat + Responses
-│   ├── anthropic/            # Anthropic Messages
-│   └── gemini/               # Gemini GenerateContent
-└── security/                 # AES 加解密等安全组件
+ai-gateway-sdk/                           # 协议翻译 SDK
+└── src/main/java/com/code/aigateway/sdk/
+    ├── AiGatewaySdk.java                 # 门面类（一行式 API）
+    ├── error/                            # ErrorCode / ProtocolException
+    ├── model/                            # Unified* 协议无关模型 / ProtocolType
+    ├── protocol/                         # ProtocolAdapter 接口与四个协议实现
+    └── registry/                         # ProtocolRegistry（不可变、线程安全）
 
-frontend-vue/                 # 管理后台前端
-├── src/
-│   ├── api/                  # 后端 API 调用
-│   ├── components/           # 复用组件与表单对话框
-│   ├── layout/               # 侧边栏 + 顶栏布局
-│   ├── router/               # 路由与登录守卫
-│   ├── stores/               # Pinia 状态管理
-│   ├── utils/                # 鉴权状态等工具
-│   └── views/                # 首页/登录/仪表盘/通道/模型/Key/日志/运行时
+ai-gateway-app/                           # 网关主应用
+└── src/main/java/com/code/aigateway/
+    ├── admin/                            # 管理后台（认证 / Controller / Service / Mapper）
+    ├── common/                           # 通用工具（R 响应包装 / 异常定义）
+    ├── config/                           # Spring 配置类
+    ├── core/
+    │   ├── auth/                         # API Key 鉴权 WebFilter
+    │   ├── capability/                   # 模型能力检查
+    │   ├── controller/                   # 协议 Controller（薄层）
+    │   ├── error/                        # 网关异常（ErrorCode / GlobalExceptionHandler）
+    │   ├── model/                        # 统一模型（App 版，含 Spring 扩展字段）
+    │   ├── protocol/                     # 协议适配器（Spring-aware，委托 SDK）
+    │   ├── router/                       # 模型路由（Persistent / ConfigBased / Auto Route）
+    │   ├── runtime/                      # 运行时快照（RoutingSnapshotHolder）
+    │   ├── stats/                        # 请求统计采集
+    │   └── service/                      # ChatGatewayService（核心编排）
+    ├── provider/                         # Provider 客户端
+    │   ├── AbstractProviderClient
+    │   ├── openai/                       # OpenAI Chat + Responses
+    │   ├── anthropic/                    # Anthropic Messages
+    │   └── gemini/                       # Gemini GenerateContent
+    └── security/                         # AES 加解密等安全组件
+
+ai-gateway-app/frontend-vue/              # 管理后台前端
+└── src/
+    ├── api/                              # 后端 API 调用
+    ├── components/                       # 复用组件与表单对话框
+    ├── layout/                           # 侧边栏 + 顶栏布局
+    ├── router/                           # 路由与登录守卫
+    ├── stores/                           # Pinia 状态管理
+    ├── utils/                            # 鉴权状态等工具
+    └── views/                            # 首页/登录/仪表盘/通道/模型/Key/日志/运行时
 ```
 
 ## 数据库迁移
