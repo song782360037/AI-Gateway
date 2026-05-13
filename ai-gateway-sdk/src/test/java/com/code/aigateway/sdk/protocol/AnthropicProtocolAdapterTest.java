@@ -200,8 +200,41 @@ class AnthropicProtocolAdapterTest {
 
             UnifiedRequest result = adapter.parse(request);
 
-            // assistant 消息被拆分为 text 和 toolCalls 两条消息
-            assertThat(result.getMessages()).hasSizeGreaterThanOrEqualTo(2);
+            // assistant 消息合并为一条，同时包含 text parts 和 toolCalls
+            assertThat(result.getMessages()).hasSize(1);
+            UnifiedMessage assistantMsg = result.getMessages().get(0);
+            assertThat(assistantMsg.getRole()).isEqualTo("assistant");
+            assertThat(assistantMsg.getParts()).isNotEmpty();
+            assertThat(assistantMsg.getToolCalls()).isNotEmpty();
+        }
+
+        @Test
+        @DisplayName("assistant 消息中仅有 tool_use（无 text/thinking）时保持单条消息")
+        void parse_assistantToolUseOnly_noText() {
+            Map<String, Object> request = Map.of(
+                    "model", "claude-3-5-sonnet-20241022",
+                    "messages", List.of(
+                            Map.of(
+                                    "role", "assistant",
+                                    "content", List.of(
+                                            Map.of("type", "tool_use", "id", "tu_1", "name", "search",
+                                                    "input", Map.of("q", "test")),
+                                            Map.of("type", "tool_use", "id", "tu_2", "name", "read",
+                                                    "input", Map.of("path", "/tmp"))
+                                    )
+                            )
+                    ),
+                    "max_tokens", 1024
+            );
+
+            UnifiedRequest result = adapter.parse(request);
+
+            // 回归测试：tool_use-only 消息必须保持在单条 assistant 消息中，
+            // 不能拆分成独立消息（否则 DeepSeek 等 Provider 会因缺少 thinking 块返回 400）
+            assertThat(result.getMessages()).hasSize(1);
+            UnifiedMessage assistantMsg = result.getMessages().get(0);
+            assertThat(assistantMsg.getRole()).isEqualTo("assistant");
+            assertThat(assistantMsg.getToolCalls()).hasSize(2);
         }
 
         @Test

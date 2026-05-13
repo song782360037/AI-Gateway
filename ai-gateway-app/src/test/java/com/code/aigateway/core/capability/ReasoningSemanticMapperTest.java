@@ -129,8 +129,8 @@ class ReasoningSemanticMapperTest {
         }
 
         @Test
-        @DisplayName("effort + budget → enabled 模式（budget 优先）")
-        void effortWithBudget_usesEnabled() {
+        @DisplayName("effort + budget → effort 优先，使用 adaptive 模式，budgetTokens 仅作为 fallback")
+        void effortWithBudget_usesAdaptive() {
             UnifiedReasoningConfig r = new UnifiedReasoningConfig();
             r.setEnabled(true);
             r.setEffort("low");
@@ -138,7 +138,7 @@ class ReasoningSemanticMapperTest {
 
             Map<String, Object> thinking = mapper.toAnthropicThinking(r);
             assertThat(thinking).isNotNull();
-            assertThat(thinking.get("type")).isEqualTo("enabled");
+            assertThat(thinking.get("type")).isEqualTo("adaptive");
         }
     }
 
@@ -254,6 +254,59 @@ class ReasoningSemanticMapperTest {
             Map<String, Object> result = mapper.toOpenAiResponsesReasoning(r);
             assertThat(result).isNotNull();
             assertThat(result.get("effort")).isEqualTo("high");
+        }
+    }
+
+    // ===================== toAnthropicThinking (simplified) =====================
+
+    @Nested
+    @DisplayName("toAnthropicThinking (simplified)")
+    class ToAnthropicThinkingSimplified {
+
+        @Test
+        @DisplayName("null reasoning → null")
+        void nullReasoning_returnsNull() {
+            assertNull(mapper.toAnthropicThinking(null, true));
+        }
+
+        @Test
+        @DisplayName("disabled → null（简化模式下不发送 thinking 字段）")
+        void disabled_returnsNull() {
+            UnifiedReasoningConfig r = new UnifiedReasoningConfig();
+            r.setEnabled(false);
+            assertNull(mapper.toAnthropicThinking(r, true));
+        }
+
+        @Test
+        @DisplayName("enabled 时仅输出 type=enabled，不含 budget_tokens、summary 等扩展字段")
+        void enabled_onlyOutputsTypeEnabled() {
+            UnifiedReasoningConfig r = new UnifiedReasoningConfig();
+            r.setEnabled(true);
+            r.setBudgetTokens(4096);
+            r.setEffort("high");
+            r.setSummary("detailed");
+
+            Map<String, Object> thinking = mapper.toAnthropicThinking(r, true);
+            assertThat(thinking).isNotNull();
+            assertThat(thinking).hasSize(1);
+            assertThat(thinking.get("type")).isEqualTo("enabled");
+            assertThat(thinking).doesNotContainKeys("budget_tokens", "summary", "output_config");
+        }
+
+        @Test
+        @DisplayName("简化模式与完整模式对比：同一请求输出不同")
+        void simplified_vs_full_producesDifferentOutput() {
+            UnifiedReasoningConfig r = new UnifiedReasoningConfig();
+            r.setEnabled(true);
+            r.setBudgetTokens(8192);
+
+            Map<String, Object> simplified = mapper.toAnthropicThinking(r, true);
+            Map<String, Object> full = mapper.toAnthropicThinking(r, false);
+
+            assertThat(simplified).hasSize(1);
+            assertThat(simplified.get("type")).isEqualTo("enabled");
+            assertThat(full).hasSizeGreaterThan(1);
+            assertThat(full).containsKey("budget_tokens");
         }
     }
 

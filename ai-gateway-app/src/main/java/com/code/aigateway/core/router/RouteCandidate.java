@@ -46,6 +46,9 @@ public class RouteCandidate {
     /** 提供商级别自定义请求头（已与全局头合并，提供商级别覆盖全局同名头） */
     Map<String, String> customHeaders;
 
+    /** thinking 参数兼容模式：full=完整官方参数，simplified=仅输出 type 字段 */
+    String thinkingCompatMode;
+
     Boolean supportsVision;
     Boolean supportsTools;
     Boolean supportsToolChoiceRequired;

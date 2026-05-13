@@ -27,6 +27,7 @@ public interface ProviderConfigMapper {
             @Result(property = "priority", column = "priority"),
             @Result(property = "supportedProtocols", column = "supported_protocols"),
             @Result(property = "customHeaders", column = "custom_headers"),
+            @Result(property = "thinkingCompatMode", column = "thinking_compat_mode"),
             @Result(property = "versionNo", column = "version_no"),
             @Result(property = "creator", column = "creator"),
             @Result(property = "createTime", column = "create_time"),
@@ -36,7 +37,8 @@ public interface ProviderConfigMapper {
     })
     @Select("""
             SELECT id, provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                   api_key_iv, timeout_seconds, priority, supported_protocols, custom_headers, version_no,
+                   api_key_iv, timeout_seconds, priority, supported_protocols, custom_headers,
+                   thinking_compat_mode, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM provider_config
             WHERE id = #{id}
@@ -49,7 +51,8 @@ public interface ProviderConfigMapper {
      */
     @Select("""
             SELECT id, provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                   api_key_iv, timeout_seconds, priority, supported_protocols, custom_headers, version_no,
+                   api_key_iv, timeout_seconds, priority, supported_protocols, custom_headers,
+                   thinking_compat_mode, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM provider_config
             WHERE provider_code = #{providerCode}
@@ -65,11 +68,13 @@ public interface ProviderConfigMapper {
     @Insert("""
             INSERT INTO provider_config (
                 provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                api_key_iv, timeout_seconds, priority, supported_protocols, custom_headers, version_no,
+                api_key_iv, timeout_seconds, priority, supported_protocols, custom_headers,
+                thinking_compat_mode, version_no,
                 creator, create_time, updater, update_time, deleted
             ) VALUES (
                 #{providerCode}, #{providerType}, #{displayName}, #{enabled}, #{baseUrl}, #{apiKeyCiphertext},
-                #{apiKeyIv}, #{timeoutSeconds}, #{priority}, #{supportedProtocols}, #{customHeaders}, #{versionNo},
+                #{apiKeyIv}, #{timeoutSeconds}, #{priority}, #{supportedProtocols}, #{customHeaders},
+                #{thinkingCompatMode}, #{versionNo},
                 #{creator}, #{createTime}, #{updater}, #{updateTime}, #{deleted}
             )
             """)
@@ -92,6 +97,7 @@ public interface ProviderConfigMapper {
                 priority = #{priority},
                 supported_protocols = #{supportedProtocols},
                 custom_headers = #{customHeaders},
+                thinking_compat_mode = #{thinkingCompatMode},
                 version_no = #{versionNo} + 1,
                 updater = #{updater},
                 update_time = #{updateTime}
@@ -133,7 +139,8 @@ public interface ProviderConfigMapper {
     @Select("""
             <script>
             SELECT id, provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                   api_key_iv, timeout_seconds, priority, supported_protocols, custom_headers, version_no,
+                   api_key_iv, timeout_seconds, priority, supported_protocols, custom_headers,
+                   thinking_compat_mode, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM provider_config
             WHERE deleted = 0
@@ -223,7 +230,8 @@ public interface ProviderConfigMapper {
      */
     @Select("""
             SELECT id, provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                   api_key_iv, timeout_seconds, priority, supported_protocols, custom_headers, version_no,
+                   api_key_iv, timeout_seconds, priority, supported_protocols, custom_headers,
+                   thinking_compat_mode, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM provider_config
             WHERE enabled = 1

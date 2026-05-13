@@ -257,7 +257,7 @@
         <!-- 15. 操作 -->
         <el-table-column label="操作" min-width="100" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openDetail(row.requestId)">详情</el-button>
+            <el-button link type="primary" @click="openDetail(row.id)">详情</el-button>
           </template>
         </el-table-column>
 
@@ -435,12 +435,12 @@ async function onPageSizeChange() {
   await loadData()
 }
 
-async function openDetail(requestId: string) {
+async function openDetail(id: number) {
   detailVisible.value = true
   detailLoading.value = true
   detailData.value = null
   try {
-    detailData.value = await fetchRequestLogDetail(requestId)
+    detailData.value = await fetchRequestLogDetail(id)
   } catch {
     ElMessage.error('加载详情失败')
   } finally {

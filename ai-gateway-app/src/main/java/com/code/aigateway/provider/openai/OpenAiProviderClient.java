@@ -166,11 +166,14 @@ public class OpenAiProviderClient extends AbstractProviderClient {
                     body.put("reasoning_effort", reasoningEffort);
                 }
                 // 国产模型兼容格式：thinking {type: "enabled"/"disabled", budget_tokens?}
+                // 注意：simplified 模式下不输出 budget_tokens，因为 MiMo 等第三方 API 不支持此字段
+                boolean simplified = isSimplifiedThinkingMode(request);
                 if (Boolean.TRUE.equals(reasoning.getEnabled())) {
                     Map<String, Object> thinkingMap = new LinkedHashMap<>();
                     thinkingMap.put("type", "enabled");
                     // DeepSeek 等模型支持 budget_tokens 限制思考预算
-                    if (reasoning.getBudgetTokens() != null && reasoning.getBudgetTokens() > 0) {
+                    // 仅在完整模式下输出 budget_tokens，简化模式跳过
+                    if (!simplified && reasoning.getBudgetTokens() != null && reasoning.getBudgetTokens() > 0) {
                         thinkingMap.put("budget_tokens", reasoning.getBudgetTokens());
                     }
                     body.put("thinking", thinkingMap);

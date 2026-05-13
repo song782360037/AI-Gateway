@@ -278,7 +278,8 @@ public final class RoutingConfigSnapshot {
             int timeoutSeconds,
             int priority,
             List<String> supportedProtocols,
-            Map<String, String> customHeaders
+            Map<String, String> customHeaders,
+            String thinkingCompatMode
     ) {
     }
 

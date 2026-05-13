@@ -10,7 +10,7 @@ export function fetchRequestLogPage(data: RequestLogQueryReq) {
   )
 }
 
-/** 查询请求日志详情 */
-export function fetchRequestLogDetail(requestId: string) {
-  return request.get<never, RequestLogRsp>(`/admin/request-log/${requestId}`)
+/** 查询请求日志详情（按主键 id 查询，避免 request_id 重复导致详情错位） */
+export function fetchRequestLogDetail(id: number) {
+  return request.get<never, RequestLogRsp>(`/admin/request-log/by-id/${id}`)
 }

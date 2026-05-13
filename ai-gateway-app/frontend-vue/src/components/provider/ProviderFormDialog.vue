@@ -137,6 +137,26 @@
           + 添加请求头
         </el-button>
       </section>
+
+      <!-- Thinking 兼容模式 -->
+      <section class="dialog-section">
+        <div class="dialog-section__head">
+          <h4>Thinking 兼容模式</h4>
+          <p>
+            控制发送给上游的 thinking 参数格式。第三方 API（如 MiMo）不支持扩展字段，需选择「简化模式」避免 400 错误。
+          </p>
+        </div>
+        <el-form-item label="兼容模式" prop="thinkingCompatMode">
+          <el-select v-model="form.thinkingCompatMode" style="width: 100%">
+            <el-option
+              v-for="item in thinkingCompatOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
+      </section>
     </el-form>
 
     <template #footer>
@@ -153,7 +173,7 @@
 import { reactive, ref, watch } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ElMessage } from 'element-plus'
-import type { ProviderConfigAddReq, ProviderConfigRsp, ProviderConfigUpdateReq } from '../../types/provider'
+import type { ProviderConfigAddReq, ProviderConfigRsp, ProviderConfigUpdateReq, ThinkingCompatMode } from '../../types/provider'
 import { PROTECTED_HEADERS, VALID_HEADER_NAME_REGEX, hasCrlf } from '../../constants/customHeaders'
 
 /** 自定义请求头列表项 */
@@ -175,6 +195,7 @@ interface ProviderFormModel {
   priority: number
   supportedProtocols: string[]
   customHeadersList: HeaderItem[]
+  thinkingCompatMode: ThinkingCompatMode
 }
 
 const providerTypeOptions = [
@@ -190,6 +211,12 @@ const protocolOptions = [
   { value: 'OPENAI_RESPONSES', label: 'OpenAI Responses' },
   { value: 'ANTHROPIC', label: 'Anthropic' },
   { value: 'GEMINI', label: 'Gemini' },
+] as const
+
+/** thinking 兼容模式选项 */
+const thinkingCompatOptions = [
+  { value: 'full', label: '完整模式 — 输出 budget_tokens、summary 等官方字段（适用于 Claude、DeepSeek）' },
+  { value: 'simplified', label: '简化模式 — 仅输出 type 字段（适用于 MiMo 等第三方兼容 API）' },
 ] as const
 
 const props = defineProps<{
@@ -212,6 +239,7 @@ const rules: FormRules<ProviderFormModel> = {
   providerType: [{ required: true, message: '请选择提供商类型', trigger: 'change' }],
   baseUrl: [{ required: true, message: '请输入接口地址', trigger: 'blur' }],
   apiKey: [{ validator: validateApiKey, trigger: 'blur' }],
+  thinkingCompatMode: [{ required: true, message: '请选择 Thinking 兼容模式', trigger: 'change' }],
 }
 
 watch(
@@ -243,6 +271,7 @@ function buildFormState(value?: ProviderConfigRsp | null): ProviderFormModel {
     priority: value.priority,
     supportedProtocols: value.supportedProtocols ?? [],
     customHeadersList: mapToHeadersList(value.customHeaders),
+    thinkingCompatMode: value.thinkingCompatMode || 'full',
   }
 }
 
@@ -258,6 +287,7 @@ function createEmptyForm(): ProviderFormModel {
     priority: 0,
     supportedProtocols: [],
     customHeadersList: [],
+    thinkingCompatMode: 'full',
   }
 }
 
@@ -360,6 +390,7 @@ async function submit() {
     priority: form.priority,
     supportedProtocols: form.supportedProtocols,
     customHeaders: headersListToMap(form.customHeadersList),
+    thinkingCompatMode: form.thinkingCompatMode,
   }
 
   emit(

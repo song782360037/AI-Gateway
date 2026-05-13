@@ -75,11 +75,43 @@ public class ReasoningSemanticMapper {
      * 将统一语义映射为 Anthropic thinking 配置（支持 enabled 和 adaptive）。
      */
     public Map<String, Object> toAnthropicThinking(UnifiedReasoningConfig reasoning) {
-        if (reasoning == null || !Boolean.TRUE.equals(reasoning.getEnabled())) {
+        return toAnthropicThinking(reasoning, false);
+    }
+
+    /**
+     * 将统一语义映射为 Anthropic thinking 配置（支持 enabled 和 adaptive）。
+     * <p>
+     * 当 simplified=true 时，仅输出 {"type":"enabled"} 或 {"type":"disabled"}，
+     * 适用于第三方 Anthropic 兼容 API（如 MiMo），这些 API 不支持 budget_tokens、summary、output_config 等扩展字段，
+     * 收到不认识的字段会返回 400 Param Incorrect。
+     * </p>
+     *
+     * @param reasoning   统一推理配置
+     * @param simplified  是否使用简化模式（仅输出 type 字段，不输出扩展字段）
+     */
+    public Map<String, Object> toAnthropicThinking(UnifiedReasoningConfig reasoning, boolean simplified) {
+        if (reasoning == null) {
             return null;
         }
         Map<String, Object> thinking = new LinkedHashMap<>();
 
+        // 简化模式：仅输出 type 字段，不输出 budget_tokens、summary、output_config
+        // 适用于 MiMo 等第三方 Anthropic 兼容 API，这些 API 不支持扩展字段
+        // 注意：简化模式下 enabled=false 时不发送 thinking 字段，与完整模式保持语义一致（不传即不启用）
+        if (simplified) {
+            if (!Boolean.TRUE.equals(reasoning.getEnabled())) {
+                return null;
+            }
+            thinking.put("type", "enabled");
+            return thinking;
+        }
+
+        // 完整模式下，enabled=false 不发送 thinking 参数（与官方 API 语义一致：不传即不启用）
+        if (!Boolean.TRUE.equals(reasoning.getEnabled())) {
+            return null;
+        }
+
+        // 完整模式：输出所有 Anthropic 原生 thinking 字段
         // 有 effort 时优先使用 adaptive 模式（Claude 4.6+），budgetTokens 仅作为 enabled 模式的 fallback
         if (reasoning.getEffort() != null && !reasoning.getEffort().isBlank()) {
             thinking.put("type", "adaptive");

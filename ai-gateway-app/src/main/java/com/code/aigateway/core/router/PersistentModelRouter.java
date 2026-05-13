@@ -143,6 +143,7 @@ public class PersistentModelRouter implements ModelRouter {
                 .providerTimeoutSeconds(selected.getProviderTimeoutSeconds())
                 .providerApiKey(selected.getProviderApiKey())
                 .customHeaders(selected.getCustomHeaders())
+                .thinkingCompatMode(selected.getThinkingCompatMode())
                 .build();
     }
 
@@ -161,6 +162,7 @@ public class PersistentModelRouter implements ModelRouter {
                         .providerTimeoutSeconds(c.getProviderTimeoutSeconds())
                         .providerApiKey(c.getProviderApiKey())
                         .customHeaders(c.getCustomHeaders())
+                        .thinkingCompatMode(c.getThinkingCompatMode())
                         .build())
                 .toList();
 
@@ -250,6 +252,7 @@ public class PersistentModelRouter implements ModelRouter {
                         .providerApiKey(entry.apiKey())
                         .providerTimeoutSeconds(entry.timeoutSeconds())
                         .customHeaders(CustomHeaderUtils.mergeCustomHeaders(snapshot.getGlobalCustomHeaders(), entry.customHeaders(), "透传路由"))
+                        .thinkingCompatMode(entry.thinkingCompatMode())
                         .build())
                 .toList();
 

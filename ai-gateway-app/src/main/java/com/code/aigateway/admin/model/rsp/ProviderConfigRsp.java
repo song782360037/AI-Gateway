@@ -48,6 +48,9 @@ public class ProviderConfigRsp {
     /** 提供商级别自定义请求头（键值对） */
     private Map<String, String> customHeaders;
 
+    /** thinking 参数兼容模式：full / simplified */
+    private String thinkingCompatMode;
+
     /** 乐观锁版本号 */
     private Long versionNo;
 

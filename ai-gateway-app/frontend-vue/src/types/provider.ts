@@ -6,6 +6,9 @@ export interface ProviderConfigQueryReq {
   pageSize: number
 }
 
+/** thinking 参数兼容模式：full=完整官方参数，simplified=仅输出 type 字段 */
+export type ThinkingCompatMode = 'full' | 'simplified'
+
 export interface ProviderConfigAddReq {
   providerCode: string
   providerType: string
@@ -17,6 +20,7 @@ export interface ProviderConfigAddReq {
   priority: number
   supportedProtocols?: string[]
   customHeaders?: Record<string, string>
+  thinkingCompatMode?: ThinkingCompatMode
 }
 
 export interface ProviderConfigUpdateReq {
@@ -32,6 +36,7 @@ export interface ProviderConfigUpdateReq {
   priority: number
   supportedProtocols?: string[]
   customHeaders?: Record<string, string>
+  thinkingCompatMode?: ThinkingCompatMode
 }
 
 export interface ProviderConfigRsp {
@@ -46,6 +51,7 @@ export interface ProviderConfigRsp {
   priority: number
   supportedProtocols?: string[]
   customHeaders?: Record<string, string>
+  thinkingCompatMode?: ThinkingCompatMode
   versionNo: number
   createTime?: string
   updateTime?: string

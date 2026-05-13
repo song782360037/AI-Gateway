@@ -39,8 +39,20 @@ public class RequestLogController {
     }
 
     /**
-     * 查询单条请求日志详情。
+     * 查询单条请求日志详情（按主键 id 查询，避免 request_id 重复导致详情错位）
      */
+    @GetMapping("/by-id/{id}")
+    public Mono<R<RequestLogRsp>> detailById(@PathVariable Long id) {
+        return Mono.fromCallable(() -> requestLogService.getDetailById(id))
+                .subscribeOn(Schedulers.boundedElastic())
+                .map(R::ok);
+    }
+
+    /**
+     * 根据 requestId 查询请求日志详情（兼容旧接口）
+     * @deprecated 推荐使用 {@link #detailById(Long)} 按主键查询，避免 request_id 重复导致详情错位
+     */
+    @Deprecated
     @GetMapping("/{requestId}")
     public Mono<R<RequestLogRsp>> detail(@PathVariable String requestId) {
         return Mono.fromCallable(() -> requestLogService.getDetail(requestId))

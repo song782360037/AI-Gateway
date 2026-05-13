@@ -13,6 +13,7 @@ import com.code.aigateway.core.router.RouteResult;
 import com.code.aigateway.core.stats.ActiveRequestTracker;
 import com.code.aigateway.core.stats.RequestStatsCollector;
 import com.code.aigateway.core.stats.RequestStatsContext;
+import com.code.aigateway.provider.AbstractProviderClient;
 import com.code.aigateway.provider.ProviderClient;
 import com.code.aigateway.provider.ProviderClientFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -243,6 +244,11 @@ public class ChatGatewayService {
             unifiedRequest.setMetadata(new java.util.HashMap<>());
         }
         unifiedRequest.getMetadata().put("statsContext", context);
+        // 将 thinking 兼容模式写入 metadata，供 Provider Client 读取
+        // 不写入 SDK 的 ProviderExecutionContext，保持 SDK 官方语义
+        if (routeResult.getThinkingCompatMode() != null) {
+            unifiedRequest.getMetadata().put(AbstractProviderClient.META_THINKING_COMPAT_MODE, routeResult.getThinkingCompatMode());
+        }
         unifiedRequest.setExecutionContext(buildExecutionContext(routeResult, correlationId));
     }
 

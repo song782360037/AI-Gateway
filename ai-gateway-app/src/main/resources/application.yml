@@ -11,8 +11,9 @@ spring:
     active: local
 
   # WebFlux 请求体缓冲区限制（默认 256KB，AI 模型请求体较大需调高）
+  # 多模态请求（含 base64 图片/文件）可达数十 MB，100MB 确保不因缓冲区溢出丢失请求
   codec:
-    max-in-memory-size: 10MB
+    max-in-memory-size: 100MB
 
   # 优雅停机：等待在途请求完成
   lifecycle:

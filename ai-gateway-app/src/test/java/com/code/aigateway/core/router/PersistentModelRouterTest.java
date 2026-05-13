@@ -397,7 +397,7 @@ class PersistentModelRouterTest {
         @DisplayName("YAML 路由抛出 MODEL_NOT_FOUND 时，走透传分支")
         void shouldPassthroughWhenYamlThrowsModelNotFound() {
             RoutingConfigSnapshot.ProviderEntry provider = new RoutingConfigSnapshot.ProviderEntry(
-                    "openai", "openai-main", true, "https://api.openai.com", "sk-key", 60, 10, List.of("OPENAI_CHAT"), Map.of());
+                    "openai", "openai-main", true, "https://api.openai.com", "sk-key", 60, 10, List.of("OPENAI_CHAT"), Map.of(), "full");
             RoutingConfigSnapshot snapshot = buildEmptySnapshotWithProviders(provider);
             when(routingSnapshotHolder.get()).thenReturn(snapshot);
             when(autoRouteSelector.isAutoModel("unknown-model")).thenReturn(false);
@@ -417,7 +417,7 @@ class PersistentModelRouterTest {
         void shouldFilterProviderByProtocolInPassthrough() {
             // Provider 只支持 ANTHROPIC
             RoutingConfigSnapshot.ProviderEntry provider = new RoutingConfigSnapshot.ProviderEntry(
-                    "anthropic", "claude-main", true, "https://api.anthropic.com", "sk-key", 60, 10, List.of("ANTHROPIC"), Map.of());
+                    "anthropic", "claude-main", true, "https://api.anthropic.com", "sk-key", 60, 10, List.of("ANTHROPIC"), Map.of(), "full");
             RoutingConfigSnapshot snapshot = buildEmptySnapshotWithProviders(provider);
             when(routingSnapshotHolder.get()).thenReturn(snapshot);
             when(autoRouteSelector.isAutoModel("unknown-model")).thenReturn(false);
@@ -448,7 +448,7 @@ class PersistentModelRouterTest {
         @DisplayName("透传时 Provider supportedProtocols 为空表示支持所有协议")
         void shouldTreatEmptyProtocolsAsAllSupportedInPassthrough() {
             RoutingConfigSnapshot.ProviderEntry provider = new RoutingConfigSnapshot.ProviderEntry(
-                    "openai", "openai-main", true, "https://api.openai.com", "sk-key", 60, 10, List.of(), Map.of());
+                    "openai", "openai-main", true, "https://api.openai.com", "sk-key", 60, 10, List.of(), Map.of(), "full");
             RoutingConfigSnapshot snapshot = buildEmptySnapshotWithProviders(provider);
             when(routingSnapshotHolder.get()).thenReturn(snapshot);
             when(autoRouteSelector.isAutoModel("unknown-model")).thenReturn(false);
@@ -464,7 +464,7 @@ class PersistentModelRouterTest {
         @DisplayName("透传时请求协议为 null 表示不限制协议")
         void shouldNotFilterWhenRequestProtocolNullInPassthrough() {
             RoutingConfigSnapshot.ProviderEntry provider = new RoutingConfigSnapshot.ProviderEntry(
-                    "openai", "openai-main", true, "https://api.openai.com", "sk-key", 60, 10, List.of("OPENAI_CHAT"), Map.of());
+                    "openai", "openai-main", true, "https://api.openai.com", "sk-key", 60, 10, List.of("OPENAI_CHAT"), Map.of(), "full");
             RoutingConfigSnapshot snapshot = buildEmptySnapshotWithProviders(provider);
             when(routingSnapshotHolder.get()).thenReturn(snapshot);
             when(autoRouteSelector.isAutoModel("unknown-model")).thenReturn(false);
@@ -603,9 +603,9 @@ class PersistentModelRouterTest {
         @DisplayName("routeAll YAML 未命中时走透传，返回所有支持协议的 Provider")
         void shouldReturnAllPassthroughCandidatesInRouteAll() {
             RoutingConfigSnapshot.ProviderEntry provider1 = new RoutingConfigSnapshot.ProviderEntry(
-                    "openai", "openai-main", true, "https://api.openai.com", "sk-key1", 60, 20, List.of("OPENAI_CHAT"), Map.of());
+                    "openai", "openai-main", true, "https://api.openai.com", "sk-key1", 60, 20, List.of("OPENAI_CHAT"), Map.of(), "full");
             RoutingConfigSnapshot.ProviderEntry provider2 = new RoutingConfigSnapshot.ProviderEntry(
-                    "anthropic", "claude-main", true, "https://api.anthropic.com", "sk-key2", 60, 10, List.of("OPENAI_CHAT"), Map.of());
+                    "anthropic", "claude-main", true, "https://api.anthropic.com", "sk-key2", 60, 10, List.of("OPENAI_CHAT"), Map.of(), "full");
             RoutingConfigSnapshot snapshot = buildEmptySnapshotWithProviders(provider1, provider2);
             when(routingSnapshotHolder.get()).thenReturn(snapshot);
             when(autoRouteSelector.isAutoModel("unknown")).thenReturn(false);

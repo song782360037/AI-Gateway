@@ -63,4 +63,14 @@ public class RouteResult {
      */
     @JsonIgnore
     private Map<String, String> customHeaders;
+
+    /**
+     * thinking 参数兼容模式，从提供商配置透传而来。
+     * <ul>
+     *   <li>"full" — 输出完整官方 thinking 参数</li>
+     *   <li>"simplified" — 仅输出 {"type":"enabled"} 或 {"type":"disabled"}</li>
+     * </ul>
+     */
+    @JsonIgnore
+    private String thinkingCompatMode;
 }

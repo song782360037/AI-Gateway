@@ -222,7 +222,8 @@ public class RuntimeConfigRefreshService {
                 providerConfig.getTimeoutSeconds() == null ? 60 : providerConfig.getTimeoutSeconds(),
                 providerConfig.getPriority() == null ? 0 : providerConfig.getPriority(),
                 parseProtocols(providerConfig.getSupportedProtocols()),
-                parseHeadersJson(providerConfig.getCustomHeaders())
+                parseHeadersJson(providerConfig.getCustomHeaders()),
+                ProviderConfigDO.normalizeThinkingCompatMode(providerConfig.getThinkingCompatMode())
         );
     }
 
@@ -245,6 +246,7 @@ public class RuntimeConfigRefreshService {
                 .providerPriority(providerEntry.priority())
                 .supportedProtocols(providerEntry.supportedProtocols())
                 .customHeaders(mergedHeaders)
+                .thinkingCompatMode(providerEntry.thinkingCompatMode())
                 .build();
     }
 
@@ -316,6 +318,7 @@ public class RuntimeConfigRefreshService {
                 .providerPriority(candidate.getPriority() == null ? 0 : candidate.getPriority())
                 .supportedProtocols(providerEntry.supportedProtocols())
                 .customHeaders(mergedHeaders)
+                .thinkingCompatMode(providerEntry.thinkingCompatMode())
                 .supportsVision(candidate.getSupportsVision())
                 .supportsTools(candidate.getSupportsTools())
                 .supportsToolChoiceRequired(candidate.getSupportsToolChoiceRequired())

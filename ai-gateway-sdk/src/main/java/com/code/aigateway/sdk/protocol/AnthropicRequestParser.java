@@ -120,21 +120,17 @@ class AnthropicRequestParser {
             }
         }
 
-        // 如果有文本/思考内容，先添加消息
-        if (!parts.isEmpty()) {
-            UnifiedMessage contentMsg = new UnifiedMessage();
-            contentMsg.setRole("assistant");
-            contentMsg.setParts(parts);
-            result.add(contentMsg);
-        }
-
-        // 如果有工具调用，添加 toolCalls 消息
-        if (!toolCalls.isEmpty()) {
-            UnifiedMessage toolMsg = new UnifiedMessage();
-            toolMsg.setRole("assistant");
-            toolMsg.setToolCalls(toolCalls);
-            toolMsg.setParts(List.of());
-            result.add(toolMsg);
+        // 将 parts 和 toolCalls 放在同一条 assistant 消息中
+        // DeepSeek 等 Provider 校验 tool_use 所在消息必须同时包含 thinking 块，
+        // 拆分成两条消息会导致 tool_use-only 消息缺失 thinking 而返回 400
+        if (!parts.isEmpty() || !toolCalls.isEmpty()) {
+            UnifiedMessage assistantMsg = new UnifiedMessage();
+            assistantMsg.setRole("assistant");
+            assistantMsg.setParts(parts);
+            if (!toolCalls.isEmpty()) {
+                assistantMsg.setToolCalls(toolCalls);
+            }
+            result.add(assistantMsg);
         }
     }
 

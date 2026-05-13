@@ -35,6 +35,17 @@ public class RequestLogService {
     }
 
     /**
+     * 根据主键 id 查询请求日志详情（精确匹配，避免 request_id 重复导致详情错位）。
+     */
+    public RequestLogRsp getDetailById(Long id) {
+        RequestLogDO record = requestLogMapper.selectById(id);
+        if (record == null) {
+            throw new BizException("REQUEST_LOG_NOT_FOUND", "请求日志不存在，id: " + id);
+        }
+        return toRsp(record);
+    }
+
+    /**
      * 根据 requestId 查询请求日志详情。
      */
     public RequestLogRsp getDetail(String requestId) {

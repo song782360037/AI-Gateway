@@ -1,6 +1,7 @@
 package com.code.aigateway.admin.model.req;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
 import java.util.List;
@@ -50,4 +51,8 @@ public class ProviderConfigAddReq {
 
     /** 提供商级别自定义请求头（键值对），覆盖全局同名头 */
     private Map<String, String> customHeaders;
+
+    /** thinking 参数兼容模式：full=完整官方参数（默认），simplified=仅输出 type 字段（适用于 MiMo 等第三方 API） */
+    @Pattern(regexp = "full|simplified", message = "thinking 兼容模式只能为 full 或 simplified")
+    private String thinkingCompatMode = "full";
 }

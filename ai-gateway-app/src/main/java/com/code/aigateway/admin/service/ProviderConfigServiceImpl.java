@@ -254,6 +254,7 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         record.setPriority(req.getPriority());
         record.setSupportedProtocols(toCommaSeparated(req.getSupportedProtocols()));
         record.setCustomHeaders(serializeCustomHeaders(req.getCustomHeaders()));
+        record.setThinkingCompatMode(ProviderConfigDO.normalizeThinkingCompatMode(req.getThinkingCompatMode()));
         record.setDeleted(false);
         record.setCreateTime(LocalDateTime.now());
         record.setUpdateTime(LocalDateTime.now());
@@ -273,6 +274,9 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         record.setPriority(req.getPriority());
         record.setSupportedProtocols(toCommaSeparated(req.getSupportedProtocols()));
         record.setCustomHeaders(serializeCustomHeaders(req.getCustomHeaders()));
+        if (req.getThinkingCompatMode() != null) {
+            record.setThinkingCompatMode(ProviderConfigDO.normalizeThinkingCompatMode(req.getThinkingCompatMode()));
+        }
         record.setUpdateTime(LocalDateTime.now());
         return record;
     }
@@ -294,6 +298,7 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         rsp.setPriority(record.getPriority());
         rsp.setSupportedProtocols(toProtocolList(record.getSupportedProtocols()));
         rsp.setCustomHeaders(deserializeCustomHeaders(record.getCustomHeaders()));
+        rsp.setThinkingCompatMode(record.getThinkingCompatMode());
         rsp.setVersionNo(record.getVersionNo());
         rsp.setCreateTime(record.getCreateTime());
         rsp.setUpdateTime(record.getUpdateTime());

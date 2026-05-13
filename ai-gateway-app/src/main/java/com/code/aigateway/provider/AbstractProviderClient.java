@@ -41,6 +41,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 public abstract class AbstractProviderClient implements ProviderClient {
 
+    /** metadata key：thinking 参数兼容模式（full / simplified），由路由层写入 */
+    public static final String META_THINKING_COMPAT_MODE = "thinkingCompatMode";
+
     protected final ReactorClientHttpConnector httpConnector;
     protected final ObjectMapper objectMapper;
     protected final GatewayProperties gatewayProperties;
@@ -280,10 +283,12 @@ public abstract class AbstractProviderClient implements ProviderClient {
                     String errorType = extractErrorType(body);
 
                     // 记录上游完整错误上下文，便于排查
-                    log.warn("[上游错误] 提供商: {}, HTTP状态: {}, 错误类型: {}, 错误描述: {}",
+                    String rawBody = body != null && !body.isBlank() ? truncateForLog(body, 500) : "N/A";
+                    String safeErrorType = errorType.isBlank() ? "N/A" : errorType;
+                    String safeErrorMsg = errorMessage.isBlank() ? "N/A" : truncateForLog(errorMessage, 200);
+                    log.warn("[上游错误] 提供商: {}, HTTP状态: {}, 错误类型: {}, 错误描述: {}, rawBody: {}",
                             config.providerName(), statusCode.value(),
-                            errorType.isBlank() ? "N/A" : errorType,
-                            errorMessage.isBlank() ? "N/A" : truncateForLog(errorMessage, 200));
+                            safeErrorType, safeErrorMsg, rawBody);
 
                     // 细粒度错误映射：区分认证、参数、资源、限流、服务端等错误
                     ErrorCode errorCode;
@@ -351,7 +356,7 @@ public abstract class AbstractProviderClient implements ProviderClient {
     /**
      * 截断长文本用于日志输出，避免日志过长
      */
-    private String truncateForLog(String text, int maxLength) {
+    protected String truncateForLog(String text, int maxLength) {
         if (text == null || text.length() <= maxLength) {
             return text;
         }
@@ -470,6 +475,21 @@ public abstract class AbstractProviderClient implements ProviderClient {
     protected RequestStatsContext getStatsContext(UnifiedRequest request) {
         if (request.getMetadata() == null) return null;
         return (RequestStatsContext) request.getMetadata().get("statsContext");
+    }
+
+    /**
+     * 判断是否使用简化 thinking 模式。
+     * <p>
+     * 从 UnifiedRequest.metadata 中读取 thinkingCompatMode，
+     * 由路由层根据提供商配置写入，不硬编码在 SDK 中。
+     * </p>
+     */
+    protected boolean isSimplifiedThinkingMode(UnifiedRequest request) {
+        if (request.getMetadata() == null) {
+            return false;
+        }
+        Object mode = request.getMetadata().get(META_THINKING_COMPAT_MODE);
+        return "simplified".equals(mode != null ? mode.toString() : null);
     }
 
     /**

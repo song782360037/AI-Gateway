@@ -178,6 +178,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
             if (request.getGenerationConfig().getTopP() != null) {
                 body.put("top_p", request.getGenerationConfig().getTopP());
             }
+            boolean simplified = isSimplifiedThinkingMode(request);
             if (request.getGenerationConfig().getTopK() != null) {
                 body.put("top_k", request.getGenerationConfig().getTopK());
             }
@@ -185,8 +186,11 @@ public class AnthropicProviderClient extends AbstractProviderClient {
                 body.put("stop_sequences", request.getGenerationConfig().getStopSequences());
             }
             if (request.getGenerationConfig().getReasoning() != null) {
+                // 根据 thinkingCompatMode 决定是否使用简化模式
+                // 第三方 Anthropic 兼容 API（如 MiMo）不支持 budget_tokens、summary 等扩展字段，
+                // 收到不认识的字段会返回 400 Param Incorrect
                 Map<String, Object> thinking = reasoningSemanticMapper.toAnthropicThinking(
-                        request.getGenerationConfig().getReasoning());
+                        request.getGenerationConfig().getReasoning(), simplified);
                 if (thinking != null && !thinking.isEmpty()) {
                     body.put("thinking", thinking);
                 }
@@ -214,11 +218,14 @@ public class AnthropicProviderClient extends AbstractProviderClient {
             return List.of();
         }
 
+        // 判断是否为简化思考模式（第三方 API 如 MiMo 不支持 thinking 块的 signature 等扩展字段）
+        boolean simplifiedThinking = isSimplifiedThinkingMode(request);
+
         List<Map<String, Object>> messages = new ArrayList<>();
         for (UnifiedMessage msg : request.getMessages()) {
             switch (msg.getRole()) {
                 case "user" -> messages.add(buildUserMessage(msg));
-                case "assistant" -> messages.add(buildAssistantMessage(msg));
+                case "assistant" -> messages.add(buildAssistantMessage(msg, simplifiedThinking));
                 case "tool" -> {
                     // tool → user + tool_result content block
                     Map<String, Object> toolResult = new LinkedHashMap<>();
@@ -310,8 +317,16 @@ public class AnthropicProviderClient extends AbstractProviderClient {
     /**
      * 构建 assistant 消息。
      * 如果包含 tool_calls，将其转换为 Anthropic 的 tool_use content block。
+     * <p>
+     * 简化思考模式下（simplified=true），第三方 API（如 MiMo）：
+     * <ul>
+     *   <li>保留 thinking 内容块（多轮工具调用必须回传，否则 400）</li>
+     *   <li>去除 signature 字段（第三方 API 不认识此字段会 400）</li>
+     *   <li>redacted_thinking 统一转为 thinking</li>
+     * </ul>
+     * </p>
      */
-    private Map<String, Object> buildAssistantMessage(UnifiedMessage msg) {
+    private Map<String, Object> buildAssistantMessage(UnifiedMessage msg, boolean simplifiedThinking) {
         List<Object> content = new ArrayList<>();
 
         // 按原始顺序重建 content 块：text / thinking / tool_use
@@ -323,9 +338,20 @@ public class AnthropicProviderClient extends AbstractProviderClient {
                     }
                 } else if ("thinking".equals(part.getType())) {
                     Map<String, Object> thinking = new LinkedHashMap<>();
-                    thinking.put("type", "thinking");
+                    // 简化模式：统一用 "thinking" 类型，去除 signature
+                    // 完整模式：恢复原始类型（redacted_thinking → redacted_thinking），保留 signature
+                    if (simplifiedThinking) {
+                        thinking.put("type", "thinking");
+                    } else {
+                        String originalType = part.getAttributes() != null
+                                && "redacted_thinking".equals(part.getAttributes().get("anthropic_type"))
+                                ? "redacted_thinking" : "thinking";
+                        thinking.put("type", originalType);
+                    }
                     thinking.put("thinking", part.getText() != null ? part.getText() : "");
-                    if (part.getAttributes() != null && part.getAttributes().get("signature") instanceof String sig) {
+                    if (!simplifiedThinking
+                            && part.getAttributes() != null
+                            && part.getAttributes().get("signature") instanceof String sig) {
                         thinking.put("signature", sig);
                     }
                     content.add(thinking);
@@ -690,6 +716,5 @@ public class AnthropicProviderClient extends AbstractProviderClient {
             state.totalTokens = state.inputTokens + state.outputTokens;
         }
     }
-
 
 }
