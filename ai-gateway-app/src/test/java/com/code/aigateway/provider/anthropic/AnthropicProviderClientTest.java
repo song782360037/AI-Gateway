@@ -193,6 +193,8 @@ class AnthropicProviderClientTest {
                     // message_start 事件产生 usage_only 事件，携带初始 input_tokens
                     assertEquals(UnifiedStreamEvent.TYPE_USAGE_ONLY, event.getType());
                     assertEquals(17, event.getUsage().getInputTokens());
+                    // 无缓存时 rawInputTokens 等于 inputTokens
+                    assertEquals(17, event.getUsage().getRawInputTokens());
                 })
                 .assertNext(event -> {
                     assertEquals("text_delta", event.getType());
@@ -206,6 +208,7 @@ class AnthropicProviderClientTest {
                     assertEquals("done", event.getType());
                     assertEquals("length", event.getFinishReason());
                     assertEquals(17, event.getUsage().getInputTokens());
+                    assertEquals(17, event.getUsage().getRawInputTokens());
                     assertEquals(9, event.getUsage().getOutputTokens());
                 })
                 .verifyComplete();
@@ -269,7 +272,9 @@ class AnthropicProviderClientTest {
                     // message_start 携带 input_tokens 和 cache_read_input_tokens
                     assertEquals(UnifiedStreamEvent.TYPE_USAGE_ONLY, event.getType());
                     assertNotNull(event.getUsage());
-                    assertEquals(100, event.getUsage().getInputTokens());
+                    // 归一化后 inputTokens 包含缓存部分（100 + 50）
+                    assertEquals(150, event.getUsage().getInputTokens());
+                    assertEquals(100, event.getUsage().getRawInputTokens());
                     assertEquals(50, event.getUsage().getCachedInputTokens());
                 })
                 .assertNext(event -> {
@@ -279,8 +284,8 @@ class AnthropicProviderClientTest {
                 .assertNext(event -> {
                     assertEquals("done", event.getType());
                     assertNotNull(event.getUsage());
-                    // 最终 usage 应合并 input_tokens 和 output_tokens
-                    assertEquals(100, event.getUsage().getInputTokens());
+                    assertEquals(150, event.getUsage().getInputTokens());
+                    assertEquals(100, event.getUsage().getRawInputTokens());
                     assertEquals(10, event.getUsage().getOutputTokens());
                     assertEquals(50, event.getUsage().getCachedInputTokens());
                 })
@@ -309,7 +314,9 @@ class AnthropicProviderClientTest {
                     // message_start 携带 input_tokens、cache_read_input_tokens 和 cache_creation_input_tokens
                     assertEquals(UnifiedStreamEvent.TYPE_USAGE_ONLY, event.getType());
                     assertNotNull(event.getUsage());
-                    assertEquals(100, event.getUsage().getInputTokens());
+                    // 归一化后 inputTokens 包含缓存部分（100 + 50 + 30）
+                    assertEquals(180, event.getUsage().getInputTokens());
+                    assertEquals(100, event.getUsage().getRawInputTokens());
                     assertEquals(50, event.getUsage().getCachedInputTokens());
                     assertEquals(30, event.getUsage().getCacheCreationInputTokens());
                 })
@@ -320,8 +327,8 @@ class AnthropicProviderClientTest {
                 .assertNext(event -> {
                     assertEquals("done", event.getType());
                     assertNotNull(event.getUsage());
-                    // 最终 usage 应合并所有缓存字段
-                    assertEquals(100, event.getUsage().getInputTokens());
+                    assertEquals(180, event.getUsage().getInputTokens());
+                    assertEquals(100, event.getUsage().getRawInputTokens());
                     assertEquals(5, event.getUsage().getOutputTokens());
                     assertEquals(50, event.getUsage().getCachedInputTokens());
                     assertEquals(30, event.getUsage().getCacheCreationInputTokens());

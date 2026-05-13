@@ -256,10 +256,10 @@ public class RequestStatsCollector {
         if (usage == null) {
             return;
         }
-        logDO.setPromptTokens(usage.getInputTokens());
-        logDO.setCachedInputTokens(usage.getCachedInputTokens());
-        logDO.setCompletionTokens(usage.getOutputTokens());
-        logDO.setTotalTokens(usage.getTotalTokens());
+        logDO.setPromptTokens(nullToZero(usage.getInputTokens()));
+        logDO.setCachedInputTokens(nullToZero(usage.getCachedInputTokens()));
+        logDO.setCompletionTokens(nullToZero(usage.getOutputTokens()));
+        logDO.setTotalTokens(nullToZero(usage.getTotalTokens()));
     }
 
     private void applyErrorContext(RequestStatsContext context, Throwable ex) {

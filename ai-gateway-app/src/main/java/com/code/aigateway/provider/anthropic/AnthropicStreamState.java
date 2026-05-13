@@ -6,6 +6,8 @@ package com.code.aigateway.provider.anthropic;
 class AnthropicStreamState {
     String messageId;
     Integer inputTokens;
+    /** Anthropic 原始 input_tokens（归一化前保存，用于协议编码还原） */
+    Integer rawInputTokens;
     Integer outputTokens;
     Integer cachedInputTokens;
     Integer cacheCreationInputTokens;

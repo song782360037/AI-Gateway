@@ -109,13 +109,11 @@ public class AnthropicProtocolAdapter extends AbstractProtocolAdapter {
 
         if (response.getUsage() != null) {
             Map<String, Object> usage = new LinkedHashMap<>();
-            usage.put("input_tokens", response.getUsage().getInputTokens());
+            usage.put("input_tokens", rawInputTokens(response.getUsage()));
             usage.put("output_tokens", response.getUsage().getOutputTokens());
-            // 编码缓存命中 Token：Anthropic 格式为 cache_read_input_tokens
             if (response.getUsage().getCachedInputTokens() != null) {
                 usage.put("cache_read_input_tokens", response.getUsage().getCachedInputTokens());
             }
-            // 编码缓存写入 Token：Anthropic 格式为 cache_creation_input_tokens
             if (response.getUsage().getCacheCreationInputTokens() != null) {
                 usage.put("cache_creation_input_tokens", response.getUsage().getCacheCreationInputTokens());
             }
@@ -382,9 +380,10 @@ public class AnthropicProtocolAdapter extends AbstractProtocolAdapter {
         message.put("stop_sequence", null);
 
         Map<String, Object> usage = new LinkedHashMap<>();
-        // 仅在已知时输出 input_tokens，避免 0 值误导客户端
-        if (inputTokens != null) {
-            usage.put("input_tokens", inputTokens);
+        // inputTokens 已归一化（含缓存），协议输出需要还原为 Anthropic 原始值
+        Integer rawInput = rawInputTokens(eventUsage, inputTokens);
+        if (rawInput != null) {
+            usage.put("input_tokens", rawInput);
         }
         usage.put("output_tokens", 0);
         // 缓存命中 Token：Anthropic 协议在 message_start 的 usage 中返回 cache_read_input_tokens
@@ -451,5 +450,29 @@ public class AnthropicProtocolAdapter extends AbstractProtocolAdapter {
             case "tool_calls" -> "tool_use";
             default -> "end_turn";
         };
+    }
+
+    /**
+     * 获取 Anthropic 原始 input_tokens（不含缓存部分）。
+     * <p>优先使用 Provider 设置的 rawInputTokens；若未设置（如测试直接构造），
+     * 回退到 inputTokens（此时未经归一化，即为原始值）。</p>
+     */
+    private static Integer rawInputTokens(UnifiedUsage usage) {
+        if (usage == null || usage.getInputTokens() == null) return null;
+        if (usage.getRawInputTokens() != null) {
+            return usage.getRawInputTokens();
+        }
+        return usage.getInputTokens();
+    }
+
+    /**
+     * 获取 Anthropic 原始 input_tokens（流式编码用）。
+     * <p>优先使用事件 usage 的 rawInputTokens；若未设置，回退到 inputTokens。</p>
+     */
+    private static Integer rawInputTokens(UnifiedUsage eventUsage, Integer inputTokens) {
+        if (eventUsage != null && eventUsage.getRawInputTokens() != null) {
+            return eventUsage.getRawInputTokens();
+        }
+        return inputTokens;
     }
 }

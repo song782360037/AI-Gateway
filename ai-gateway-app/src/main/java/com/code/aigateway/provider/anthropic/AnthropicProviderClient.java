@@ -532,6 +532,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
         usage.setOutputTokens(state.outputTokens != null ? state.outputTokens : 0);
         usage.setCachedInputTokens(state.cachedInputTokens);
         usage.setCacheCreationInputTokens(state.cacheCreationInputTokens);
+        usage.setRawInputTokens(state.rawInputTokens);
         if (state.totalTokens != null) {
             usage.setTotalTokens(state.totalTokens);
         }
@@ -623,6 +624,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
         usage.setOutputTokens(state.outputTokens);
         usage.setCachedInputTokens(state.cachedInputTokens);
         usage.setCacheCreationInputTokens(state.cacheCreationInputTokens);
+        usage.setRawInputTokens(state.rawInputTokens);
         if (state.totalTokens != null) {
             usage.setTotalTokens(state.totalTokens);
         } else if (usage.getInputTokens() != null && usage.getOutputTokens() != null) {
@@ -656,7 +658,10 @@ public class AnthropicProviderClient extends AbstractProviderClient {
         };
     }
 
-    /** 解析 Anthropic usage（input_tokens / output_tokens / cache_read_input_tokens / cache_creation_input_tokens） */
+    /**
+     * 解析 Anthropic usage（input_tokens / output_tokens / cache_read_input_tokens / cache_creation_input_tokens）。
+     * <p>Anthropic 的 input_tokens 不含缓存部分，归一化为总输入 Token 以统一语义。</p>
+     */
     private UnifiedUsage parseAnthropicUsage(JsonNode usageNode) {
         if (usageNode == null || usageNode.isNull() || usageNode.isMissingNode()) {
             return null;
@@ -664,27 +669,24 @@ public class AnthropicProviderClient extends AbstractProviderClient {
         UnifiedUsage usage = new UnifiedUsage();
         usage.setInputTokens(readIntField(usageNode, "input_tokens"));
         usage.setOutputTokens(readIntField(usageNode, "output_tokens"));
-        // 解析缓存读取命中 Token：Anthropic API 返回 cache_read_input_tokens
         Integer cacheReadTokens = readIntField(usageNode, "cache_read_input_tokens");
         if (cacheReadTokens != null) {
             usage.setCachedInputTokens(cacheReadTokens);
         }
-        // 解析缓存写入 Token：Anthropic API 返回 cache_creation_input_tokens
         Integer cacheCreationTokens = readIntField(usageNode, "cache_creation_input_tokens");
         if (cacheCreationTokens != null) {
             usage.setCacheCreationInputTokens(cacheCreationTokens);
         }
-        Integer totalTokens = readIntField(usageNode, "total_tokens");
-        if (totalTokens != null) {
-            usage.setTotalTokens(totalTokens);
-        } else if (usage.getInputTokens() != null && usage.getOutputTokens() != null) {
-            usage.setTotalTokens(usage.getInputTokens() + usage.getOutputTokens());
-        }
+        // 保存原始值供协议编码还原，然后归一化为总量
+        usage.setRawInputTokens(usage.getInputTokens());
+        normalizeAnthropicInputTokens(usage);
         return usage;
     }
 
     /**
      * 合并流式 Anthropic usage，兼容输入 token 可能延迟出现在后续事件的情况。
+     * <p>归一化 inputTokens 以包含缓存部分，统一语义。
+     * 使用 rawInputTokens 作为"已归一化"标志，避免多次调用时重复累加。</p>
      */
     private void mergeAnthropicUsage(AnthropicStreamState state, JsonNode usageNode) {
         if (usageNode == null || usageNode.isNull() || usageNode.isMissingNode()) {
@@ -693,28 +695,62 @@ public class AnthropicProviderClient extends AbstractProviderClient {
         Integer inputTokens = readIntField(usageNode, "input_tokens");
         Integer outputTokens = readIntField(usageNode, "output_tokens");
         Integer totalTokens = readIntField(usageNode, "total_tokens");
-        // 流式场景下合并缓存读取命中 Token
         Integer cacheReadTokens = readIntField(usageNode, "cache_read_input_tokens");
-        // 流式场景下合并缓存写入 Token
         Integer cacheCreationTokens = readIntField(usageNode, "cache_creation_input_tokens");
 
         if (inputTokens != null) {
             state.inputTokens = inputTokens;
+            // 新的 input_tokens 到达，重置归一化标志
+            state.rawInputTokens = null;
         }
         if (outputTokens != null) {
             state.outputTokens = outputTokens;
         }
+        // 缓存字段变更时也需要重新归一化
+        boolean cacheChanged = false;
         if (cacheReadTokens != null) {
+            cacheChanged = cacheChanged || !cacheReadTokens.equals(state.cachedInputTokens);
             state.cachedInputTokens = cacheReadTokens;
         }
         if (cacheCreationTokens != null) {
+            cacheChanged = cacheChanged || !cacheCreationTokens.equals(state.cacheCreationInputTokens);
             state.cacheCreationInputTokens = cacheCreationTokens;
         }
+        // 归一化：rawInputTokens 未设置（首次/新inputTokens）或缓存字段发生变化时累加
+        int cachedTotal = nullToZero(state.cachedInputTokens) + nullToZero(state.cacheCreationInputTokens);
+        boolean needNormalize = state.inputTokens != null && cachedTotal > 0
+                && (state.rawInputTokens == null || cacheChanged);
+        if (needNormalize) {
+            state.rawInputTokens = state.inputTokens;
+            state.inputTokens += cachedTotal;
+        } else if (state.inputTokens != null && state.rawInputTokens == null) {
+            // 无缓存时 rawInputTokens 等于 inputTokens，保证字段始终可用
+            state.rawInputTokens = state.inputTokens;
+        }
         if (totalTokens != null) {
-            state.totalTokens = totalTokens;
+            state.totalTokens = needNormalize ? totalTokens + cachedTotal : totalTokens;
         } else if (state.inputTokens != null && state.outputTokens != null) {
             state.totalTokens = state.inputTokens + state.outputTokens;
         }
+    }
+
+    /**
+     * 归一化 Anthropic inputTokens：将缓存读取和写入 Token 合并到 inputTokens，
+     * 使 UnifiedUsage.inputTokens 语义与 OpenAI 一致（总量而非净量）。
+     * <p>同时重新计算 totalTokens。</p>
+     */
+    private void normalizeAnthropicInputTokens(UnifiedUsage usage) {
+        int cachedTotal = nullToZero(usage.getCachedInputTokens()) + nullToZero(usage.getCacheCreationInputTokens());
+        if (usage.getInputTokens() != null && cachedTotal > 0) {
+            usage.setInputTokens(usage.getInputTokens() + cachedTotal);
+        }
+        if (usage.getInputTokens() != null && usage.getOutputTokens() != null) {
+            usage.setTotalTokens(usage.getInputTokens() + usage.getOutputTokens());
+        }
+    }
+
+    private static int nullToZero(Integer value) {
+        return value != null ? value : 0;
     }
 
 }
