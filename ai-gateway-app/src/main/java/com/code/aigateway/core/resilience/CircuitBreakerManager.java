@@ -12,7 +12,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.stream.StreamSupport;
 
 /**
  * 熔断器管理器
@@ -142,10 +141,55 @@ public class CircuitBreakerManager {
     }
 
     /**
+     * 重置指定 Provider 下所有模型的熔断器状态为 CLOSED。
+     * <p>
+     * 适用于优先级变更后需要主动恢复的场景：当管理员将某个 Provider
+     * 提升为最高优先级时，可调用此方法清除该 Provider 历史遗留的熔断状态，
+     * 使其能立即接受新请求而非等待半开探测周期。
+     * </p>
+     *
+     * @param providerCode Provider 编码
+     * @return 重置的熔断器数量
+     */
+    public long resetProviderCircuits(String providerCode) {
+        long resetCount = 0;
+        for (CircuitBreaker cb : registry.getAllCircuitBreakers()) {
+            if (isCircuitBreakerOfProvider(cb.getName(), providerCode)
+                    && cb.getState() != CircuitBreaker.State.CLOSED) {
+                cb.reset();
+                resetCount++;
+                log.info("[熔断器] 手动重置 provider+model={}, 状态 -> CLOSED", cb.getName());
+            }
+        }
+        return resetCount;
+    }
+
+    /**
+     * 重置指定 provider+model 的熔断器状态为 CLOSED。
+     *
+     * @param providerCode Provider 编码
+     * @param model        目标模型名
+     * @return true 表示重置成功（熔断器存在且非 CLOSED），false 表示无需重置
+     */
+    public boolean resetCircuit(String providerCode, String model) {
+        CircuitBreaker cb = registry.find(buildKey(providerCode, model)).orElse(null);
+        if (cb == null || cb.getState() == CircuitBreaker.State.CLOSED) {
+            return false;
+        }
+        cb.reset();
+        log.info("[熔断器] 手动重置 provider+model={}, 状态 -> CLOSED", cb.getName());
+        return true;
+    }
+
+    /**
      * 获取指定 Provider 的熔断器聚合摘要（单次遍历）
      * <p>
      * 用于健康检查，一次遍历同时计算：是否有任意模型熔断打开、
      * 已打开熔断的模型数、总模型熔断器数。
+     * </p>
+     * <p>
+     * 注意：使用精确匹配而非前缀匹配，避免当一个 providerCode 是另一个的前缀时
+     * （如 "openai" 与 "openai-main"）发生跨提供商熔断状态泄漏。
      * </p>
      *
      * @param providerCode Provider 编码
@@ -157,12 +201,12 @@ public class CircuitBreakerManager {
             return ProviderCircuitSummary.EMPTY;
         }
 
-        String prefix = providerCode + KEY_SEPARATOR;
         long totalCount = 0;
         long openCount = 0;
 
         for (CircuitBreaker cb : registry.getAllCircuitBreakers()) {
-            if (cb.getName().startsWith(prefix)) {
+            // 精确匹配：提取 CB 名称中的 providerCode 部分，确保不会因前缀重叠导致跨提供商泄漏
+            if (isCircuitBreakerOfProvider(cb.getName(), providerCode)) {
                 totalCount++;
                 if (cb.getState() == CircuitBreaker.State.OPEN) {
                     openCount++;
@@ -171,6 +215,32 @@ public class CircuitBreakerManager {
         }
 
         return new ProviderCircuitSummary(openCount > 0, openCount, totalCount);
+    }
+
+    /**
+     * 判断熔断器名称是否属于指定 Provider。
+     * <p>
+     * CB 名称格式为 "providerCode:model"，需要精确匹配 providerCode 部分，
+     * 而非简单的前缀匹配，避免 "openai" 与 "openai-main" 等编码前缀重叠导致误判。
+     * 同时排除 disabled 前缀的虚拟熔断器。
+     * </p>
+     *
+     * @param cbName       熔断器注册表中的名称
+     * @param providerCode Provider 编码
+     * @return 是否属于指定 Provider
+     */
+    private boolean isCircuitBreakerOfProvider(String cbName, String providerCode) {
+        // 跳过 disabled 虚拟熔断器（前缀 "_disabled_"）
+        if (cbName.startsWith(DISABLED_PREFIX)) {
+            return false;
+        }
+        // 精确匹配：提取 CB 名称中第一个分隔符之前的 providerCode 部分，与入参严格相等
+        // 例如 providerCode="openai" 只匹配 "openai:gpt-4"，不匹配 "openai-main:gpt-4"
+        int separatorIndex = cbName.indexOf(KEY_SEPARATOR);
+        if (separatorIndex <= 0) {
+            return false;
+        }
+        return cbName.substring(0, separatorIndex).equals(providerCode);
     }
 
     /**

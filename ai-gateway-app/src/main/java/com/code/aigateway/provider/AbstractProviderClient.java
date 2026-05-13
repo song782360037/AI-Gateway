@@ -61,6 +61,13 @@ public abstract class AbstractProviderClient implements ProviderClient {
     /**
      * 解析 provider 运行时配置。
      * 优先从 executionContext 获取参数（由路由层写入），回退到 YAML 静态配置。
+     * <p>
+     * 注意：providerName 必须来自 executionContext 中的 providerName（即 providerCode），
+     * 而非 request.getProvider()（即 providerType）。两者语义不同：
+     * providerCode 是提供商实例的唯一标识（如 "openai-main"），
+     * providerType 是提供商类型（如 "openai"），同类型可能有多个实例。
+     * 若误用 providerType 作为熔断器键，同类型多实例将共享熔断状态，导致误判。
+     * </p>
      */
     protected ProviderRuntimeConfig resolveRuntimeConfig(UnifiedRequest request) {
         UnifiedRequest.ProviderExecutionContext ctx = request.getExecutionContext();
@@ -69,6 +76,13 @@ public abstract class AbstractProviderClient implements ProviderClient {
                 : request.getProvider();
         if (providerName == null || providerName.isBlank()) {
             throw new GatewayException(ErrorCode.PROVIDER_NOT_FOUND, "provider name is missing");
+        }
+
+        // 防护性检查：当回退到 request.getProvider()（即 providerType）时，
+        // 若存在运行时快照且该类型有多个实例，则拒绝执行，避免熔断器键歧义
+        if (ctx == null || ctx.getProviderName() == null) {
+            log.warn("[运行时配置] executionContext.providerName 为空，回退使用 providerType: {}，"
+                    + "若同类型存在多个提供商实例，可能导致熔断器键冲突", providerName);
         }
 
         GatewayProperties.ProviderProperties props = gatewayProperties.getProviders() == null
