@@ -9,6 +9,9 @@ WORKDIR /app/frontend-vue
 # 复制前端依赖文件
 COPY ai-gateway-app/frontend-vue/package*.json ./
 
+# 配置 npm 使用淘宝镜像加速依赖下载
+RUN npm config set registry https://registry.npmmirror.com
+
 # 安装前端依赖（包含 devDependencies，构建阶段需要 vite 等构建工具）
 RUN npm ci
 
@@ -23,6 +26,9 @@ FROM maven:3.9-eclipse-temurin-21-alpine AS backend-builder
 
 # 设置工作目录
 WORKDIR /app
+
+# 复制 Maven 配置文件，使用阿里云镜像加速依赖下载
+COPY settings.xml /root/.m2/settings.xml
 
 # 先复制父 POM 和各子模块 POM（利用 Docker 缓存层）
 COPY pom.xml .

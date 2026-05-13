@@ -79,6 +79,7 @@ node_modules/
 ai-gateway-app/frontend-vue/node/
 ai-gateway-app/frontend-vue/node_modules/
 ai-gateway-app/frontend-vue/dist/
+ai-gateway-app/frontend-vue/.vite/
 
 ### Claude Code ###
 .claude/
