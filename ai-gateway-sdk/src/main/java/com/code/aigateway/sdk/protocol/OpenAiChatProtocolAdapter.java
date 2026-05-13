@@ -59,6 +59,24 @@ public class OpenAiChatProtocolAdapter extends AbstractProtocolAdapter {
             message.put("tool_calls", toolCalls);
         }
 
+        // reasoning_content（推理模型的思考过程）
+        List<UnifiedPart> thinkingParts = response.collectThinkingParts();
+        if (!thinkingParts.isEmpty()) {
+            StringBuilder reasoningContent = new StringBuilder();
+            for (int i = 0; i < thinkingParts.size(); i++) {
+                UnifiedPart tp = thinkingParts.get(i);
+                if (tp.getText() != null) {
+                    if (!reasoningContent.isEmpty()) {
+                        reasoningContent.append("\n");
+                    }
+                    reasoningContent.append(tp.getText());
+                }
+            }
+            if (!reasoningContent.isEmpty()) {
+                message.put("reasoning_content", reasoningContent.toString());
+            }
+        }
+
         Map<String, Object> choice = new LinkedHashMap<>();
         choice.put("index", 0);
         choice.put("message", message);
@@ -90,8 +108,8 @@ public class OpenAiChatProtocolAdapter extends AbstractProtocolAdapter {
             return encodeToolCallDeltaEvent(event, ctx);
         }
         if ("thinking_delta".equals(event.getType())) {
-            // OpenAI Chat 不支持 thinking，静默丢弃
-            return List.of();
+            // OpenAI Chat Completions 兼容推理模型：reasoning_content 编码为 delta.reasoning_content
+            return encodeThinkingDelta(event, ctx);
         }
         if ("text_delta".equals(event.getType())) {
             return encodeTextDeltaEvent(event, ctx);
@@ -132,6 +150,13 @@ public class OpenAiChatProtocolAdapter extends AbstractProtocolAdapter {
     }
 
     // ===================== 流式编码内部方法 =====================
+
+    /** 编码 thinking_delta 为 Chat Completions 的 delta.reasoning_content */
+    private List<EncodedEvent> encodeThinkingDelta(UnifiedStreamEvent event, StreamEncodeContext ctx) {
+        Map<String, Object> delta = new LinkedHashMap<>();
+        delta.put("reasoning_content", event.getThinkingDelta() != null ? event.getThinkingDelta() : "");
+        return List.of(EncodedEvent.data(ctx.toJson(buildChunk(delta, null, event.getOutputIndex(), ctx))));
+    }
 
     private List<EncodedEvent> encodeTextDeltaEvent(UnifiedStreamEvent event, StreamEncodeContext ctx) {
         Map<String, Object> delta = new LinkedHashMap<>();

@@ -185,11 +185,9 @@ public class AnthropicProviderClient extends AbstractProviderClient {
                 body.put("stop_sequences", request.getGenerationConfig().getStopSequences());
             }
             if (request.getGenerationConfig().getReasoning() != null) {
-                Integer budgetTokens = reasoningSemanticMapper.toAnthropicBudgetTokens(request.getGenerationConfig().getReasoning());
-                if (budgetTokens != null) {
-                    Map<String, Object> thinking = new LinkedHashMap<>();
-                    thinking.put("type", "enabled");
-                    thinking.put("budget_tokens", budgetTokens);
+                Map<String, Object> thinking = reasoningSemanticMapper.toAnthropicThinking(
+                        request.getGenerationConfig().getReasoning());
+                if (thinking != null && !thinking.isEmpty()) {
                     body.put("thinking", thinking);
                 }
             }
@@ -316,10 +314,23 @@ public class AnthropicProviderClient extends AbstractProviderClient {
     private Map<String, Object> buildAssistantMessage(UnifiedMessage msg) {
         List<Object> content = new ArrayList<>();
 
-        // 文本内容
-        String text = extractTextContent(msg);
-        if (text != null && !text.isEmpty()) {
-            content.add(Map.of("type", "text", "text", text));
+        // 按原始顺序重建 content 块：text / thinking / tool_use
+        if (msg.getParts() != null) {
+            for (UnifiedPart part : msg.getParts()) {
+                if ("text".equals(part.getType())) {
+                    if (part.getText() != null && !part.getText().isEmpty()) {
+                        content.add(Map.of("type", "text", "text", part.getText()));
+                    }
+                } else if ("thinking".equals(part.getType())) {
+                    Map<String, Object> thinking = new LinkedHashMap<>();
+                    thinking.put("type", "thinking");
+                    thinking.put("thinking", part.getText() != null ? part.getText() : "");
+                    if (part.getAttributes() != null && part.getAttributes().get("signature") instanceof String sig) {
+                        thinking.put("signature", sig);
+                    }
+                    content.add(thinking);
+                }
+            }
         }
 
         // tool_calls → tool_use content blocks

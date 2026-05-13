@@ -155,10 +155,27 @@ public class OpenAiProviderClient extends AbstractProviderClient {
             if (request.getGenerationConfig().getStopSequences() != null && !request.getGenerationConfig().getStopSequences().isEmpty()) {
                 body.put("stop", request.getGenerationConfig().getStopSequences());
             }
+            // thinking/reasoning 参数输出
+            // 策略：同时输出 reasoning_effort（OpenAI 原生）和 thinking 对象（DeepSeek/智谱/Kimi/MiMo 等兼容格式）
+            // 各 Provider 仅读取自己认识的字段，忽略未知字段，不会产生冲突
             if (request.getGenerationConfig().getReasoning() != null) {
-                String reasoningEffort = reasoningSemanticMapper.toOpenAiEffort(request.getGenerationConfig().getReasoning());
+                UnifiedReasoningConfig reasoning = request.getGenerationConfig().getReasoning();
+                // OpenAI 原生：reasoning_effort
+                String reasoningEffort = reasoningSemanticMapper.toOpenAiEffort(reasoning);
                 if (reasoningEffort != null && !reasoningEffort.isBlank()) {
                     body.put("reasoning_effort", reasoningEffort);
+                }
+                // 国产模型兼容格式：thinking {type: "enabled"/"disabled", budget_tokens?}
+                if (Boolean.TRUE.equals(reasoning.getEnabled())) {
+                    Map<String, Object> thinkingMap = new LinkedHashMap<>();
+                    thinkingMap.put("type", "enabled");
+                    // DeepSeek 等模型支持 budget_tokens 限制思考预算
+                    if (reasoning.getBudgetTokens() != null && reasoning.getBudgetTokens() > 0) {
+                        thinkingMap.put("budget_tokens", reasoning.getBudgetTokens());
+                    }
+                    body.put("thinking", thinkingMap);
+                } else if (Boolean.FALSE.equals(reasoning.getEnabled())) {
+                    body.put("thinking", Map.of("type", "disabled"));
                 }
             }
         }
@@ -225,6 +242,10 @@ public class OpenAiProviderClient extends AbstractProviderClient {
                     imageUrl.put("detail", part.getAttributes().get("detail"));
                 }
                 content.add(Map.of("type", "image_url", "image_url", imageUrl));
+                continue;
+            }
+            // OpenAI Chat Completions 输入不支持 thinking part，安全跳过而非异常
+            if ("thinking".equals(part.getType())) {
                 continue;
             }
             throw new GatewayException(ErrorCode.INVALID_REQUEST, "unsupported message part type: " + part.getType());
@@ -335,14 +356,31 @@ public class OpenAiProviderClient extends AbstractProviderClient {
             }
         }
 
-        UnifiedPart part = new UnifiedPart();
-        part.setType("text");
+        // 构建 output parts：thinking + text
+        List<UnifiedPart> outputParts = new ArrayList<>();
+
+        // reasoning_content（推理模型的思考过程）
+        JsonNode reasoningNode = message.get("reasoning_content");
+        if (reasoningNode != null && !reasoningNode.isNull() && !reasoningNode.asText().isEmpty()) {
+            UnifiedPart thinkingPart = new UnifiedPart();
+            thinkingPart.setType("thinking");
+            thinkingPart.setText(reasoningNode.asText());
+            outputParts.add(thinkingPart);
+        }
+
+        // 仅在 content 非空时添加文本 part，与 GeminiProviderClient 行为保持一致
         JsonNode contentNode = message.get("content");
-        part.setText(contentNode == null || contentNode.isNull() ? "" : contentNode.asText());
+        String contentText = (contentNode == null || contentNode.isNull()) ? null : contentNode.asText();
+        if (contentText != null && !contentText.isEmpty()) {
+            UnifiedPart part = new UnifiedPart();
+            part.setType("text");
+            part.setText(contentText);
+            outputParts.add(part);
+        }
 
         UnifiedOutput output = new UnifiedOutput();
         output.setRole(message.path("role").asText("assistant"));
-        output.setParts(List.of(part));
+        output.setParts(outputParts.isEmpty() && toolCalls != null && !toolCalls.isEmpty() ? List.of() : outputParts);
         output.setToolCalls(toolCalls);
 
         UnifiedResponse response = new UnifiedResponse();
@@ -401,6 +439,15 @@ public class OpenAiProviderClient extends AbstractProviderClient {
         for (JsonNode choice : choices) {
             int index = choice.has("index") ? choice.get("index").asInt() : 0;
             JsonNode delta = choice.path("delta");
+
+            // 解析 reasoning_content delta（推理模型思考过程）
+            if (delta.has("reasoning_content") && !delta.get("reasoning_content").isNull()) {
+                UnifiedStreamEvent thinkingEvent = new UnifiedStreamEvent();
+                thinkingEvent.setType("thinking_delta");
+                thinkingEvent.setOutputIndex(index);
+                thinkingEvent.setThinkingDelta(delta.get("reasoning_content").asText());
+                events.add(thinkingEvent);
+            }
 
             // 解析文本 delta
             if (delta.has("content") && !delta.get("content").isNull()) {

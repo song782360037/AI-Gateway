@@ -346,19 +346,58 @@ class AnthropicRequestParser {
         // thinking 配置映射到 UnifiedReasoningConfig
         Object thinkingObj = req.get("thinking");
         if (thinkingObj instanceof Map<?, ?> thinkingMap) {
-            UnifiedReasoningConfig reasoning = new UnifiedReasoningConfig();
-            String thinkingType = (String) ((Map<?, ?>) thinkingMap).get("type");
-            reasoning.setEnabled("adaptive".equalsIgnoreCase(thinkingType)
-                    || "enabled".equalsIgnoreCase(thinkingType));
-            reasoning.setBudgetTokens(((Map<?, ?>) thinkingMap).get("budget_tokens") instanceof Number n
-                    ? n.intValue() : null);
-            if (Boolean.TRUE.equals(reasoning.getEnabled())) {
-                reasoning.setSummary("auto");
-            }
-            config.setReasoning(reasoning);
+            parseThinking((Map<String, Object>) thinkingMap, config);
         }
 
         return config;
     }
 
+    /** 解析 Anthropic thinking 配置（支持 enabled / adaptive / disabled） */
+    private void parseThinking(Map<String, Object> thinkingMap, UnifiedGenerationConfig config) {
+        String thinkingType = (String) thinkingMap.get("type");
+        if (thinkingType == null) {
+            return;
+        }
+
+        // disabled → 显式关闭思考
+        if ("disabled".equalsIgnoreCase(thinkingType)) {
+            UnifiedReasoningConfig reasoning = new UnifiedReasoningConfig();
+            reasoning.setEnabled(false);
+            config.setReasoning(reasoning);
+            return;
+        }
+
+        UnifiedReasoningConfig reasoning = new UnifiedReasoningConfig();
+
+        // enabled / adaptive → 启用思考
+        boolean enabled = "enabled".equalsIgnoreCase(thinkingType)
+                || "adaptive".equalsIgnoreCase(thinkingType);
+        reasoning.setEnabled(enabled);
+
+        if (!enabled) {
+            config.setReasoning(reasoning);
+            return;
+        }
+
+        // budget_tokens（enabled 模式必需，adaptive 模式可选）
+        if (thinkingMap.get("budget_tokens") instanceof Number n) {
+            reasoning.setBudgetTokens(n.intValue());
+        }
+
+        // adaptive 模式的 output_config.effort 映射到 reasoning.effort
+        if ("adaptive".equalsIgnoreCase(thinkingType)
+                && thinkingMap.get("output_config") instanceof Map<?, ?> outputConfig) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> oc = (Map<String, Object>) outputConfig;
+            if (oc.get("effort") instanceof String effort && !effort.isBlank()) {
+                reasoning.setEffort(effort);
+            }
+        }
+
+        // summary：仅当用户未显式指定时设置默认值 "auto"，避免覆盖用户意图
+        if (reasoning.getSummary() == null || reasoning.getSummary().isBlank()) {
+            reasoning.setSummary("auto");
+        }
+        config.setReasoning(reasoning);
+    }
 }

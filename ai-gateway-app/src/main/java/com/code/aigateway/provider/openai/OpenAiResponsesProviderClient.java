@@ -190,16 +190,10 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
                 body.put("stop", request.getGenerationConfig().getStopSequences());
             }
             if (request.getGenerationConfig().getReasoning() != null) {
-                UnifiedReasoningConfig reasoningConfig = request.getGenerationConfig().getReasoning();
-                String reasoningEffort = reasoningSemanticMapper.toOpenAiEffort(reasoningConfig);
-                if (reasoningEffort != null && !reasoningEffort.isBlank()) {
-                    Map<String, Object> reasoningMap = new LinkedHashMap<>();
-                    reasoningMap.put("effort", reasoningEffort);
-                    // 传递 summary 参数，使 OpenAI 返回可见推理摘要
-                    if (reasoningConfig.getSummary() != null && !reasoningConfig.getSummary().isBlank()) {
-                        reasoningMap.put("summary", reasoningConfig.getSummary());
-                    }
-                    body.put("reasoning", reasoningMap);
+                Map<String, Object> reasoning = reasoningSemanticMapper.toOpenAiResponsesReasoning(
+                        request.getGenerationConfig().getReasoning());
+                if (reasoning != null && !reasoning.isEmpty()) {
+                    body.put("reasoning", reasoning);
                 }
             }
         }

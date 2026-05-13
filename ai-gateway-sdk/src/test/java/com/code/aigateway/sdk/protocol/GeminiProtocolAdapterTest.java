@@ -339,13 +339,15 @@ class GeminiProtocolAdapterTest {
         }
 
         @Test
-        @DisplayName("thinking_delta 事件被静默丢弃")
-        void encodeStreamEvent_thinkingDelta_discarded() {
+        @DisplayName("thinking_delta 事件编码为 thought part")
+        void encodeStreamEvent_thinkingDelta_encoded() {
             UnifiedStreamEvent event = UnifiedStreamEvent.thinkingDelta("thinking...");
 
             List<EncodedEvent> events = adapter.encodeStreamEvent(event, ctx);
 
-            assertThat(events).isEmpty();
+            assertThat(events).hasSize(1);
+            assertThat(events.get(0).data()).contains("thinking...");
+            assertThat(events.get(0).data()).contains("\"thought\":true");
         }
 
         @Test

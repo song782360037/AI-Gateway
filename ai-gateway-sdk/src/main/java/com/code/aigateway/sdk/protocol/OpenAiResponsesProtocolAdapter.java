@@ -604,8 +604,10 @@ public class OpenAiResponsesProtocolAdapter extends AbstractProtocolAdapter {
         if (reasoningObj instanceof Map<?, ?> reasoningMap) {
             UnifiedReasoningConfig reasoning = new UnifiedReasoningConfig();
             String effort = (String) ((Map<?, ?>) reasoningMap).get("effort");
-            reasoning.setEnabled(effort != null);
-            reasoning.setEffort(effort);
+            reasoning.setEnabled(effort != null && !"none".equalsIgnoreCase(effort));
+            if (effort != null && !"none".equalsIgnoreCase(effort)) {
+                reasoning.setEffort(effort);
+            }
             reasoning.setSummary((String) ((Map<?, ?>) reasoningMap).get("summary"));
             config.setReasoning(reasoning);
         }

@@ -218,13 +218,36 @@ class OpenAiChatRequestParser {
                 (req.get("max_tokens") instanceof Number n2 ? n2.intValue() : null);
         config.setMaxOutputTokens(maxTokens);
 
-        // reasoning_effort
+        // reasoning_effort（OpenAI Chat Completions 原生格式）
         String reasoningEffort = (String) req.get("reasoning_effort");
         if (reasoningEffort != null && !reasoningEffort.isBlank()) {
             UnifiedReasoningConfig reasoning = new UnifiedReasoningConfig();
-            reasoning.setEnabled(true);
-            reasoning.setEffort(reasoningEffort);
+            reasoning.setEnabled(!"none".equalsIgnoreCase(reasoningEffort));
+            if (!"none".equalsIgnoreCase(reasoningEffort)) {
+                reasoning.setEffort(reasoningEffort);
+            }
             config.setReasoning(reasoning);
+        }
+
+        // reasoning 对象格式（Responses 的 reasoning 透传或兼容格式）
+        if (req.get("reasoning") instanceof Map<?, ?> reasoningMap) {
+            parseReasoningObject(toStrMap(reasoningMap), config);
+        }
+
+        // thinking 对象格式（DeepSeek / 智谱 / Kimi）
+        if (req.get("thinking") instanceof Map<?, ?> thinking) {
+            parseThinkingObject(toStrMap(thinking), config);
+        }
+
+        // enable_thinking 布尔（Qwen / MiMo）
+        if (req.get("enable_thinking") instanceof Boolean b) {
+            if (config.getReasoning() == null) {
+                UnifiedReasoningConfig reasoning = new UnifiedReasoningConfig();
+                reasoning.setEnabled(b);
+                config.setReasoning(reasoning);
+            } else {
+                config.getReasoning().setEnabled(b);
+            }
         }
 
         // stop sequences
@@ -254,6 +277,59 @@ class OpenAiChatRequestParser {
             format.setSchema((Map<String, Object>) s.get("schema"));
         }
         return format;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> toStrMap(Map<?, ?> map) {
+        return (Map<String, Object>) map;
+    }
+
+    /**
+     * 解析 reasoning 对象格式 {effort, summary}，与已有配置合并而非覆盖。
+     * <p>
+     * 优先级说明：当 reasoning_effort 和 reasoning 对象同时存在时，
+     * reasoning 对象中的 effort 字段会覆盖 reasoning_effort 已设置的值，
+     * summary 字段则追加（reasoning_effort 无法指定 summary）。
+     * 这种策略确保 reasoning 对象的更细粒度配置优先生效。
+     * </p>
+     */
+    private void parseReasoningObject(Map<String, Object> reasoningMap, UnifiedGenerationConfig config) {
+        String effort = (String) reasoningMap.get("effort");
+        String summary = (String) reasoningMap.get("summary");
+        if (effort == null && summary == null) {
+            return;
+        }
+        // 检测与 reasoning_effort 的冲突：两者同时存在时 reason 对象优先生效
+        boolean isNone = effort != null && "none".equalsIgnoreCase(effort);
+        // 复用已有配置（来自 reasoning_effort），避免静默覆盖
+        UnifiedReasoningConfig reasoning = config.getReasoning() != null
+                ? config.getReasoning() : new UnifiedReasoningConfig();
+        if (effort != null) {
+            reasoning.setEnabled(!isNone);
+            if (!isNone) {
+                reasoning.setEffort(effort);
+            }
+        }
+        if (summary != null) {
+            reasoning.setSummary(summary);
+        }
+        config.setReasoning(reasoning);
+    }
+
+    /** 解析 thinking 对象格式 {type: "enabled"/"disabled"}（DeepSeek / 智谱 / Kimi） */
+    private void parseThinkingObject(Map<String, Object> thinkingMap, UnifiedGenerationConfig config) {
+        String type = (String) thinkingMap.get("type");
+        if (type == null) {
+            return;
+        }
+        boolean enabled = "enabled".equalsIgnoreCase(type);
+        if (config.getReasoning() == null) {
+            UnifiedReasoningConfig reasoning = new UnifiedReasoningConfig();
+            reasoning.setEnabled(enabled);
+            config.setReasoning(reasoning);
+        } else {
+            config.getReasoning().setEnabled(enabled);
+        }
     }
 
     private record ParsedMessages(String systemPrompt, List<UnifiedMessage> messages) {}

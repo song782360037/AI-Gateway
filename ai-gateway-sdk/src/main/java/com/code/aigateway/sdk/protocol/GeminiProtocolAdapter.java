@@ -77,8 +77,20 @@ public class GeminiProtocolAdapter extends AbstractProtocolAdapter {
     public Object encodeResponse(UnifiedResponse response) {
         Objects.requireNonNull(response, "response must not be null");
 
-        // 构建 parts：文本 + 工具调用
+        // 构建 parts：thinking → 文本 → 工具调用
         List<Map<String, Object>> parts = new ArrayList<>();
+
+        // thinking 内容（Gemini 3+ 使用 thought flag 标记）
+        List<UnifiedPart> thinkingParts = response.collectThinkingParts();
+        for (UnifiedPart tp : thinkingParts) {
+            Map<String, Object> thoughtPart = new LinkedHashMap<>();
+            thoughtPart.put("text", tp.getText() != null ? tp.getText() : "");
+            thoughtPart.put("thought", true);
+            if (tp.getAttributes() != null && tp.getAttributes().get("thought_signature") != null) {
+                thoughtPart.put("thought_signature", tp.getAttributes().get("thought_signature"));
+            }
+            parts.add(thoughtPart);
+        }
 
         // 文本内容
         String text = response.collectText();
@@ -126,12 +138,14 @@ public class GeminiProtocolAdapter extends AbstractProtocolAdapter {
 
     @Override
     public List<EncodedEvent> encodeStreamEvent(UnifiedStreamEvent event, StreamEncodeContext ctx) {
-        // thinking_delta 和 done 在 Gemini 流式中不生成输出
-        if ("thinking_delta".equals(event.getType()) || "done".equals(event.getType())) {
+        if ("done".equals(event.getType())) {
             return List.of();
         }
         if ("text_delta".equals(event.getType())) {
             return encodeTextDelta(event, ctx);
+        }
+        if ("thinking_delta".equals(event.getType())) {
+            return encodeThinkingDelta(event, ctx);
         }
         if ("tool_call".equals(event.getType())) {
             return encodeToolCallStream(event, ctx);
@@ -174,6 +188,16 @@ public class GeminiProtocolAdapter extends AbstractProtocolAdapter {
         textPart.put("text", event.getTextDelta() != null ? event.getTextDelta() : "");
 
         List<Map<String, Object>> parts = List.of(textPart);
+        return List.of(EncodedEvent.data(ctx.toJson(buildStreamChunk(parts, null, ctx))));
+    }
+
+    /** 编码思考增量流式事件（Gemini 3+ thought 内容） */
+    private List<EncodedEvent> encodeThinkingDelta(UnifiedStreamEvent event, StreamEncodeContext ctx) {
+        Map<String, Object> thoughtPart = new LinkedHashMap<>();
+        thoughtPart.put("text", event.getThinkingDelta() != null ? event.getThinkingDelta() : "");
+        thoughtPart.put("thought", true);
+
+        List<Map<String, Object>> parts = List.of(thoughtPart);
         return List.of(EncodedEvent.data(ctx.toJson(buildStreamChunk(parts, null, ctx))));
     }
 
@@ -268,9 +292,21 @@ public class GeminiProtocolAdapter extends AbstractProtocolAdapter {
             Map<String, Object> part = toStringMap(raw);
             String partPath = paramPath + ".parts[" + j + "]";
 
-            // 文本部分
+            // 文本部分（普通文本，跳过 thought flag 标记的思考内容）
             if (part.containsKey("text")) {
-                textParts.add(textPart((String) part.get("text")));
+                boolean isThought = part.get("thought") instanceof Boolean b && b;
+                if (isThought) {
+                    // 思考内容作为 thinking part 存储
+                    UnifiedPart thinkingPart = new UnifiedPart();
+                    thinkingPart.setType("thinking");
+                    thinkingPart.setText((String) part.get("text"));
+                    if (part.get("thought_signature") instanceof String sig) {
+                        thinkingPart.setAttributes(Map.of("thought_signature", sig));
+                    }
+                    textParts.add(thinkingPart);
+                } else {
+                    textParts.add(textPart((String) part.get("text")));
+                }
             }
             // functionCall → UnifiedToolCall
             else if (part.get("functionCall") instanceof Map<?, ?> fcRaw) {
@@ -407,6 +443,7 @@ public class GeminiProtocolAdapter extends AbstractProtocolAdapter {
     }
 
     /** 解析生成配置 */
+    @SuppressWarnings("unchecked")
     private UnifiedGenerationConfig parseGenerationConfig(Map<String, Object> req) {
         UnifiedGenerationConfig config = new UnifiedGenerationConfig();
         config.setTemperature(req.get("temperature") instanceof Number n ? n.doubleValue() : null);
@@ -421,7 +458,58 @@ public class GeminiProtocolAdapter extends AbstractProtocolAdapter {
                     .map(String.class::cast)
                     .toList());
         }
+
+        // thinking 配置（Gemini 3/3.1）
+        parseGeminiThinkingConfig(req, config);
+
         return config;
+    }
+
+    /** 解析 Gemini thinking_config / thinking_level / thinking_mode */
+    private void parseGeminiThinkingConfig(Map<String, Object> req, UnifiedGenerationConfig config) {
+        // Gemini 3/3.1 的 thinking_config 对象
+        if (req.get("thinkingConfig") instanceof Map<?, ?> tcMap) {
+            Map<String, Object> tc = toStringMap(tcMap);
+            UnifiedReasoningConfig reasoning = new UnifiedReasoningConfig();
+            reasoning.setEnabled(true);
+            if (tc.get("thinking_budget") instanceof Number n) {
+                reasoning.setBudgetTokens(n.intValue());
+            }
+            if (tc.get("thinking_level") instanceof String level && !level.isBlank()) {
+                reasoning.setEffort(level);
+            }
+            if (tc.get("thinking_mode") instanceof String mode && !mode.isBlank()) {
+                reasoning.setEffort(mode);
+            }
+            if (tc.containsKey("include_thoughts")) {
+                reasoning.setSummary(Boolean.TRUE.equals(tc.get("include_thoughts")) ? "auto" : null);
+            }
+            config.setReasoning(reasoning);
+            return;
+        }
+        // Gemini 3.1 thinking_mode 顶层简写
+        if (req.get("thinking_mode") instanceof String mode && !mode.isBlank()) {
+            UnifiedReasoningConfig reasoning = new UnifiedReasoningConfig();
+            reasoning.setEnabled(true);
+            reasoning.setEffort(mode);
+            config.setReasoning(reasoning);
+            return;
+        }
+        // Gemini 3 thinking_level 顶层简写
+        if (req.get("thinking_level") instanceof String level && !level.isBlank()) {
+            UnifiedReasoningConfig reasoning = new UnifiedReasoningConfig();
+            reasoning.setEnabled(true);
+            reasoning.setEffort(level);
+            config.setReasoning(reasoning);
+            return;
+        }
+        // Gemini 旧版 thinking_budget + include_thoughts
+        if (req.get("thinkingBudget") instanceof Number n) {
+            UnifiedReasoningConfig reasoning = new UnifiedReasoningConfig();
+            reasoning.setEnabled(true);
+            reasoning.setBudgetTokens(n.intValue());
+            config.setReasoning(reasoning);
+        }
     }
 
     // ===================== 响应编码辅助方法 =====================

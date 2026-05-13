@@ -1,12 +1,14 @@
 package com.code.aigateway.provider.gemini;
 
 import com.code.aigateway.config.GatewayProperties;
+import com.code.aigateway.core.capability.ReasoningSemanticMapper;
 import com.code.aigateway.sdk.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.resilience.CircuitBreakerManager;
 import com.code.aigateway.sdk.model.UnifiedMessage;
 import com.code.aigateway.sdk.model.UnifiedOutput;
 import com.code.aigateway.sdk.model.UnifiedPart;
+import com.code.aigateway.sdk.model.UnifiedReasoningConfig;
 import com.code.aigateway.sdk.model.UnifiedRequest;
 import com.code.aigateway.sdk.model.UnifiedResponse;
 import com.code.aigateway.sdk.model.UnifiedStreamEvent;
@@ -61,11 +63,15 @@ import reactor.core.publisher.Mono;
 @Slf4j
 public class GeminiProviderClient extends AbstractProviderClient {
 
+    private final ReasoningSemanticMapper reasoningSemanticMapper;
+
     public GeminiProviderClient(ReactorClientHttpConnector httpConnector,
                                 ObjectMapper objectMapper,
                                 GatewayProperties gatewayProperties,
-                                CircuitBreakerManager circuitBreakerManager) {
+                                CircuitBreakerManager circuitBreakerManager,
+                                ReasoningSemanticMapper reasoningSemanticMapper) {
         super(httpConnector, objectMapper, gatewayProperties, circuitBreakerManager);
+        this.reasoningSemanticMapper = reasoningSemanticMapper;
     }
 
     @Override
@@ -307,6 +313,14 @@ public class GeminiProviderClient extends AbstractProviderClient {
             if (request.getGenerationConfig().getStopSequences() != null && !request.getGenerationConfig().getStopSequences().isEmpty()) {
                 config.put("stopSequences", request.getGenerationConfig().getStopSequences());
             }
+            // thinking 参数映射到 Gemini thinking_config
+            UnifiedReasoningConfig reasoning = request.getGenerationConfig().getReasoning();
+            if (reasoning != null) {
+                Map<String, Object> geminiThinkingConfig = reasoningSemanticMapper.toGeminiThinkingConfig(reasoning);
+                if (geminiThinkingConfig != null && !geminiThinkingConfig.isEmpty()) {
+                    config.put("thinkingConfig", geminiThinkingConfig);
+                }
+            }
         }
         return config;
     }
@@ -387,12 +401,26 @@ public class GeminiProviderClient extends AbstractProviderClient {
      */
     private UnifiedResponse parseCandidate(JsonNode candidate, JsonNode fullJson, String requestModel) {
         List<UnifiedToolCall> toolCalls = new ArrayList<>();
+        List<UnifiedPart> thinkingParts = new ArrayList<>();
         StringBuilder textBuilder = new StringBuilder();
 
         JsonNode parts = candidate.path("content").path("parts");
         if (parts.isArray()) {
             for (JsonNode part : parts) {
-                if (part.has("text")) {
+                // 跳过 thought 标记的思考内容（单独处理）
+                boolean isThought = part.path("thought").asBoolean(false);
+                if (isThought) {
+                    UnifiedPart thinkingPart = new UnifiedPart();
+                    thinkingPart.setType("thinking");
+                    thinkingPart.setText(part.has("text") ? part.get("text").asText() : "");
+                    if (part.has("thought_signature")) {
+                        thinkingPart.setAttributes(Map.of("thought_signature",
+                                part.get("thought_signature").asText()));
+                    }
+                    thinkingParts.add(thinkingPart);
+                    continue;
+                }
+                if (part.has("text") && !isThought) {
                     textBuilder.append(part.get("text").asText());
                 }
                 if (part.has("functionCall")) {
@@ -401,20 +429,25 @@ public class GeminiProviderClient extends AbstractProviderClient {
                     call.setId("call_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8));
                     call.setType("function");
                     call.setToolName(fc.path("name").asText());
-                    // Gemini args 是 object，转为 JSON string
                     call.setArgumentsJson(objectToString(fc.get("args")));
                     toolCalls.add(call);
                 }
             }
         }
 
-        UnifiedPart textPart = new UnifiedPart();
-        textPart.setType("text");
-        textPart.setText(textBuilder.toString());
+        // 构建 output parts：thinking + text
+        List<UnifiedPart> outputParts = new ArrayList<>();
+        outputParts.addAll(thinkingParts);
+        if (!textBuilder.isEmpty()) {
+            UnifiedPart textPart = new UnifiedPart();
+            textPart.setType("text");
+            textPart.setText(textBuilder.toString());
+            outputParts.add(textPart);
+        }
 
         UnifiedOutput output = new UnifiedOutput();
         output.setRole("assistant");
-        output.setParts(textBuilder.isEmpty() && !toolCalls.isEmpty() ? List.of() : List.of(textPart));
+        output.setParts(outputParts.isEmpty() && !toolCalls.isEmpty() ? List.of() : outputParts);
         output.setToolCalls(toolCalls.isEmpty() ? null : toolCalls);
 
         String finishReason = mapFinishReason(textOrNull(candidate.get("finishReason")));
@@ -494,8 +527,18 @@ public class GeminiProviderClient extends AbstractProviderClient {
         if (parts.isArray()) {
             int partIndex = 0;
             for (JsonNode part : parts) {
-                // 文本增量
-                if (part.has("text")) {
+                boolean isThought = part.path("thought").asBoolean(false);
+
+                // 思考增量（thought flag 为 true 的 text part）
+                if (part.has("text") && isThought) {
+                    UnifiedStreamEvent e = new UnifiedStreamEvent();
+                    e.setType("thinking_delta");
+                    e.setOutputIndex(partIndex);
+                    e.setThinkingDelta(part.get("text").asText());
+                    events.add(e);
+                }
+                // 普通文本增量
+                else if (part.has("text") && !isThought) {
                     UnifiedStreamEvent e = new UnifiedStreamEvent();
                     e.setType("text_delta");
                     e.setOutputIndex(partIndex);

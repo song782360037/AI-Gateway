@@ -362,13 +362,15 @@ class OpenAiChatProtocolAdapterTest {
         }
 
         @Test
-        @DisplayName("thinking_delta 事件被静默丢弃")
-        void encodeStreamEvent_thinkingDelta_discarded() {
+        @DisplayName("thinking_delta 事件编码为 reasoning_content delta")
+        void encodeStreamEvent_thinkingDelta_encoded() {
             UnifiedStreamEvent event = UnifiedStreamEvent.thinkingDelta("thinking...");
 
             List<EncodedEvent> events = adapter.encodeStreamEvent(event, ctx);
 
-            assertThat(events).isEmpty();
+            assertThat(events).hasSize(1);
+            assertThat(events.get(0).data()).contains("reasoning_content");
+            assertThat(events.get(0).data()).contains("thinking...");
         }
 
         @Test

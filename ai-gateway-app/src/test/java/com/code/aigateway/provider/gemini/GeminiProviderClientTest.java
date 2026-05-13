@@ -962,7 +962,8 @@ class GeminiProviderClientTest {
     void getProviderType_returnsGemini() {
         // 不需要启动 server
         GeminiProviderClient client = new GeminiProviderClient(
-                new ReactorClientHttpConnector(), objectMapper, new GatewayProperties(), ProviderTestUtil.noopCircuitBreakerManager());
+                new ReactorClientHttpConnector(), objectMapper, new GatewayProperties(),
+                ProviderTestUtil.noopCircuitBreakerManager(), new com.code.aigateway.core.capability.ReasoningSemanticMapper());
         assertEquals(ProviderType.GEMINI, client.getProviderType());
     }
 
@@ -988,7 +989,8 @@ class GeminiProviderClientTest {
         providerProperties.setApiKey("test-gemini-key");
         providerProperties.setTimeoutSeconds(timeoutSeconds);
         gatewayProperties.setProviders(Map.of("gemini", providerProperties));
-        return new GeminiProviderClient(new ReactorClientHttpConnector(), objectMapper, gatewayProperties, ProviderTestUtil.noopCircuitBreakerManager());
+        return new GeminiProviderClient(new ReactorClientHttpConnector(), objectMapper, gatewayProperties,
+                ProviderTestUtil.noopCircuitBreakerManager(), new com.code.aigateway.core.capability.ReasoningSemanticMapper());
     }
 
     private UnifiedRequest buildTextRequest(boolean stream) {
