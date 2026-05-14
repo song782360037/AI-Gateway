@@ -178,7 +178,6 @@ public class AnthropicProviderClient extends AbstractProviderClient {
             if (request.getGenerationConfig().getTopP() != null) {
                 body.put("top_p", request.getGenerationConfig().getTopP());
             }
-            boolean simplified = isSimplifiedThinkingMode(request);
             if (request.getGenerationConfig().getTopK() != null) {
                 body.put("top_k", request.getGenerationConfig().getTopK());
             }
@@ -189,6 +188,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
                 // 根据 thinkingCompatMode 决定是否使用简化模式
                 // 第三方 Anthropic 兼容 API（如 MiMo）不支持 budget_tokens、summary 等扩展字段，
                 // 收到不认识的字段会返回 400 Param Incorrect
+                boolean simplified = isSimplifiedThinkingMode(request);
                 Map<String, Object> thinking = reasoningSemanticMapper.toAnthropicThinking(
                         request.getGenerationConfig().getReasoning(), simplified);
                 if (thinking != null && !thinking.isEmpty()) {
@@ -325,53 +325,137 @@ public class AnthropicProviderClient extends AbstractProviderClient {
      *   <li>redacted_thinking 统一转为 thinking</li>
      * </ul>
      * </p>
+     * <p>
+     * 跨协议兼容：当客户端使用 OpenAI chat 格式请求（无 thinking 块概念），
+     * assistant 消息含 tool_use 但缺少 thinking 块时，注入最小 thinking 块
+     * 以兼容 DeepSeek 等要求 tool_use 必须伴随 thinking 块的 Provider。
+     * </p>
      */
     private Map<String, Object> buildAssistantMessage(UnifiedMessage msg, boolean simplifiedThinking) {
         List<Object> content = new ArrayList<>();
 
-        // 按原始顺序重建 content 块：text / thinking / tool_use
-        if (msg.getParts() != null) {
-            for (UnifiedPart part : msg.getParts()) {
-                if ("text".equals(part.getType())) {
-                    if (part.getText() != null && !part.getText().isEmpty()) {
-                        content.add(Map.of("type", "text", "text", part.getText()));
-                    }
-                } else if ("thinking".equals(part.getType())) {
-                    Map<String, Object> thinking = new LinkedHashMap<>();
-                    // 简化模式：统一用 "thinking" 类型，去除 signature
-                    // 完整模式：恢复原始类型（redacted_thinking → redacted_thinking），保留 signature
-                    if (simplifiedThinking) {
-                        thinking.put("type", "thinking");
-                    } else {
-                        String originalType = part.getAttributes() != null
-                                && "redacted_thinking".equals(part.getAttributes().get("anthropic_type"))
-                                ? "redacted_thinking" : "thinking";
-                        thinking.put("type", originalType);
-                    }
-                    thinking.put("thinking", part.getText() != null ? part.getText() : "");
-                    if (!simplifiedThinking
-                            && part.getAttributes() != null
-                            && part.getAttributes().get("signature") instanceof String sig) {
-                        thinking.put("signature", sig);
-                    }
-                    content.add(thinking);
+        // 第一阶段：重建 text / thinking 块（保证在 tool_use 之前）
+        boolean hasThinking = rebuildTextAndThinkingBlocks(content, msg, simplifiedThinking);
+
+        // 跨协议兼容：注入最小 thinking 占位块（当存在 tool_calls 但缺少 thinking 时）
+        boolean hasToolCalls = msg.getToolCalls() != null && !msg.getToolCalls().isEmpty();
+        injectThinkingIfRequired(content, hasToolCalls, hasThinking);
+
+        // 第二阶段：tool_calls → tool_use content blocks（保证在 text/thinking 之后）
+        buildToolUseBlocks(content, msg);
+
+        return buildSimplifiedAssistantMessage(content);
+    }
+    
+    /**
+     * 重建 text / thinking 块，返回是否包含 thinking 块
+     * <p>
+     * 简化思考模式下，统一将 redacted_thinking 转换为 thinking 类型，去除 signature 字段；
+     * 完整模式下保留原始类型和 signature。
+     * </p>
+     */
+    private boolean rebuildTextAndThinkingBlocks(List<Object> content, UnifiedMessage msg, boolean simplifiedThinking) {
+        boolean hasThinking = false;
+        if (msg.getParts() == null) {
+            return hasThinking;
+        }
+        
+        for (UnifiedPart part : msg.getParts()) {
+            if ("text".equals(part.getType())) {
+                if (part.getText() != null && !part.getText().isEmpty()) {
+                    content.add(Map.of("type", "text", "text", part.getText()));
                 }
+            } else if ("thinking".equals(part.getType())) {
+                hasThinking = true;
+                content.add(buildThinkingBlock(part, simplifiedThinking));
             }
         }
-
-        // tool_calls → tool_use content blocks
-        if (msg.getToolCalls() != null) {
-            for (UnifiedToolCall tc : msg.getToolCalls()) {
-                Map<String, Object> toolUse = new LinkedHashMap<>();
-                toolUse.put("type", "tool_use");
-                toolUse.put("id", tc.getId() != null ? tc.getId() : "");
-                toolUse.put("name", tc.getToolName());
-                // Anthropic 的 input 是 object 而非 JSON string
-                toolUse.put("input", parseJsonArgs(tc.getArgumentsJson()));
-                content.add(toolUse);
-            }
+        return hasThinking;
+    }
+    
+    /**
+     * 构建单个 thinking content block
+     * <p>
+     * 简化模式：统一用 "thinking" 类型，去除 signature（第三方 API 如 MiMo 不支持）<br>
+     * 完整模式：恢复原始类型（redacted_thinking → redacted_thinking），保留 signature
+     * </p>
+     */
+    private Map<String, Object> buildThinkingBlock(UnifiedPart part, boolean simplifiedThinking) {
+        Map<String, Object> thinking = new LinkedHashMap<>();
+        
+        // 简化模式：统一用 "thinking" 类型，去除 signature
+        // 完整模式：恢复原始类型（redacted_thinking → redacted_thinking），保留 signature
+        if (simplifiedThinking) {
+            thinking.put("type", "thinking");
+        } else {
+            String originalType = part.getAttributes() != null
+                    && "redacted_thinking".equals(part.getAttributes().get("anthropic_type"))
+                    ? "redacted_thinking" : "thinking";
+            thinking.put("type", originalType);
         }
-
+        
+        thinking.put("thinking", part.getText() != null ? part.getText() : "");
+        
+        // 完整模式下保留 signature 字段
+        if (!simplifiedThinking
+                && part.getAttributes() != null
+                && part.getAttributes().get("signature") instanceof String sig) {
+            thinking.put("signature", sig);
+        }
+        
+        return thinking;
+    }
+    
+    /**
+     * 跨协议兼容：当存在 tool_calls 但缺少 thinking 块时，注入最小 thinking 占位块
+     * <p>
+     * 使用空字符串作为 thinking 内容，因为：<br>
+     * 1. 空字符串是最小化的有效值，不会影响 Provider 处理<br>
+     * 2. 某些 Provider（如 DeepSeek）要求 thinking 块必须存在，但不要求非空<br>
+     * 3. 避免使用 null 或特殊占位符可能导致的序列化问题
+     * </p>
+     */
+    private void injectThinkingIfRequired(List<Object> content, boolean hasToolCalls, boolean hasThinking) {
+        if (hasToolCalls && !hasThinking) {
+            // OpenAI 格式无 thinking 块，但 Anthropic 兼容 Provider 要求
+            // tool_use 前必须有 thinking 块，注入最小占位块
+            Map<String, Object> placeholder = new LinkedHashMap<>();
+            placeholder.put("type", "thinking");
+            placeholder.put("thinking", "");
+            content.add(placeholder);
+        }
+    }
+    
+    /**
+     * 构建 tool_calls → tool_use content blocks
+     */
+    private void buildToolUseBlocks(List<Object> content, UnifiedMessage msg) {
+        if (msg.getToolCalls() == null || msg.getToolCalls().isEmpty()) {
+            return;
+        }
+        
+        for (UnifiedToolCall tc : msg.getToolCalls()) {
+            Map<String, Object> toolUse = new LinkedHashMap<>();
+            toolUse.put("type", "tool_use");
+            toolUse.put("id", tc.getId() != null ? tc.getId() : "");
+            toolUse.put("name", tc.getToolName());
+            // Anthropic 的 input 是 object 而非 JSON string
+            toolUse.put("input", parseJsonArgs(tc.getArgumentsJson()));
+            content.add(toolUse);
+        }
+    }
+    
+    /**
+     * 构建简化的 assistant 消息格式
+     * <p>
+     * 如果只有单个 text 块，简化为字符串格式；否则保持 content 数组格式
+     * </p>
+     */
+    private Map<String, Object> buildSimplifiedAssistantMessage(List<Object> content) {
+        // 防御性检查：content 为空时返回空数组，避免序列化为 null
+        if (content.isEmpty()) {
+            return Map.of("role", "assistant", "content", List.of());
+        }
         if (content.size() == 1 && content.getFirst() instanceof Map<?, ?> map
                 && "text".equals(map.get("type"))) {
             // 纯文本消息用字符串简化

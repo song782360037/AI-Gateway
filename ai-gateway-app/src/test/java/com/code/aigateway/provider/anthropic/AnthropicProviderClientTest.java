@@ -536,14 +536,178 @@ class AnthropicProviderClientTest {
         assertEquals("请帮我查询天气", messages.get(0).get("content").asText());
         assertEquals("assistant", messages.get(1).get("role").asText());
         assertTrue(messages.get(1).get("content").isArray());
-        assertEquals("tool_use", messages.get(1).get("content").get(1).get("type").asText());
+        // content[0]=text, content[1]=thinking(兼容注入), content[2]=tool_use
+        assertEquals("text", messages.get(1).get("content").get(0).get("type").asText());
+        assertEquals("thinking", messages.get(1).get("content").get(1).get("type").asText());
+        assertEquals("tool_use", messages.get(1).get("content").get(2).get("type").asText());
         assertEquals("user", messages.get(2).get("role").asText());
         assertEquals(2, messages.get(2).get("content").size());
         assertEquals("tool_result", messages.get(2).get("content").get(0).get("type").asText());
         assertEquals("tool_result", messages.get(2).get("content").get(1).get("type").asText());
     }
 
-    // ==================== 8. 工具定义构建 ====================
+    // ==================== 8. 跨协议兼容：thinking 块注入 ====================
+
+    @Test
+    void chat_requestBody_openAiFormatWithoutThinking_injectsThinkingBeforeToolUse() throws Exception {
+        // 模拟 OpenAI 格式请求：assistant 消息只有 text + tool_calls，无 thinking 块
+        // 路由到 Anthropic 兼容 Provider 时需注入 thinking 块
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
+                    {
+                      "id": "msg_compat",
+                      "type": "message",
+                      "role": "assistant",
+                      "model": "deepseek-chat",
+                      "content": [{"type":"text","text":"ok"}],
+                      "stop_reason": "end_turn",
+                      "usage": {"input_tokens": 10, "output_tokens": 2}
+                    }
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        // 构造 OpenAI 格式的 assistant 消息（无 thinking 部分）
+        UnifiedPart textPart = new UnifiedPart();
+        textPart.setType("text");
+        textPart.setText("帮你查询");
+
+        UnifiedToolCall toolCall = new UnifiedToolCall();
+        toolCall.setId("call_openai_1");
+        toolCall.setType("function");
+        toolCall.setToolName("search");
+        toolCall.setArgumentsJson("{\"query\":\"weather\"}");
+
+        UnifiedMessage assistantMsg = new UnifiedMessage();
+        assistantMsg.setRole("assistant");
+        assistantMsg.setParts(List.of(textPart));
+        assistantMsg.setToolCalls(List.of(toolCall));
+
+        UnifiedRequest request = buildCompatTestRequest("deepseek-chat", assistantMsg, "查询天气");
+
+        StepVerifier.create(providerClient.chat(request))
+                .assertNext(response -> assertEquals("stop", response.getFinishReason()))
+                .verifyComplete();
+
+        JsonNode body = objectMapper.readTree(requestBody.get());
+        JsonNode messages = body.get("messages");
+        assertEquals(2, messages.size());
+        // messages[0]=user, messages[1]=assistant
+        JsonNode assistantContent = messages.get(1).get("content");
+        assertTrue(assistantContent.isArray());
+        // content[0]=text, content[1]=thinking(兼容注入), content[2]=tool_use
+        assertEquals(3, assistantContent.size());
+        assertEquals("text", assistantContent.get(0).get("type").asText());
+        assertEquals("thinking", assistantContent.get(1).get("type").asText());
+        assertEquals("", assistantContent.get(1).get("thinking").asText());
+        assertEquals("tool_use", assistantContent.get(2).get("type").asText());
+        assertEquals("call_openai_1", assistantContent.get(2).get("id").asText());
+    }
+
+    @Test
+    void chat_requestBody_withExistingThinking_doesNotInjectDuplicate() throws Exception {
+        // Anthropic 格式请求已包含 thinking 块时，不应重复注入
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
+                    {
+                      "id": "msg_no_dup",
+                      "type": "message",
+                      "role": "assistant",
+                      "model": "claude-3-5-sonnet-20241022",
+                      "content": [{"type":"text","text":"ok"}],
+                      "stop_reason": "end_turn",
+                      "usage": {"input_tokens": 10, "output_tokens": 2}
+                    }
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        UnifiedPart textPart = new UnifiedPart();
+        textPart.setType("text");
+        textPart.setText("思考中");
+
+        UnifiedPart thinkingPart = new UnifiedPart();
+        thinkingPart.setType("thinking");
+        thinkingPart.setText("用户需要天气信息");
+
+        UnifiedToolCall toolCall = new UnifiedToolCall();
+        toolCall.setId("call_1");
+        toolCall.setType("function");
+        toolCall.setToolName("get_weather");
+        toolCall.setArgumentsJson("{\"city\":\"Beijing\"}");
+
+        UnifiedMessage assistantMsg = new UnifiedMessage();
+        assistantMsg.setRole("assistant");
+        assistantMsg.setParts(List.of(thinkingPart, textPart));
+        assistantMsg.setToolCalls(List.of(toolCall));
+
+        UnifiedRequest request = buildCompatTestRequest("claude-3-5-sonnet-20241022", assistantMsg, "查天气");
+
+        StepVerifier.create(providerClient.chat(request))
+                .assertNext(response -> assertEquals("stop", response.getFinishReason()))
+                .verifyComplete();
+
+        JsonNode body = objectMapper.readTree(requestBody.get());
+        JsonNode messages = body.get("messages");
+        assertEquals(2, messages.size());
+        // messages[0]=user, messages[1]=assistant
+        JsonNode assistantContent = messages.get(1).get("content");
+        // content[0]=thinking(原始), content[1]=text, content[2]=tool_use — 无重复注入
+        assertEquals(3, assistantContent.size());
+        assertEquals("thinking", assistantContent.get(0).get("type").asText());
+        assertEquals("用户需要天气信息", assistantContent.get(0).get("thinking").asText());
+        assertEquals("text", assistantContent.get(1).get("type").asText());
+        assertEquals("tool_use", assistantContent.get(2).get("type").asText());
+    }
+
+    @Test
+    void chat_requestBody_noPartsWithToolCalls_injectsThinking() throws Exception {
+        // OpenAI 格式：assistant 消息只有 tool_calls 无 parts
+        startServer(exchange -> {
+            captureRequest(exchange);
+            writeResponse(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
+                    {
+                      "id": "msg_no_parts",
+                      "type": "message",
+                      "role": "assistant",
+                      "model": "deepseek-chat",
+                      "content": [{"type":"text","text":"ok"}],
+                      "stop_reason": "end_turn",
+                      "usage": {"input_tokens": 5, "output_tokens": 1}
+                    }
+                    """);
+        });
+        providerClient = newProviderClient(5);
+
+        UnifiedToolCall toolCall = new UnifiedToolCall();
+        toolCall.setId("call_no_parts");
+        toolCall.setType("function");
+        toolCall.setToolName("search");
+        toolCall.setArgumentsJson("{\"q\":\"test\"}");
+
+        UnifiedMessage assistantMsg = new UnifiedMessage();
+        assistantMsg.setRole("assistant");
+        assistantMsg.setParts(null);
+        assistantMsg.setToolCalls(List.of(toolCall));
+
+        UnifiedRequest request = buildCompatTestRequest("deepseek-chat", assistantMsg, "查一下");
+
+        StepVerifier.create(providerClient.chat(request))
+                .assertNext(response -> assertEquals("stop", response.getFinishReason()))
+                .verifyComplete();
+
+        JsonNode body = objectMapper.readTree(requestBody.get());
+        JsonNode assistantContent = body.get("messages").get(1).get("content");
+        // content[0]=thinking(注入), content[1]=tool_use — 无 text 块
+        assertEquals(2, assistantContent.size());
+        assertEquals("thinking", assistantContent.get(0).get("type").asText());
+        assertEquals("tool_use", assistantContent.get(1).get("type").asText());
+        assertEquals("call_no_parts", assistantContent.get(1).get("id").asText());
+    }
+
+    // ==================== 9. 工具定义构建 ====================
 
     @Test
     void chat_requestBody_usesInputSchema() throws Exception {
@@ -585,7 +749,7 @@ class AnthropicProviderClientTest {
         assertEquals("get_weather", toolChoice.get("name").asText());
     }
 
-    // ==================== 9. providerType ====================
+    // ==================== 10. providerType ====================
 
     @Test
     void getProviderType_returnsAnthropic() {
@@ -704,6 +868,34 @@ class AnthropicProviderClientTest {
         UnifiedRequest request = buildBasicRequest(stream);
         request.setTools(List.of(tool));
         request.setToolChoice(choice);
+        return request;
+    }
+
+    /**
+     * 构建跨协议兼容测试请求（公共辅助方法，消除重复代码）
+     *
+     * @param model        模型名称
+     * @param assistantMsg assistant 消息（含/不含 thinking 块）
+     * @param userText     user 消息文本
+     */
+    private UnifiedRequest buildCompatTestRequest(String model, UnifiedMessage assistantMsg, String userText) {
+        UnifiedMessage userMsg = new UnifiedMessage();
+        userMsg.setRole("user");
+        userMsg.setParts(List.of(textPart(userText)));
+
+        UnifiedRequest request = new UnifiedRequest();
+        request.setProvider("anthropic");
+        request.setModel(model);
+        request.setMessages(List.of(userMsg, assistantMsg));
+        request.setStream(false);
+
+        UnifiedGenerationConfig genConfig = new UnifiedGenerationConfig();
+        request.setGenerationConfig(genConfig);
+
+        UnifiedRequest.ProviderExecutionContext ctx = new UnifiedRequest.ProviderExecutionContext();
+        ctx.setProviderName("anthropic");
+        ctx.setProviderBaseUrl("http://127.0.0.1:" + httpServer.getAddress().getPort());
+        request.setExecutionContext(ctx);
         return request;
     }
 
