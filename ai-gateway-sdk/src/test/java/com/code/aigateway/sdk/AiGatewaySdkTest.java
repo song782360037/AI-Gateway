@@ -7,8 +7,10 @@ import com.code.aigateway.sdk.model.UnifiedResponse;
 import com.code.aigateway.sdk.protocol.AnthropicProtocolAdapter;
 import com.code.aigateway.sdk.protocol.GeminiProtocolAdapter;
 import com.code.aigateway.sdk.protocol.OpenAiChatProtocolAdapter;
+import com.code.aigateway.sdk.protocol.OpenAiEmbeddingProtocolAdapter;
 import com.code.aigateway.sdk.protocol.OpenAiResponsesProtocolAdapter;
 import com.code.aigateway.sdk.protocol.ProtocolAdapter;
+import com.code.aigateway.sdk.protocol.RerankProtocolAdapter;
 import com.code.aigateway.sdk.registry.ProtocolRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +36,23 @@ class AiGatewaySdkTest {
         objectMapper = new ObjectMapper();
         sdk = new AiGatewaySdk(objectMapper);
     }
+    
+    // 辅助方法：创建 EmbeddingData
+    private UnifiedResponse.EmbeddingData createEmbeddingData(int index, double[] values) {
+        UnifiedResponse.EmbeddingData data = new UnifiedResponse.EmbeddingData();
+        data.setIndex(index);
+        data.setEmbedding(new UnifiedResponse.EmbeddingValue.FloatArray(values));
+        return data;
+    }
+    
+    // 辅助方法：创建 RerankResult
+    private UnifiedResponse.RerankResult createRerankResult(int index, double score, String document) {
+        UnifiedResponse.RerankResult result = new UnifiedResponse.RerankResult();
+        result.setIndex(index);
+        result.setRelevanceScore(score);
+        result.setDocument(document);
+        return result;
+    }
 
     // ===================== 构造 =====================
 
@@ -42,14 +61,16 @@ class AiGatewaySdkTest {
     class ConstructionTests {
 
         @Test
-        @DisplayName("默认构造注册全部四个协议适配器")
-        void defaultConstructor_registersAllFourProtocols() {
+        @DisplayName("默认构造注册全部六个协议适配器")
+        void defaultConstructor_registersAllProtocols() {
             assertThat(sdk.registry().getRegisteredProtocols())
                     .containsExactlyInAnyOrder(
                             ProtocolType.OPENAI_CHAT,
                             ProtocolType.ANTHROPIC,
                             ProtocolType.GEMINI,
-                            ProtocolType.OPENAI_RESPONSES
+                            ProtocolType.OPENAI_RESPONSES,
+                            ProtocolType.OPENAI_EMBEDDING,
+                            ProtocolType.RERANK
                     );
         }
 
@@ -119,6 +140,20 @@ class AiGatewaySdkTest {
         void adapter_null_throwsNPE() {
             assertThatThrownBy(() -> sdk.adapter(null))
                     .isInstanceOf(NullPointerException.class);
+        }
+
+        @Test
+        @DisplayName("获取 OpenAI Embedding 适配器")
+        void adapter_openAiEmbedding() {
+            ProtocolAdapter adapter = sdk.adapter(ProtocolType.OPENAI_EMBEDDING);
+            assertThat(adapter).isInstanceOf(OpenAiEmbeddingProtocolAdapter.class);
+        }
+
+        @Test
+        @DisplayName("获取 Rerank 适配器")
+        void adapter_rerank() {
+            ProtocolAdapter adapter = sdk.adapter(ProtocolType.RERANK);
+            assertThat(adapter).isInstanceOf(RerankProtocolAdapter.class);
         }
     }
 
@@ -318,6 +353,67 @@ class AiGatewaySdkTest {
 
             assertThat(error).isNotEmpty();
             assertThat(error).contains("exhausted");
+        }
+
+        @Test
+        @DisplayName("完整流程：Embedding parse → encodeResponse")
+        void embedding_parseThenEncode_completeFlow() {
+            // 1. 解析 Embedding 请求
+            String requestJson = """
+                    {
+                        "model": "text-embedding-ada-002",
+                        "input": "Hello world"
+                    }""";
+            UnifiedRequest request = sdk.parse(ProtocolType.OPENAI_EMBEDDING, requestJson);
+            assertThat(request.getModel()).isEqualTo("text-embedding-ada-002");
+            assertThat(request.getEmbeddingInput()).isEqualTo("Hello world");
+
+            // 2. 构建响应
+            UnifiedResponse response = new UnifiedResponse();
+            response.setId("embedding-1");
+            response.setModel("text-embedding-ada-002");
+            List<UnifiedResponse.EmbeddingData> embeddingData = List.of(
+                    createEmbeddingData(0, new double[]{0.1, 0.2, 0.3})
+            );
+            response.setEmbeddingData(embeddingData);
+
+            // 3. 编码响应
+            String encoded = sdk.encodeResponse(ProtocolType.OPENAI_EMBEDDING, response);
+            assertThat(encoded).contains("embedding-1");
+            assertThat(encoded).contains("text-embedding-ada-002");
+            assertThat(encoded).contains("0.1");
+        }
+
+        @Test
+        @DisplayName("完整流程：Rerank parse → encodeResponse")
+        void rerank_parseThenEncode_completeFlow() {
+            // 1. 解析 Rerank 请求
+            String requestJson = """
+                    {
+                        "model": "rerank-english-v2.0",
+                        "query": "What is the capital of France?",
+                        "documents": ["Paris is the capital of France.", "London is the capital of England."]
+                    }""";
+            UnifiedRequest request = sdk.parse(ProtocolType.RERANK, requestJson);
+            assertThat(request.getModel()).isEqualTo("rerank-english-v2.0");
+            assertThat(request.getRerankQuery()).isEqualTo("What is the capital of France?");
+            assertThat(request.getRerankDocuments()).hasSize(2);
+
+            // 2. 构建响应
+            UnifiedResponse response = new UnifiedResponse();
+            response.setId("rerank-1");
+            response.setModel("rerank-english-v2.0");
+            List<UnifiedResponse.RerankResult> rerankResults = List.of(
+                    createRerankResult(0, 0.95, "Paris is the capital of France."),
+                    createRerankResult(1, 0.05, "London is the capital of England.")
+            );
+            response.setRerankResults(rerankResults);
+
+            // 3. 编码响应
+            String encoded = sdk.encodeResponse(ProtocolType.RERANK, response);
+            assertThat(encoded).contains("rerank-1");
+            assertThat(encoded).contains("rerank-english-v2.0");
+            assertThat(encoded).contains("0.95");
         }
     }
 }

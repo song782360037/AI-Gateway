@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -68,5 +69,40 @@ public abstract class AbstractProtocolAdapter implements ProtocolAdapter {
             log.debug("[ProtocolSDK] parseArguments failed, returning empty map", e);
             return Map.of();
         }
+    }
+
+    /**
+     * OpenAI 家族共享的错误响应格式：{error: {message, type, code, param}}
+     * <p>Embedding、Rerank 等使用此 OpenAI 格式的适配器直接继承，无需覆写。</p>
+     */
+    @Override
+    public Object buildError(String message, String errorType, String code, String param) {
+        Map<String, Object> error = new LinkedHashMap<>();
+        error.put("message", message);
+        error.put("type", errorType);
+        error.put("code", code);
+        if (param != null) {
+            error.put("param", param);
+        }
+        return Map.of("error", error);
+    }
+
+    /**
+     * OpenAI 家族共享的 ErrorCode → 错误类型映射。
+     * <p>Anthropic / Gemini 等使用不同错误格式的适配器需覆写此方法。</p>
+     */
+    @Override
+    public String mapErrorType(ErrorCode errorCode) {
+        return switch (errorCode) {
+            case INVALID_REQUEST, MODEL_NOT_FOUND, CAPABILITY_NOT_SUPPORTED -> "invalid_request_error";
+            case AUTH_FAILED, PROVIDER_AUTH_ERROR -> "authentication_error";
+            case RATE_LIMITED, PROVIDER_RATE_LIMIT -> "rate_limit_error";
+            case PROVIDER_BAD_REQUEST -> "invalid_request_error";
+            case PROVIDER_RESOURCE_NOT_FOUND, PROVIDER_NOT_FOUND -> "invalid_request_error";
+            case PROVIDER_TIMEOUT -> "server_error";
+            case PROVIDER_CIRCUIT_OPEN, PROVIDER_DISABLED -> "server_error";
+            case PROVIDER_ERROR, PROVIDER_SERVER_ERROR -> "server_error";
+            default -> "server_error";
+        };
     }
 }

@@ -7,7 +7,9 @@ import com.code.aigateway.sdk.model.UnifiedResponse;
 import com.code.aigateway.sdk.protocol.AnthropicProtocolAdapter;
 import com.code.aigateway.sdk.protocol.GeminiProtocolAdapter;
 import com.code.aigateway.sdk.protocol.OpenAiChatProtocolAdapter;
+import com.code.aigateway.sdk.protocol.OpenAiEmbeddingProtocolAdapter;
 import com.code.aigateway.sdk.protocol.OpenAiResponsesProtocolAdapter;
+import com.code.aigateway.sdk.protocol.RerankProtocolAdapter;
 import com.code.aigateway.sdk.protocol.ProtocolAdapter;
 import com.code.aigateway.sdk.registry.ProtocolRegistry;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -56,7 +58,7 @@ public class AiGatewaySdk {
     private final ObjectMapper objectMapper;
 
     /**
-     * 使用默认注册表构造（注册全部四个协议适配器）
+     * 使用默认注册表构造（注册全部协议适配器）
      */
     public AiGatewaySdk(ObjectMapper objectMapper) {
         Objects.requireNonNull(objectMapper, "objectMapper must not be null");
@@ -66,6 +68,8 @@ public class AiGatewaySdk {
                 .register(new AnthropicProtocolAdapter(objectMapper))
                 .register(new GeminiProtocolAdapter(objectMapper))
                 .register(new OpenAiResponsesProtocolAdapter(objectMapper))
+                .register(new OpenAiEmbeddingProtocolAdapter(objectMapper))
+                .register(new RerankProtocolAdapter(objectMapper))
                 .build();
     }
 

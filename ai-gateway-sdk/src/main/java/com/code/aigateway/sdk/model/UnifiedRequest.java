@@ -50,6 +50,27 @@ public class UnifiedRequest {
     /** 元数据（扩展字段，如 statsContext 等 App 层特有对象） */
     private Map<String, Object> metadata;
 
+    /** Embedding 输入（String / List<String> / List<int[]>），非 Embedding 请求为 null */
+    private Object embeddingInput;
+
+    /** Embedding 输出向量维度，null 表示使用模型默认值 */
+    private Integer embeddingDimensions;
+
+    /** Embedding 编码格式（"float" | "base64"），默认 "float" */
+    private String embeddingEncodingFormat;
+
+    /** Rerank 查询文本，非 Rerank 请求为 null */
+    private String rerankQuery;
+
+    /** Rerank 待排序文档列表，非 Rerank 请求为 null */
+    private List<String> rerankDocuments;
+
+    /** Rerank 返回最相关的 N 个结果，null 表示返回全部 */
+    private Integer rerankTopN;
+
+    /** Rerank 是否在响应中返回文档原文 */
+    private Boolean rerankReturnDocuments;
+
     /** Provider 运行时上下文 */
     private ProviderExecutionContext executionContext;
 

@@ -40,6 +40,12 @@ public final class ProtocolResolver {
         if (path.startsWith("/v1/messages")) {
             return ProtocolType.ANTHROPIC;
         }
+        if (path.startsWith("/v1/embeddings")) {
+            return ProtocolType.OPENAI_EMBEDDING;
+        }
+        if (path.startsWith("/v1/rerank")) {
+            return ProtocolType.RERANK;
+        }
         if (path.startsWith("/v1beta/")) {
             return ProtocolType.GEMINI;
         }

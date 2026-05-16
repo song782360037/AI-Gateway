@@ -17,7 +17,6 @@ import com.code.aigateway.provider.AbstractProviderClient;
 import com.code.aigateway.provider.ProviderClient;
 import com.code.aigateway.provider.ProviderClientFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -42,52 +41,26 @@ import java.util.concurrent.atomic.AtomicReference;
  * </p>
  */
 @Service
-@RequiredArgsConstructor
-public class ChatGatewayService {
+public class ChatGatewayService extends AbstractGatewayService {
 
-    /** 模型路由器 */
-    private final ModelRouter modelRouter;
-
-    /** 能力检查器 */
-    private final CapabilityChecker capabilityChecker;
-
-    /** 提供商客户端工厂 */
-    private final ProviderClientFactory providerClientFactory;
-
-    /** 请求统计采集器 */
-    private final RequestStatsCollector requestStatsCollector;
-
-    /** 故障转移策略 */
-    private final FailoverStrategy failoverStrategy;
-
-    /** 活跃请求跟踪器 */
-    private final ActiveRequestTracker activeRequestTracker;
-
-    /** JSON 序列化器，用于创建支持 SDK 上下文的 StreamContext */
     private final ObjectMapper objectMapper;
+
+    public ChatGatewayService(ModelRouter modelRouter, CapabilityChecker capabilityChecker,
+                               ProviderClientFactory providerClientFactory,
+                               RequestStatsCollector requestStatsCollector,
+                               FailoverStrategy failoverStrategy,
+                               ActiveRequestTracker activeRequestTracker,
+                               ObjectMapper objectMapper) {
+        super(modelRouter, capabilityChecker, providerClientFactory,
+              requestStatsCollector, failoverStrategy, activeRequestTracker);
+        this.objectMapper = objectMapper;
+    }
 
     /**
      * 处理非流式聊天请求（含 usage 统计 + 故障转移）
      */
     public Mono<?> chatWithStats(Object rawRequest, ProtocolAdapter adapter, RequestStatsContext context) {
-        UnifiedRequest unifiedRequest = adapter.parse(rawRequest);
-        // 提取思考配置信息
-        applyThinkingConfig(unifiedRequest, context);
-        applyActiveRequestInfo(unifiedRequest, context);
-        List<RouteResult> candidates = resolveCandidates(unifiedRequest, context);
-        String correlationId = context != null ? context.getCorrelationId() : null;
-
-        return failoverStrategy.executeWithFailover(candidates, routeResult -> {
-            applyRouteContext(unifiedRequest, routeResult, correlationId, context);
-            if (context != null) {
-                applyFinalRouteContext(context, routeResult);
-            }
-            ProviderClient client = providerClientFactory.getClient(routeResult.getProviderType());
-            return client.chat(unifiedRequest);
-        }, correlationId, context)
-                .doOnNext(response -> requestStatsCollector.collectSuccess(context, response.getUsage()))
-                .doOnError(ex -> requestStatsCollector.collectError(context, ex))
-                .map(adapter::encodeResponse);
+        return executeNonStreaming(rawRequest, adapter, context, ProviderClient::chat);
     }
 
     /**
@@ -95,8 +68,7 @@ public class ChatGatewayService {
      */
     public Flux<?> streamChat(Object rawRequest, ProtocolAdapter adapter, RequestStatsContext context) {
         UnifiedRequest unifiedRequest = adapter.parse(rawRequest);
-        // 提取思考配置信息
-        applyThinkingConfig(unifiedRequest, context);
+        onPreRoute(unifiedRequest, context);
         applyActiveRequestInfo(unifiedRequest, context);
         List<RouteResult> candidates = resolveCandidates(unifiedRequest, context);
         String correlationId = context != null ? context.getCorrelationId() : null;
@@ -171,25 +143,26 @@ public class ChatGatewayService {
                 });
     }
 
-    /**
-     * 将解析后的请求模型和流式状态同步到活跃请求跟踪器。
-     */
-    private void applyActiveRequestInfo(UnifiedRequest unifiedRequest, RequestStatsContext context) {
-        if (context == null || unifiedRequest == null) {
-            return;
+    // ==================== Chat 特有逻辑 ====================
+
+    @Override
+    protected void onPreRoute(UnifiedRequest unifiedRequest, RequestStatsContext context) {
+        applyThinkingConfig(unifiedRequest, context);
+    }
+
+    @Override
+    protected void applyRouteContext(UnifiedRequest unifiedRequest, RouteResult routeResult,
+                                     String correlationId, RequestStatsContext context) {
+        super.applyRouteContext(unifiedRequest, routeResult, correlationId, context);
+        // 将 thinking 兼容模式写入 metadata，供 Provider Client 读取
+        // 不写入 SDK 的 ProviderExecutionContext，保持 SDK 官方语义
+        if (routeResult.getThinkingCompatMode() != null) {
+            unifiedRequest.getMetadata().put(AbstractProviderClient.META_THINKING_COMPAT_MODE, routeResult.getThinkingCompatMode());
         }
-        activeRequestTracker.updateRequestInfo(
-                context.getCorrelationId(),
-                unifiedRequest.getModel(),
-                unifiedRequest.getStream()
-        );
     }
 
     /**
      * 提取请求中的思考配置信息，写入统计上下文
-     * <p>
-     * 仅当请求中存在 reasoning 配置时才设置，避免污染无思考需求的请求日志。
-     * </p>
      */
     private void applyThinkingConfig(UnifiedRequest unifiedRequest, RequestStatsContext context) {
         if (context == null || unifiedRequest == null || unifiedRequest.getGenerationConfig() == null) {
@@ -207,66 +180,6 @@ public class ChatGatewayService {
         } else if (reasoning.getEffort() != null && !reasoning.getEffort().isBlank()) {
             context.setThinkingDepth(reasoning.getEffort());
         }
-        // NOTE: thinkingMapped 当前始终为 null，因 ReasoningSemanticMapper 尚未接入。
-        // 接入后在此处写入映射结果：context.setThinkingMapped(mapper.isMapped(reasoning));
-        // 保持 null 而非 false，以区分"未映射"和"未接入"两种状态。
-    }
-
-    /**
-     * 解析请求并获取全部候选路由，同时校验能力
-     */
-    private List<RouteResult> resolveCandidates(UnifiedRequest unifiedRequest, RequestStatsContext context) {
-        List<RouteResult> candidates = modelRouter.routeAll(unifiedRequest);
-        if (context != null) {
-            context.setCandidateCount(candidates.size());
-            context.setTerminalStage("ROUTING");
-        }
-
-        // 对首选候选做能力校验
-        if (!candidates.isEmpty()) {
-            capabilityChecker.validate(unifiedRequest, candidates.get(0));
-            if (context != null) {
-                context.setRouteResult(candidates.get(0));
-                applyFinalRouteContext(context, candidates.get(0));
-            }
-        }
-
-        return candidates;
-    }
-
-    /**
-     * 将路由信息写入统一请求的执行上下文
-     */
-    private void applyRouteContext(UnifiedRequest unifiedRequest, RouteResult routeResult, String correlationId, RequestStatsContext context) {
-        unifiedRequest.setProvider(routeResult.getProviderType().name().toLowerCase());
-        unifiedRequest.setModel(routeResult.getTargetModel());
-        if (unifiedRequest.getMetadata() == null) {
-            unifiedRequest.setMetadata(new java.util.HashMap<>());
-        }
-        unifiedRequest.getMetadata().put("statsContext", context);
-        // 将 thinking 兼容模式写入 metadata，供 Provider Client 读取
-        // 不写入 SDK 的 ProviderExecutionContext，保持 SDK 官方语义
-        if (routeResult.getThinkingCompatMode() != null) {
-            unifiedRequest.getMetadata().put(AbstractProviderClient.META_THINKING_COMPAT_MODE, routeResult.getThinkingCompatMode());
-        }
-        unifiedRequest.setExecutionContext(buildExecutionContext(routeResult, correlationId));
-    }
-
-    /**
-     * 将最终命中的路由摘要写入统计上下文，供日志与详情页复用。
-     * 同时更新活跃请求跟踪器中的提供商和目标模型信息。
-     */
-    private void applyFinalRouteContext(RequestStatsContext context, RouteResult routeResult) {
-        context.setRouteResult(routeResult);
-        context.setFinalProviderCode(routeResult.getProviderName());
-        context.setFinalProviderType(routeResult.getProviderType().name());
-        context.setFinalTargetModel(routeResult.getTargetModel());
-        // 更新活跃请求跟踪器中的路由信息
-        activeRequestTracker.updateRoute(
-                context.getCorrelationId(),
-                routeResult.getProviderName(),
-                routeResult.getTargetModel()
-        );
     }
 
     /**
@@ -274,16 +187,5 @@ public class ChatGatewayService {
      */
     private boolean isTerminalStreamEvent(UnifiedStreamEvent event) {
         return "done".equals(event.getType());
-    }
-
-    private UnifiedRequest.ProviderExecutionContext buildExecutionContext(RouteResult routeResult, String correlationId) {
-        UnifiedRequest.ProviderExecutionContext ctx = new UnifiedRequest.ProviderExecutionContext();
-        ctx.setProviderName(routeResult.getProviderName());
-        ctx.setProviderBaseUrl(routeResult.getProviderBaseUrl());
-        ctx.setProviderTimeoutSeconds(routeResult.getProviderTimeoutSeconds());
-        ctx.setProviderApiKey(routeResult.getProviderApiKey());
-        ctx.setCorrelationId(correlationId);
-        ctx.setCustomHeaders(routeResult.getCustomHeaders());
-        return ctx;
     }
 }

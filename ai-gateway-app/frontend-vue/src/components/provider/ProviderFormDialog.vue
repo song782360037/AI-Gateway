@@ -211,6 +211,8 @@ const protocolOptions = [
   { value: 'OPENAI_RESPONSES', label: 'OpenAI Responses' },
   { value: 'ANTHROPIC', label: 'Anthropic' },
   { value: 'GEMINI', label: 'Gemini' },
+  { value: 'OPENAI_EMBEDDING', label: 'OpenAI Embedding' },
+  { value: 'RERANK', label: 'Rerank' },
 ] as const
 
 /** thinking 兼容模式选项 */

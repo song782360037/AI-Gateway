@@ -1,5 +1,7 @@
 package com.code.aigateway.provider;
 
+import com.code.aigateway.core.error.GatewayException;
+import com.code.aigateway.sdk.error.ErrorCode;
 import com.code.aigateway.sdk.model.UnifiedRequest;
 import com.code.aigateway.sdk.model.UnifiedResponse;
 import com.code.aigateway.sdk.model.UnifiedStreamEvent;
@@ -39,4 +41,22 @@ public interface ProviderClient {
      * @return 包含流式事件的 Flux
      */
     Flux<UnifiedStreamEvent> streamChat(UnifiedRequest request);
+
+    /**
+     * 发送 Embedding 请求（非流式）
+     * <p>默认不支持，支持的 Provider 覆写此方法。</p>
+     */
+    default Mono<UnifiedResponse> embedding(UnifiedRequest request) {
+        return Mono.error(new GatewayException(ErrorCode.CAPABILITY_NOT_SUPPORTED,
+                "embedding not supported by " + getProviderType()));
+    }
+
+    /**
+     * 发送 Rerank 请求（非流式）
+     * <p>默认不支持，支持的 Provider 覆写此方法。</p>
+     */
+    default Mono<UnifiedResponse> rerank(UnifiedRequest request) {
+        return Mono.error(new GatewayException(ErrorCode.CAPABILITY_NOT_SUPPORTED,
+                "rerank not supported by " + getProviderType()));
+    }
 }

@@ -23,7 +23,13 @@ public enum ProtocolType {
     ANTHROPIC,
 
     /** Google Gemini API */
-    GEMINI;
+    GEMINI,
+
+    /** OpenAI Embeddings API */
+    OPENAI_EMBEDDING,
+
+    /** Rerank API (Cohere/Jina 格式) */
+    RERANK;
 
     private static final Set<String> VALID_NAMES = Arrays.stream(values())
             .map(Enum::name)

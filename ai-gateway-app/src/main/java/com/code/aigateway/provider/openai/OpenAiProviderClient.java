@@ -55,6 +55,8 @@ import reactor.core.publisher.Mono;
 public class OpenAiProviderClient extends AbstractProviderClient {
 
     private static final String CHAT_COMPLETIONS_PATH = "/v1/chat/completions";
+    private static final String EMBEDDINGS_PATH = "/v1/embeddings";
+    private static final String RERANK_PATH = "/v1/rerank";
 
     private final ReasoningSemanticMapper reasoningSemanticMapper;
 
@@ -127,6 +129,169 @@ public class OpenAiProviderClient extends AbstractProviderClient {
         return withCircuitBreakerFlux(config.providerName(), request.getModel(), sseFlux)
                 .onErrorMap(this::mapTransportError)
                 .flatMap(event -> parseStreamEvent(event, state));
+    }
+
+    // ==================== Embedding ====================
+
+    @Override
+    public Mono<UnifiedResponse> embedding(UnifiedRequest request) {
+        ProviderRuntimeConfig config = resolveRuntimeConfig(request);
+        Map<String, Object> requestBody = buildEmbeddingRequestBody(request);
+
+        Mono<JsonNode> responseMono = buildWebClient(config, extractCorrelationId(request))
+                .post()
+                .uri(EMBEDDINGS_PATH)
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON)
+                .body(BodyInserters.fromValue(requestBody))
+                .retrieve()
+                .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
+                .bodyToMono(JsonNode.class)
+                .timeout(Duration.ofSeconds(config.timeoutSeconds()));
+
+        if (config.maxRetries() > 0) {
+            responseMono = responseMono.retryWhen(buildRetrySpec(config, getStatsContext(request)));
+        }
+
+        return withCircuitBreaker(config.providerName(), request.getModel(), responseMono)
+                .onErrorMap(this::mapTransportError)
+                .map(this::parseEmbeddingResponse);
+    }
+
+    private Map<String, Object> buildEmbeddingRequestBody(UnifiedRequest request) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", request.getModel());
+        // 验证必填字段
+        if (request.getEmbeddingInput() == null) {
+            throw new GatewayException(ErrorCode.INVALID_REQUEST, "embedding input is required");
+        }
+        body.put("input", request.getEmbeddingInput());
+        if (request.getEmbeddingDimensions() != null) {
+            body.put("dimensions", request.getEmbeddingDimensions());
+        }
+        if (request.getEmbeddingEncodingFormat() != null) {
+            body.put("encoding_format", request.getEmbeddingEncodingFormat());
+        }
+        return body;
+    }
+
+    private UnifiedResponse parseEmbeddingResponse(JsonNode json) {
+        UnifiedResponse response = new UnifiedResponse();
+        response.setId(textOrNull(json.get("id")));
+        response.setModel(textOrNull(json.get("model")));
+        response.setProvider("openai");
+
+        // 解析 usage
+        response.setUsage(parseUsage(json.get("usage")));
+
+        // 解析 embedding data
+        JsonNode dataNode = json.get("data");
+        if (dataNode != null && dataNode.isArray()) {
+            List<UnifiedResponse.EmbeddingData> embeddingDataList = new ArrayList<>();
+            for (JsonNode item : dataNode) {
+                UnifiedResponse.EmbeddingData embeddingData = new UnifiedResponse.EmbeddingData();
+                embeddingData.setIndex(item.has("index") ? item.get("index").asInt() : 0);
+                // embedding 可以是 double[] 或 base64 String
+                JsonNode embeddingNode = item.get("embedding");
+                if (embeddingNode != null && embeddingNode.isArray()) {
+                    double[] doubles = new double[embeddingNode.size()];
+                    for (int i = 0; i < embeddingNode.size(); i++) {
+                        doubles[i] = embeddingNode.get(i).asDouble();
+                    }
+                    embeddingData.setEmbedding(new UnifiedResponse.EmbeddingValue.FloatArray(doubles));
+                } else if (embeddingNode != null && embeddingNode.isTextual()) {
+                    embeddingData.setEmbedding(new UnifiedResponse.EmbeddingValue.Base64String(embeddingNode.asText()));
+                }
+                embeddingDataList.add(embeddingData);
+            }
+            response.setEmbeddingData(embeddingDataList);
+        }
+
+        return response;
+    }
+
+    // ==================== Rerank ====================
+
+    @Override
+    public Mono<UnifiedResponse> rerank(UnifiedRequest request) {
+        ProviderRuntimeConfig config = resolveRuntimeConfig(request);
+        Map<String, Object> requestBody = buildRerankRequestBody(request);
+
+        Mono<JsonNode> responseMono = buildWebClient(config, extractCorrelationId(request))
+                .post()
+                .uri(RERANK_PATH)
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON)
+                .body(BodyInserters.fromValue(requestBody))
+                .retrieve()
+                .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
+                .bodyToMono(JsonNode.class)
+                .timeout(Duration.ofSeconds(config.timeoutSeconds()));
+
+        if (config.maxRetries() > 0) {
+            responseMono = responseMono.retryWhen(buildRetrySpec(config, getStatsContext(request)));
+        }
+
+        return withCircuitBreaker(config.providerName(), request.getModel(), responseMono)
+                .onErrorMap(this::mapTransportError)
+                .map(this::parseRerankResponse);
+    }
+
+    private Map<String, Object> buildRerankRequestBody(UnifiedRequest request) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", request.getModel());
+        // 验证必填字段
+        if (request.getRerankQuery() == null) {
+            throw new GatewayException(ErrorCode.INVALID_REQUEST, "rerank query is required");
+        }
+        body.put("query", request.getRerankQuery());
+        if (request.getRerankDocuments() == null || request.getRerankDocuments().isEmpty()) {
+            throw new GatewayException(ErrorCode.INVALID_REQUEST, "rerank documents is required and must not be empty");
+        }
+        body.put("documents", request.getRerankDocuments());
+        if (request.getRerankTopN() != null) {
+            body.put("top_n", request.getRerankTopN());
+        }
+        if (request.getRerankReturnDocuments() != null) {
+            body.put("return_documents", request.getRerankReturnDocuments());
+        }
+        return body;
+    }
+
+    private UnifiedResponse parseRerankResponse(JsonNode json) {
+        UnifiedResponse response = new UnifiedResponse();
+        response.setId(textOrNull(json.get("id")));
+        response.setModel(textOrNull(json.get("model")));
+        response.setProvider("openai");
+
+        // 解析 usage（格式可能为 { total_tokens, prompt_tokens }）
+        response.setUsage(parseUsage(json.get("usage")));
+
+        // 解析 results
+        JsonNode resultsNode = json.get("results");
+        if (resultsNode != null && resultsNode.isArray()) {
+            List<UnifiedResponse.RerankResult> rerankResults = new ArrayList<>();
+            for (JsonNode item : resultsNode) {
+                UnifiedResponse.RerankResult result = new UnifiedResponse.RerankResult();
+                result.setIndex(item.has("index") ? item.get("index").asInt() : 0);
+                if (item.has("relevance_score")) {
+                    result.setRelevanceScore(item.get("relevance_score").asDouble());
+                }
+                // document 可能是对象 { "text": "..." } 或字符串
+                JsonNode docNode = item.get("document");
+                if (docNode != null && !docNode.isNull()) {
+                    if (docNode.isObject() && docNode.has("text")) {
+                        result.setDocument(docNode.get("text").asText());
+                    } else if (docNode.isTextual()) {
+                        result.setDocument(docNode.asText());
+                    }
+                }
+                rerankResults.add(result);
+            }
+            response.setRerankResults(rerankResults);
+        }
+
+        return response;
     }
 
     // ==================== 请求构建 ====================

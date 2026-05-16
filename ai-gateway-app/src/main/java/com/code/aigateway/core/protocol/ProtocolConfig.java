@@ -36,11 +36,23 @@ public class ProtocolConfig {
     }
 
     @Bean
+    public com.code.aigateway.sdk.protocol.OpenAiEmbeddingProtocolAdapter openAiEmbeddingSdkAdapter(ObjectMapper objectMapper) {
+        return new com.code.aigateway.sdk.protocol.OpenAiEmbeddingProtocolAdapter(objectMapper);
+    }
+
+    @Bean
+    public com.code.aigateway.sdk.protocol.RerankProtocolAdapter rerankSdkAdapter(ObjectMapper objectMapper) {
+        return new com.code.aigateway.sdk.protocol.RerankProtocolAdapter(objectMapper);
+    }
+
+    @Bean
     public AiGatewaySdk aiGatewaySdk(
             com.code.aigateway.sdk.protocol.OpenAiChatProtocolAdapter openAiChatSdkAdapter,
             com.code.aigateway.sdk.protocol.OpenAiResponsesProtocolAdapter openAiResponsesSdkAdapter,
             com.code.aigateway.sdk.protocol.AnthropicProtocolAdapter anthropicSdkAdapter,
             com.code.aigateway.sdk.protocol.GeminiProtocolAdapter geminiSdkAdapter,
+            com.code.aigateway.sdk.protocol.OpenAiEmbeddingProtocolAdapter openAiEmbeddingSdkAdapter,
+            com.code.aigateway.sdk.protocol.RerankProtocolAdapter rerankSdkAdapter,
             ObjectMapper objectMapper) {
         return new AiGatewaySdk(
                 com.code.aigateway.sdk.registry.ProtocolRegistry.builder()
@@ -48,6 +60,8 @@ public class ProtocolConfig {
                         .register(openAiResponsesSdkAdapter)
                         .register(anthropicSdkAdapter)
                         .register(geminiSdkAdapter)
+                        .register(openAiEmbeddingSdkAdapter)
+                        .register(rerankSdkAdapter)
                         .build(),
                 objectMapper);
     }
