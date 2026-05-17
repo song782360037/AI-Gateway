@@ -109,13 +109,22 @@ public abstract class AbstractGatewayService {
 
     protected void applyRouteContext(UnifiedRequest unifiedRequest, RouteResult routeResult,
                                      String correlationId, RequestStatsContext context) {
-        unifiedRequest.setProvider(routeResult.getProviderType().name().toLowerCase());
-        unifiedRequest.setModel(routeResult.getTargetModel());
-        if (unifiedRequest.getMetadata() == null) {
-            unifiedRequest.setMetadata(new HashMap<>());
-        }
+        applyBasicRouteContext(unifiedRequest, routeResult, correlationId);
         unifiedRequest.getMetadata().put("statsContext", context);
-        unifiedRequest.setExecutionContext(buildExecutionContext(routeResult, correlationId));
+    }
+
+    /**
+     * 注入基础路由上下文（provider、model、executionContext）。
+     * <p>CountTokensService 等非 Chat 服务也可复用，无需依赖 RequestStatsContext。</p>
+     */
+    public static void applyBasicRouteContext(UnifiedRequest req, RouteResult routeResult,
+                                              String correlationId) {
+        req.setProvider(routeResult.getProviderType().name().toLowerCase());
+        req.setModel(routeResult.getTargetModel());
+        if (req.getMetadata() == null) {
+            req.setMetadata(new HashMap<>());
+        }
+        req.setExecutionContext(buildExecutionContext(routeResult, correlationId));
     }
 
     protected void applyFinalRouteContext(RequestStatsContext context, RouteResult routeResult) {
@@ -130,7 +139,7 @@ public abstract class AbstractGatewayService {
         );
     }
 
-    protected UnifiedRequest.ProviderExecutionContext buildExecutionContext(RouteResult routeResult, String correlationId) {
+    protected static UnifiedRequest.ProviderExecutionContext buildExecutionContext(RouteResult routeResult, String correlationId) {
         UnifiedRequest.ProviderExecutionContext ctx = new UnifiedRequest.ProviderExecutionContext();
         ctx.setProviderName(routeResult.getProviderName());
         ctx.setProviderBaseUrl(routeResult.getProviderBaseUrl());

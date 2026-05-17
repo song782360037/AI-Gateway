@@ -56,6 +56,7 @@ import reactor.core.publisher.Mono;
 public class AnthropicProviderClient extends AbstractProviderClient {
 
     private static final String MESSAGES_PATH = "/v1/messages";
+    private static final String COUNT_TOKENS_PATH = "/v1/messages/count_tokens";
     private static final String DEFAULT_ANTHROPIC_VERSION = "2023-06-01";
     private static final int DEFAULT_MAX_TOKENS = 4096;
 
@@ -91,6 +92,27 @@ public class AnthropicProviderClient extends AbstractProviderClient {
             builder.defaultHeader("X-Correlation-Id", correlationId);
         }
         return builder.build();
+    }
+
+    /**
+     * 调用上游 Anthropic count_tokens 端点，返回精确的 input token 数。
+     * <p>不计费、不触发推理，仅用于 token 预估。</p>
+     */
+    public Mono<Integer> countTokens(UnifiedRequest request) {
+        ProviderRuntimeConfig config = resolveRuntimeConfig(request);
+        Map<String, Object> requestBody = buildCountTokensBody(request);
+
+        return buildWebClient(config, extractCorrelationId(request))
+                .post()
+                .uri(COUNT_TOKENS_PATH)
+                .body(BodyInserters.fromValue(requestBody))
+                .retrieve()
+                .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
+                .bodyToMono(JsonNode.class)
+                .timeout(Duration.ofSeconds(config.timeoutSeconds()))
+                .onErrorMap(this::mapTransportError)
+                .transform(mono -> withCircuitBreaker(config.providerName(), request.getModel(), mono))
+                .map(json -> json.path("input_tokens").asInt());
     }
 
     @Override
@@ -146,6 +168,37 @@ public class AnthropicProviderClient extends AbstractProviderClient {
     }
 
     // ==================== 请求构建 ====================
+
+    /**
+     * 构建 Anthropic count_tokens 请求体。
+     * <p>与 buildRequestBody 类似，但不含 max_tokens、stream、temperature 等生成参数。</p>
+     */
+    private Map<String, Object> buildCountTokensBody(UnifiedRequest request) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", request.getModel());
+
+        if (request.getSystemPrompt() != null && !request.getSystemPrompt().isBlank()) {
+            body.put("system", request.getSystemPrompt());
+        }
+
+        body.put("messages", buildMessages(request));
+
+        // thinking 配置会影响 token 计数（extended thinking 占用 token 预算）
+        if (request.getGenerationConfig() != null && request.getGenerationConfig().getReasoning() != null) {
+            boolean simplified = isSimplifiedThinkingMode(request);
+            Map<String, Object> thinking = reasoningSemanticMapper.toAnthropicThinking(
+                    request.getGenerationConfig().getReasoning(), simplified);
+            if (thinking != null && !thinking.isEmpty()) {
+                body.put("thinking", thinking);
+            }
+        }
+
+        if (request.getTools() != null && !request.getTools().isEmpty()) {
+            body.put("tools", buildTools(request.getTools()));
+        }
+
+        return body;
+    }
 
     /**
      * 构建 Anthropic Messages API 请求体

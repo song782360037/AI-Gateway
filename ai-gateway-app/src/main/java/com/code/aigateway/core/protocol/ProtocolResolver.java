@@ -32,10 +32,15 @@ public final class ProtocolResolver {
 
     /**
      * 按 URL 路径前缀推断协议类型
+     * <p>注意：同前缀的子路径必须排在父路径之前（如 /v1/messages/count_tokens 在 /v1/messages 之前），
+     * 否则 startsWith 会优先匹配父路径。</p>
      */
     public static ProtocolType fromPath(String path) {
         if (path.startsWith("/v1/responses")) {
             return ProtocolType.OPENAI_RESPONSES;
+        }
+        if (path.startsWith("/v1/messages/count_tokens")) {
+            return ProtocolType.ANTHROPIC;
         }
         if (path.startsWith("/v1/messages")) {
             return ProtocolType.ANTHROPIC;

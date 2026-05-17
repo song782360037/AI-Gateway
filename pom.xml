@@ -35,6 +35,7 @@
         <mybatis-spring-boot.version>3.0.4</mybatis-spring-boot.version>
         <springdoc-openapi.version>2.6.0</springdoc-openapi.version>
         <resilience4j.version>2.2.0</resilience4j.version>
+        <jtokkit.version>1.1.0</jtokkit.version>
     </properties>
 
     <dependencyManagement>
@@ -94,6 +95,13 @@
                 <groupId>io.github.resilience4j</groupId>
                 <artifactId>resilience4j-micrometer</artifactId>
                 <version>${resilience4j.version}</version>
+            </dependency>
+
+            <!-- jtokkit：本地 Token 估算 -->
+            <dependency>
+                <groupId>com.knuddels</groupId>
+                <artifactId>jtokkit</artifactId>
+                <version>${jtokkit.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
