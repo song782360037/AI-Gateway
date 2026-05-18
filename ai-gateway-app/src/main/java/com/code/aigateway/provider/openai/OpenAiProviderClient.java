@@ -320,30 +320,12 @@ public class OpenAiProviderClient extends AbstractProviderClient {
             if (request.getGenerationConfig().getStopSequences() != null && !request.getGenerationConfig().getStopSequences().isEmpty()) {
                 body.put("stop", request.getGenerationConfig().getStopSequences());
             }
-            // thinking/reasoning 参数输出
-            // 策略：同时输出 reasoning_effort（OpenAI 原生）和 thinking 对象（DeepSeek/智谱/Kimi/MiMo 等兼容格式）
-            // 各 Provider 仅读取自己认识的字段，忽略未知字段，不会产生冲突
+            // reasoning 参数输出：OpenAI Chat 标准仅支持 reasoning_effort，不输出 thinking 对象
             if (request.getGenerationConfig().getReasoning() != null) {
                 UnifiedReasoningConfig reasoning = request.getGenerationConfig().getReasoning();
-                // OpenAI 原生：reasoning_effort
                 String reasoningEffort = reasoningSemanticMapper.toOpenAiEffort(reasoning);
                 if (reasoningEffort != null && !reasoningEffort.isBlank()) {
                     body.put("reasoning_effort", reasoningEffort);
-                }
-                // 国产模型兼容格式：thinking {type: "enabled"/"disabled", budget_tokens?}
-                // 注意：simplified 模式下不输出 budget_tokens，因为 MiMo 等第三方 API 不支持此字段
-                boolean simplified = isSimplifiedThinkingMode(request);
-                if (Boolean.TRUE.equals(reasoning.getEnabled())) {
-                    Map<String, Object> thinkingMap = new LinkedHashMap<>();
-                    thinkingMap.put("type", "enabled");
-                    // DeepSeek 等模型支持 budget_tokens 限制思考预算
-                    // 仅在完整模式下输出 budget_tokens，简化模式跳过
-                    if (!simplified && reasoning.getBudgetTokens() != null && reasoning.getBudgetTokens() > 0) {
-                        thinkingMap.put("budget_tokens", reasoning.getBudgetTokens());
-                    }
-                    body.put("thinking", thinkingMap);
-                } else if (Boolean.FALSE.equals(reasoning.getEnabled())) {
-                    body.put("thinking", Map.of("type", "disabled"));
                 }
             }
         }
@@ -383,42 +365,79 @@ public class OpenAiProviderClient extends AbstractProviderClient {
             if (msg.getToolCalls() != null && !msg.getToolCalls().isEmpty()) {
                 map.put("tool_calls", buildToolCalls(msg.getToolCalls()));
             }
-            map.put("content", buildMessageContent(msg.getParts()));
+
+            // 分离 thinking 和其他内容，thinking 转为 reasoning_content 回传上游
+            ThinkingExtraction extraction = extractThinking(msg.getParts());
+            map.put("content", extraction.content);
+            if (extraction.reasoningContent != null && "assistant".equals(msg.getRole())) {
+                map.put("reasoning_content", extraction.reasoningContent);
+            }
+
             messages.add(map);
         }
         return messages;
     }
 
-    private Object buildMessageContent(List<UnifiedPart> parts) {
+    /**
+     * 从 parts 中分离 thinking 内容和正常 content。
+     * thinking 部分合并为 reasoning_content 字符串，其余部分构建为 OpenAI Chat content。
+     */
+    private ThinkingExtraction extractThinking(List<UnifiedPart> parts) {
+        ThinkingExtraction result = new ThinkingExtraction();
         if (parts == null || parts.isEmpty()) {
-            return "";
-        }
-        if (parts.size() == 1 && "text".equals(parts.get(0).getType())) {
-            return parts.get(0).getText() == null ? "" : parts.get(0).getText();
+            result.content = "";
+            return result;
         }
 
-        List<Map<String, Object>> content = new ArrayList<>();
+        // 分离 thinking 和 supported parts
+        StringBuilder reasoning = new StringBuilder();
+        List<UnifiedPart> supported = new ArrayList<>();
         for (UnifiedPart part : parts) {
-            if ("text".equals(part.getType())) {
-                content.add(Map.of("type", "text", "text", part.getText() == null ? "" : part.getText()));
-                continue;
-            }
-            if ("image".equals(part.getType())) {
-                Map<String, Object> imageUrl = new LinkedHashMap<>();
-                imageUrl.put("url", resolveImageUrl(part));
-                if (part.getAttributes() != null && part.getAttributes().get("detail") != null) {
-                    imageUrl.put("detail", part.getAttributes().get("detail"));
-                }
-                content.add(Map.of("type", "image_url", "image_url", imageUrl));
-                continue;
-            }
-            // OpenAI Chat Completions 输入不支持 thinking part，安全跳过而非异常
             if ("thinking".equals(part.getType())) {
+                if (part.getText() != null && !part.getText().isEmpty()) {
+                    if (!reasoning.isEmpty()) {
+                        reasoning.append("\n");
+                    }
+                    reasoning.append(part.getText());
+                }
                 continue;
             }
-            throw new GatewayException(ErrorCode.INVALID_REQUEST, "unsupported message part type: " + part.getType());
+            supported.add(part);
         }
-        return content;
+
+        // thinking 内容
+        result.reasoningContent = reasoning.isEmpty() ? null : reasoning.toString();
+
+        // 正常 content
+        if (supported.isEmpty()) {
+            result.content = "";
+        } else if (supported.size() == 1 && "text".equals(supported.get(0).getType())) {
+            result.content = supported.get(0).getText() == null ? "" : supported.get(0).getText();
+        } else {
+            List<Map<String, Object>> content = new ArrayList<>();
+            for (UnifiedPart part : supported) {
+                if ("text".equals(part.getType())) {
+                    content.add(Map.of("type", "text", "text", part.getText() == null ? "" : part.getText()));
+                } else if ("image".equals(part.getType())) {
+                    Map<String, Object> imageUrl = new LinkedHashMap<>();
+                    imageUrl.put("url", resolveImageUrl(part));
+                    if (part.getAttributes() != null && part.getAttributes().get("detail") != null) {
+                        imageUrl.put("detail", part.getAttributes().get("detail"));
+                    }
+                    content.add(Map.of("type", "image_url", "image_url", imageUrl));
+                } else {
+                    throw new GatewayException(ErrorCode.INVALID_REQUEST, "unsupported message part type: " + part.getType());
+                }
+            }
+            result.content = content;
+        }
+        return result;
+    }
+
+    /** thinking 提取结果 */
+    private static class ThinkingExtraction {
+        Object content;
+        String reasoningContent;
     }
 
     private List<Map<String, Object>> buildTools(List<UnifiedTool> tools) {
@@ -629,14 +648,12 @@ public class OpenAiProviderClient extends AbstractProviderClient {
             // 解析 tool_calls delta
             if (delta.has("tool_calls") && delta.get("tool_calls").isArray()) {
                 for (JsonNode tcDelta : delta.get("tool_calls")) {
-                    // 使用 tool_call 自身的 index，而非 choice index
                     int toolIndex = tcDelta.has("index") ? tcDelta.get("index").asInt() : 0;
+                    JsonNode fn = tcDelta.path("function");
 
                     // tool_call 开始（含 name 和 id）
-                    // OpenAI 首个 chunk 同时包含 name 和 arguments（空串），
-                    // 优先以 name 判定为 tool_call 开始事件
-                    if (tcDelta.has("function") && tcDelta.path("function").has("name")) {
-                        String toolName = tcDelta.path("function").path("name").asText();
+                    if (fn.has("name")) {
+                        String toolName = fn.path("name").asText();
                         log.info("[OpenAI-Stream] 检测到 tool_call 开始: toolIndex={}, id={}, name={}",
                                 toolIndex, textOrNull(tcDelta.get("id")), toolName);
                         UnifiedStreamEvent tcEvent = new UnifiedStreamEvent();
@@ -645,14 +662,24 @@ public class OpenAiProviderClient extends AbstractProviderClient {
                         tcEvent.setToolCallId(textOrNull(tcDelta.get("id")));
                         tcEvent.setToolName(toolName);
                         events.add(tcEvent);
+
+                        // 部分上游在首个 chunk 同时携带非空 arguments，需一并输出
+                        if (fn.has("arguments") && !fn.path("arguments").asText().isEmpty()) {
+                            UnifiedStreamEvent argEvent = new UnifiedStreamEvent();
+                            argEvent.setType("tool_call_delta");
+                            argEvent.setOutputIndex(toolIndex);
+                            argEvent.setToolCallId(textOrNull(tcDelta.get("id")));
+                            argEvent.setArgumentsDelta(fn.path("arguments").asText());
+                            events.add(argEvent);
+                        }
                     }
-                    // tool_call 参数增量（仅当无 name 时，即后续 chunk）
-                    else if (tcDelta.has("function") && tcDelta.path("function").has("arguments")) {
+                    // tool_call 参数增量（后续 chunk，无 name）
+                    else if (fn.has("arguments")) {
                         UnifiedStreamEvent tcEvent = new UnifiedStreamEvent();
                         tcEvent.setType("tool_call_delta");
                         tcEvent.setOutputIndex(toolIndex);
                         tcEvent.setToolCallId(textOrNull(tcDelta.get("id")));
-                        tcEvent.setArgumentsDelta(tcDelta.path("function").path("arguments").asText());
+                        tcEvent.setArgumentsDelta(fn.path("arguments").asText());
                         events.add(tcEvent);
                     }
                 }
