@@ -109,14 +109,11 @@ public class AnthropicProtocolAdapter extends AbstractProtocolAdapter {
 
         if (response.getUsage() != null) {
             Map<String, Object> usage = new LinkedHashMap<>();
-            usage.put("input_tokens", rawInputTokens(response.getUsage()));
-            usage.put("output_tokens", response.getUsage().getOutputTokens());
-            if (response.getUsage().getCachedInputTokens() != null) {
-                usage.put("cache_read_input_tokens", response.getUsage().getCachedInputTokens());
-            }
-            if (response.getUsage().getCacheCreationInputTokens() != null) {
-                usage.put("cache_creation_input_tokens", response.getUsage().getCacheCreationInputTokens());
-            }
+            Integer rawInput = rawInputTokens(response.getUsage());
+            usage.put("input_tokens", rawInput != null ? rawInput : 0);
+            usage.put("output_tokens", response.getUsage().getOutputTokens() != null ? response.getUsage().getOutputTokens() : 0);
+            usage.put("cache_read_input_tokens", response.getUsage().getCachedInputTokens() != null ? response.getUsage().getCachedInputTokens() : 0);
+            usage.put("cache_creation_input_tokens", response.getUsage().getCacheCreationInputTokens() != null ? response.getUsage().getCacheCreationInputTokens() : 0);
             result.put("usage", usage);
         }
 
@@ -142,7 +139,19 @@ public class AnthropicProtocolAdapter extends AbstractProtocolAdapter {
         }
 
         if (UnifiedStreamEvent.TYPE_USAGE_ONLY.equals(event.getType())) {
-            // usage_only 事件仅用于触发 message_start，本身不产生额外 SSE 事件
+            // message_start 未发送时，仅触发 message_start
+            // message_start 已发送、done 已处理但 message_delta 尚未携带真实 usage 时，
+            // 补发 message_delta 携带完整 usage（解决 OpenAI Chat Completions 的 usage 延迟到达问题）
+            if (ctx.isDoneProcessed() && !ctx.isOutputTokensSent() && event.getUsage() != null) {
+                // delta 为空：stop_reason 已在之前的 done 事件的 message_delta 中发送过
+                Map<String, Object> delta = new LinkedHashMap<>();
+                Map<String, Object> payload = new LinkedHashMap<>();
+                payload.put("type", "message_delta");
+                payload.put("delta", delta);
+                payload.put("usage", buildUsageForDelta(event.getUsage(), ctx));
+                events.add(EncodedEvent.named("message_delta", ctx.toJson(payload)));
+                ctx.setOutputTokensSent(true);
+            }
             return events;
         }
         if ("done".equals(event.getType())) {
@@ -213,7 +222,7 @@ public class AnthropicProtocolAdapter extends AbstractProtocolAdapter {
 
     // ===================== 流式编码内部方法 =====================
 
-    /** done 事件：关闭打开的 content block，然后发送 message_delta */
+    /** done 事件：关闭打开的 content block，然后发送 message_delta（含完整 usage） */
     private List<EncodedEvent> encodeDoneEvent(UnifiedStreamEvent event, StreamEncodeContext ctx) {
         List<EncodedEvent> events = new ArrayList<>();
 
@@ -226,19 +235,43 @@ public class AnthropicProtocolAdapter extends AbstractProtocolAdapter {
         // message_delta 事件（stop_reason 在 delta 中，usage 在顶层）
         Map<String, Object> delta = new LinkedHashMap<>();
         delta.put("stop_reason", mapStopReason(event.getFinishReason()));
+        delta.put("stop_sequence", null);
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("type", "message_delta");
         payload.put("delta", delta);
+        payload.put("usage", buildUsageForDelta(event.getUsage(), ctx));
 
-        if (event.getUsage() != null) {
-            Map<String, Object> usage = new LinkedHashMap<>();
-            usage.put("output_tokens", event.getUsage().getOutputTokens());
-            payload.put("usage", usage);
+        if (event.getUsage() != null && event.getUsage().getOutputTokens() != null) {
+            ctx.setOutputTokensSent(true);
         }
+        ctx.setDoneProcessed(true);
 
         events.add(EncodedEvent.named("message_delta", ctx.toJson(payload)));
         return events;
+    }
+
+    /**
+     * 构建 message_delta 的 usage 对象（完整字段、累计值）。
+     * <p>Anthropic 标准要求 message_delta.usage 包含 input_tokens、output_tokens、
+     * cache_creation_input_tokens、cache_read_input_tokens（均为累计值）。</p>
+     */
+    private Map<String, Object> buildUsageForDelta(UnifiedUsage usage, StreamEncodeContext ctx) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (usage != null) {
+            Integer rawInput = rawInputTokens(usage);
+            result.put("input_tokens", rawInput != null ? rawInput : 0);
+            result.put("output_tokens", usage.getOutputTokens() != null ? usage.getOutputTokens() : 0);
+            result.put("cache_read_input_tokens", usage.getCachedInputTokens() != null ? usage.getCachedInputTokens() : 0);
+            result.put("cache_creation_input_tokens", usage.getCacheCreationInputTokens() != null ? usage.getCacheCreationInputTokens() : 0);
+        } else {
+            // 兜底：上游未返回 usage 时输出完整字段（0 值）
+            result.put("input_tokens", 0);
+            result.put("output_tokens", 0);
+            result.put("cache_read_input_tokens", 0);
+            result.put("cache_creation_input_tokens", 0);
+        }
+        return result;
     }
 
     /** text_delta 事件：确保当前打开的是 text 块，否则关闭旧块并创建新的 text 块 */
@@ -382,18 +415,10 @@ public class AnthropicProtocolAdapter extends AbstractProtocolAdapter {
         Map<String, Object> usage = new LinkedHashMap<>();
         // inputTokens 已归一化（含缓存），协议输出需要还原为 Anthropic 原始值
         Integer rawInput = rawInputTokens(eventUsage, inputTokens);
-        if (rawInput != null) {
-            usage.put("input_tokens", rawInput);
-        }
+        usage.put("input_tokens", rawInput != null ? rawInput : 0);
         usage.put("output_tokens", 0);
-        // 缓存命中 Token：Anthropic 协议在 message_start 的 usage 中返回 cache_read_input_tokens
-        if (cachedInputTokens != null) {
-            usage.put("cache_read_input_tokens", cachedInputTokens);
-        }
-        // 缓存写入 Token：Anthropic 协议在 message_start 的 usage 中返回 cache_creation_input_tokens
-        if (cacheCreationInputTokens != null) {
-            usage.put("cache_creation_input_tokens", cacheCreationInputTokens);
-        }
+        usage.put("cache_read_input_tokens", cachedInputTokens != null ? cachedInputTokens : 0);
+        usage.put("cache_creation_input_tokens", cacheCreationInputTokens != null ? cacheCreationInputTokens : 0);
         message.put("usage", usage);
 
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -454,25 +479,40 @@ public class AnthropicProtocolAdapter extends AbstractProtocolAdapter {
 
     /**
      * 获取 Anthropic 原始 input_tokens（不含缓存部分）。
-     * <p>优先使用 Provider 设置的 rawInputTokens；若未设置（如测试直接构造），
-     * 回退到 inputTokens（此时未经归一化，即为原始值）。</p>
+     * <p>Anthropic Provider 通过 rawInputTokens 字段传递原始值；
+     * OpenAI/Gemini Provider 的 inputTokens 是总量（含缓存），
+     * 需减去 cachedInputTokens + cacheCreationInputTokens 得到非缓存部分，
+     * 否则 Anthropic 客户端会双重计算（total = input_tokens + cache_tokens）。</p>
      */
     private static Integer rawInputTokens(UnifiedUsage usage) {
         if (usage == null || usage.getInputTokens() == null) return null;
         if (usage.getRawInputTokens() != null) {
             return usage.getRawInputTokens();
         }
-        return usage.getInputTokens();
+        int cached = nullToZero(usage.getCachedInputTokens()) + nullToZero(usage.getCacheCreationInputTokens());
+        return cached > 0 ? Math.max(0, usage.getInputTokens() - cached) : usage.getInputTokens();
     }
 
     /**
      * 获取 Anthropic 原始 input_tokens（流式编码用）。
-     * <p>优先使用事件 usage 的 rawInputTokens；若未设置，回退到 inputTokens。</p>
+     * <p>同 {@link #rawInputTokens(UnifiedUsage)}，当 rawInputTokens 未设置时
+     * 从 inputTokens 中减去缓存部分。</p>
      */
     private static Integer rawInputTokens(UnifiedUsage eventUsage, Integer inputTokens) {
+        if (inputTokens == null) return null;
         if (eventUsage != null && eventUsage.getRawInputTokens() != null) {
             return eventUsage.getRawInputTokens();
         }
+        if (eventUsage != null) {
+            int cached = nullToZero(eventUsage.getCachedInputTokens()) + nullToZero(eventUsage.getCacheCreationInputTokens());
+            if (cached > 0) {
+                return Math.max(0, inputTokens - cached);
+            }
+        }
         return inputTokens;
+    }
+
+    private static int nullToZero(Integer value) {
+        return value != null ? value : 0;
     }
 }

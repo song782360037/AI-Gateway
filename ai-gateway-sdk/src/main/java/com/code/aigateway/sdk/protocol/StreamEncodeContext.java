@@ -45,6 +45,12 @@ public class StreamEncodeContext {
     /** Anthropic message_start 是否已发送 */
     private boolean messageStartSent;
 
+    /** message_delta 是否已携带真实 usage（output_tokens 非兜底值） */
+    private boolean outputTokensSent;
+
+    /** done 事件是否已处理（用于判断 usage_only 是否需要补发 message_delta） */
+    private boolean doneProcessed;
+
     /** OpenAI Responses 专属流状态 */
     private final ResponsesStreamState responsesState = new ResponsesStreamState();
 
@@ -120,6 +126,10 @@ public class StreamEncodeContext {
     public void setCacheCreationInputTokens(Integer cacheCreationInputTokens) { this.cacheCreationInputTokens = cacheCreationInputTokens; }
     public boolean isMessageStartSent() { return messageStartSent; }
     public void setMessageStartSent(boolean messageStartSent) { this.messageStartSent = messageStartSent; }
+    public boolean isOutputTokensSent() { return outputTokensSent; }
+    public void setOutputTokensSent(boolean outputTokensSent) { this.outputTokensSent = outputTokensSent; }
+    public boolean isDoneProcessed() { return doneProcessed; }
+    public void setDoneProcessed(boolean doneProcessed) { this.doneProcessed = doneProcessed; }
     public ResponsesStreamState responses() { return responsesState; }
 
     // ===================== OpenAI Responses 流状态 =====================
