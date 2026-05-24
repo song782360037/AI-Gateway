@@ -21,7 +21,22 @@
         </div>
         <div class="form-grid">
           <el-form-item label="对外模型名称" prop="aliasName">
-            <el-input v-model="form.aliasName" :placeholder="aliasNamePlaceholder" />
+            <el-select
+              v-model="form.aliasName"
+              filterable
+              allow-create
+              default-first-option
+              placeholder="输入或选择已有模型名称"
+              style="width: 100%"
+              :loading="aliasNameLoading"
+            >
+              <el-option
+                v-for="name in aliasNameOptions"
+                :key="name"
+                :label="name"
+                :value="name"
+              />
+            </el-select>
           </el-form-item>
           <el-form-item label="匹配类型" prop="matchType">
             <el-select v-model="form.matchType" placeholder="选择匹配类型">
@@ -40,7 +55,31 @@
             />
           </el-form-item>
           <el-form-item label="目标模型标识" prop="targetModel">
-            <el-input v-model="form.targetModel" placeholder="如 gpt-4o-2024-11-20" />
+            <div class="target-model-input">
+              <el-select
+                v-model="form.targetModel"
+                filterable
+                allow-create
+                default-first-option
+                placeholder="输入或获取上游模型列表"
+                style="flex: 1"
+                :loading="upstreamModelLoading"
+              >
+                <el-option
+                  v-for="model in upstreamModelOptions"
+                  :key="model"
+                  :label="model"
+                  :value="model"
+                />
+              </el-select>
+              <el-button
+                :loading="upstreamModelLoading"
+                :disabled="!form.providerCode"
+                @click="handleFetchUpstreamModels"
+              >
+                获取模型
+              </el-button>
+            </div>
           </el-form-item>
         </div>
       </section>
@@ -67,9 +106,12 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch, computed } from 'vue'
+import { reactive, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import type { MatchType, ModelRedirectConfigRsp } from '../../types/model'
+import { fetchDistinctAliasNames } from '../../api/model-redirect-config'
+import { fetchUpstreamModels } from '../../api/provider-config'
 
 interface RedirectFormModel {
   id?: number
@@ -100,6 +142,14 @@ const form = reactive<RedirectFormModel>(createEmptyForm())
 const initialSnapshot = ref<RedirectFormModel>(createEmptyForm())
 const isEdit = ref(false)
 
+// 对外模型名称下拉选项（跨 Provider 去重）
+const aliasNameOptions = ref<string[]>([])
+const aliasNameLoading = ref(false)
+
+// 上游模型列表下拉选项
+const upstreamModelOptions = ref<string[]>([])
+const upstreamModelLoading = ref(false)
+
 const rules: FormRules<RedirectFormModel> = {
   aliasName: [{ required: true, message: '请输入对外模型名称', trigger: 'blur' }],
   matchType: [{ required: true, message: '请选择匹配类型', trigger: 'change' }],
@@ -107,27 +157,22 @@ const rules: FormRules<RedirectFormModel> = {
   targetModel: [{ required: true, message: '请输入目标模型标识', trigger: 'blur' }],
 }
 
-/** 根据匹配类型动态显示 placeholder 提示 */
-const aliasNamePlaceholder = computed(() => {
-  switch (form.matchType) {
-    case 'GLOB':
-      return '如 gpt-4o*（* 匹配任意字符，? 匹配单字符）'
-    case 'REGEX':
-      return '如 gpt-4\\d+-preview（Java 正则表达式）'
-    default:
-      return '如 gpt-4o'
-  }
-})
-
 watch(
   [() => props.modelValue, () => props.lockedProviderCode, () => props.visible],
-  ([value]) => {
+  ([value], [, , prevVisible]) => {
     isEdit.value = !!value
     const nextForm = buildFormState(value)
 
     // 记录表单初始值，保证编辑态点击"重置"后回到原始配置
     initialSnapshot.value = { ...nextForm }
     Object.assign(form, nextForm)
+
+    // 弹窗打开时加载已有的对外模型名称列表
+    if (props.visible && !prevVisible) {
+      loadAliasNames()
+      // 清空上游模型列表（切换 Provider 时需要重新获取）
+      upstreamModelOptions.value = []
+    }
   },
   { immediate: true },
 )
@@ -184,4 +229,42 @@ async function submit() {
     isEdit.value ? { ...basePayload, id: form.id, versionNo: form.versionNo } : basePayload,
   )
 }
+
+/** 加载已有的对外模型名称列表（跨 Provider 去重） */
+async function loadAliasNames() {
+  aliasNameLoading.value = true
+  try {
+    aliasNameOptions.value = await fetchDistinctAliasNames()
+  } catch {
+    aliasNameOptions.value = []
+  } finally {
+    aliasNameLoading.value = false
+  }
+}
+
+/** 从上游提供商获取可用模型列表 */
+async function handleFetchUpstreamModels() {
+  if (!form.providerCode) return
+  upstreamModelLoading.value = true
+  try {
+    const models = await fetchUpstreamModels(form.providerCode)
+    upstreamModelOptions.value = models
+    if (models.length === 0) {
+      ElMessage.warning('未获取到可用模型，请手动输入模型标识')
+    }
+  } catch {
+    upstreamModelOptions.value = []
+    ElMessage.warning('获取上游模型列表失败，请手动输入模型标识')
+  } finally {
+    upstreamModelLoading.value = false
+  }
+}
 </script>
+
+<style scoped>
+.target-model-input {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+</style>

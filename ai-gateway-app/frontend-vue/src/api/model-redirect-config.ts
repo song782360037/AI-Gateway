@@ -41,3 +41,8 @@ export function fetchModelRedirectsByProvider(providerCode: string) {
     { providerCode, page: 1, pageSize: 100 },
   )
 }
+
+/** 查询去重后的对外模型名称列表（跨 Provider） */
+export function fetchDistinctAliasNames() {
+  return request.get<never, string[]>('/admin/model-redirect-config/alias-names')
+}

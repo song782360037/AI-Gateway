@@ -17,6 +17,7 @@ import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,11 +28,13 @@ import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
  * 提供商配置管理接口
  */
+@Slf4j
 @RestController
 @RequiredArgsConstructor
 @Validated
@@ -163,6 +166,34 @@ public class ProviderConfigController {
                     }
                     // 响应式 HTTP 测试直接在事件线程执行
                     return connectionTestService.executeTest(ctx).map(R::ok);
+                });
+    }
+
+    /**
+     * 查询上游提供商的可用模型列表
+     * <p>
+     * 根据提供商编码加载配置和 API Key，调用上游 models API 获取模型列表。
+     * 阻塞的 DB 读取切到弹性线程池，后续 HTTP 调用在事件线程执行。
+     * Anthropic 类型不支持 models 列表接口，返回空列表。
+     * </p>
+     *
+     * @param providerCode 提供商业务编码
+     * @return 模型标识列表
+     */
+    @PostMapping("/{providerCode}/upstream-models")
+    public Mono<R<List<String>>> upstreamModels(@PathVariable String providerCode) {
+        return Mono.fromCallable(() -> connectionTestService.loadTestContextByProviderCode(providerCode))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(ctx -> {
+                    if (ctx == null) {
+                        return Mono.just(R.ok(Collections.<String>emptyList()));
+                    }
+                    return connectionTestService.fetchUpstreamModels(ctx)
+                            .map(R::ok)
+                            .onErrorResume(ex -> {
+                                log.warn("[上游模型查询] Provider {} 查询失败: {}", providerCode, ex.getMessage());
+                                return Mono.just(R.ok(Collections.<String>emptyList()));
+                            });
                 });
     }
 

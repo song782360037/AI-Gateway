@@ -20,6 +20,8 @@ import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.util.List;
+
 /**
  * 模型重定向配置管理接口
  */
@@ -94,6 +96,19 @@ public class ModelRedirectConfigController {
     public Mono<R<ModelRedirectConfigRsp>> getById(@PathVariable Long id) {
         // 阻塞型查询同样切到 boundedElastic，保持 WebFlux 线程模型一致。
         return Mono.fromCallable(() -> modelRedirectConfigService.getById(id))
+                .subscribeOn(Schedulers.boundedElastic())
+                .map(R::ok);
+    }
+
+    /**
+     * 查询去重后的对外模型名称列表（跨 Provider 去重）
+     * <p>
+     * 供前端在新增/编辑路由规则时快速选择已有的对外模型名称。
+     * </p>
+     */
+    @GetMapping("/alias-names")
+    public Mono<R<List<String>>> listDistinctAliasNames() {
+        return Mono.fromCallable(() -> modelRedirectConfigService.listDistinctAliasNames())
                 .subscribeOn(Schedulers.boundedElastic())
                 .map(R::ok);
     }

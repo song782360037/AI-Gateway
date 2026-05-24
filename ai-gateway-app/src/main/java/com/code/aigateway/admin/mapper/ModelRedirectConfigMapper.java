@@ -192,6 +192,17 @@ public interface ModelRedirectConfigMapper {
     List<ModelRedirectConfigDO> selectEnabledByAliasName(@Param("aliasName") String aliasName);
 
     /**
+     * 查询去重后的对外模型名称列表（跨 Provider 去重），供前端快速选择。
+     */
+    @Select("""
+            SELECT DISTINCT alias_name
+            FROM model_redirect_config
+            WHERE deleted = 0
+            ORDER BY alias_name
+            """)
+    List<String> selectDistinctAliasNames();
+
+    /**
      * 按提供商查询有效规则，便于 provider 维度的数据分析和校验。
      */
     @Select("""

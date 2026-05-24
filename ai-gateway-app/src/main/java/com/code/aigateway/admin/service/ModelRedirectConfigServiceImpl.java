@@ -178,6 +178,11 @@ public class ModelRedirectConfigServiceImpl implements IModelRedirectConfigServi
         ensureRuntimeConfigReloaded("admin-toggle-route");
     }
 
+    @Override
+    public List<String> listDistinctAliasNames() {
+        return modelRedirectConfigMapper.selectDistinctAliasNames();
+    }
+
     // ==================== 内部方法 ====================
 
     /**

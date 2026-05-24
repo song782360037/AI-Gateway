@@ -49,6 +49,11 @@ export function testConnection(id: number) {
   return request.post<never, ConnectionTestResult>(`/admin/provider-config/test-connection/${id}`)
 }
 
+/** 查询上游提供商的可用模型列表 */
+export function fetchUpstreamModels(providerCode: string) {
+  return request.post<never, string[]>(`/admin/provider-config/${providerCode}/upstream-models`)
+}
+
 /** 获取全局自定义请求头 */
 export function fetchGlobalCustomHeaders() {
   return request.get<never, GlobalCustomHeadersRsp>('/admin/global-config/custom-headers')

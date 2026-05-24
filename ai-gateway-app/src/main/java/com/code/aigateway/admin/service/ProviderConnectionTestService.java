@@ -7,6 +7,7 @@ import com.code.aigateway.admin.model.dataobject.ProviderConfigDO;
 import com.code.aigateway.admin.model.rsp.ConnectionTestResult;
 import com.code.aigateway.infra.crypto.ApiKeyEncryptor;
 import com.code.aigateway.provider.ProviderType;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -15,6 +16,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.net.ConnectException;
 import java.nio.channels.ClosedChannelException;
@@ -55,17 +58,39 @@ public class ProviderConnectionTestService {
      * @return 加载结果，配置不存在或无可用 Key 时返回 null（通过 {@link #getLoadFailureReason()} 获取原因）
      */
     public TestContext loadTestContext(Long providerId) {
+        return loadContext(providerConfigMapper.selectById(providerId), "连接测试");
+    }
+
+    /**
+     * 获取最近一次 loadTestContext 返回 null 的原因
+     */
+    public String getLoadFailureReason() {
+        return lastLoadFailureReason;
+    }
+
+    /**
+     * 根据提供商编码加载测试上下文（阻塞操作，调用方需切线程）
+     *
+     * @param providerCode 提供商业务编码
+     * @return 加载结果，配置不存在或无可用 Key 时返回 null
+     */
+    public TestContext loadTestContextByProviderCode(String providerCode) {
+        return loadContext(providerConfigMapper.selectByProviderCode(providerCode), "上游模型查询");
+    }
+
+    /**
+     * 公共加载逻辑：从 ProviderConfigDO 构建 TestContext（解密 API Key）
+     */
+    private TestContext loadContext(ProviderConfigDO config, String scene) {
         lastLoadFailureReason = null;
-        ProviderConfigDO config = providerConfigMapper.selectById(providerId);
         if (config == null) {
-            lastLoadFailureReason = "提供商配置不存在，id=" + providerId;
+            lastLoadFailureReason = "提供商配置不存在";
             return null;
         }
-        // 从子表取第一个启用的 Key 用于连接测试
         List<ProviderApiKeyDO> keys = providerApiKeyMapper.selectEnabledByProviderCode(config.getProviderCode());
         if (keys.isEmpty()) {
             lastLoadFailureReason = "提供商 " + config.getProviderCode() + " 无可用 API Key，请添加并启用至少一个 Key";
-            log.warn("[连接测试] Provider {} 无可用 API Key，跳过连接测试", config.getProviderCode());
+            log.warn("[{}] Provider {} 无可用 API Key", scene, config.getProviderCode());
             return null;
         }
         String apiKey = apiKeyEncryptor.decrypt(keys.get(0).getApiKeyIv(), keys.get(0).getApiKeyCiphertext());
@@ -74,10 +99,48 @@ public class ProviderConnectionTestService {
     }
 
     /**
-     * 获取最近一次 loadTestContext 返回 null 的原因
+     * 查询上游提供商的模型列表（纯响应式，无阻塞操作）
+     * <p>
+     * 统一调用上游 /v1/models 接口获取可用模型列表并按字母排序返回。
+     * 所有 Provider 类型（含 Anthropic/Gemini 代理）均走同一接口。
+     * </p>
+     *
+     * @param ctx 加载的测试上下文
+     * @return 模型标识列表
      */
-    public String getLoadFailureReason() {
-        return lastLoadFailureReason;
+    public Mono<List<String>> fetchUpstreamModels(TestContext ctx) {
+        return fetchOpenAiModels(ctx.baseUrl(), ctx.apiKey());
+    }
+
+    /**
+     * 从 OpenAI 兼容接口获取模型列表：GET /v1/models
+     * 解析响应体中 data[].id 字段
+     */
+    private Mono<List<String>> fetchOpenAiModels(String baseUrl, String apiKey) {
+        return webClientBuilder.baseUrl(baseUrl)
+                .build()
+                .get()
+                .uri("/v1/models")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                .accept(MediaType.APPLICATION_JSON)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .timeout(Duration.ofSeconds(TEST_TIMEOUT_SECONDS))
+                .map(json -> {
+                    List<String> models = new ArrayList<>();
+                    JsonNode data = json.path("data");
+                    if (data.isArray()) {
+                        for (JsonNode item : data) {
+                            String id = item.path("id").asText(null);
+                            if (id != null && !id.isBlank()) {
+                                models.add(id);
+                            }
+                        }
+                    }
+                    Collections.sort(models);
+                    log.info("[上游模型查询] OpenAI 返回 {} 个模型", models.size());
+                    return models;
+                });
     }
 
     /**
