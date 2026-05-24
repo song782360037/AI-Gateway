@@ -44,7 +44,7 @@ public class ModelRedirectConfigServiceImpl implements IModelRedirectConfigServi
         validateProviderExists(req.getProviderCode());
 
         // 校验同一组合是否已存在（match_type 纳入唯一性判断）
-        if (modelRedirectConfigMapper.existsRedirect(req.getAliasName(), matchType, req.getProviderCode(), req.getTargetModel()) > 0) {
+        if (modelRedirectConfigMapper.existsRedirect(req.getAliasName(), matchType, req.getProviderCode(), req.getTargetModel(), null) > 0) {
             throw new BizException("CONFIG_CONFLICT",
                     "该重定向规则已存在: alias=" + req.getAliasName()
                             + ", matchType=" + matchType
@@ -83,19 +83,13 @@ public class ModelRedirectConfigServiceImpl implements IModelRedirectConfigServi
         // 校验目标提供商是否存在
         validateProviderExists(req.getProviderCode());
 
-        // 组合唯一性校验：排除自身记录（match_type 纳入唯一性判断）
-        String existingMatchType = existing.getMatchType() != null ? existing.getMatchType() : "EXACT";
-        if (!existing.getAliasName().equals(req.getAliasName())
-                || !existingMatchType.equals(matchType)
-                || !existing.getProviderCode().equals(req.getProviderCode())
-                || !existing.getTargetModel().equals(req.getTargetModel())) {
-            if (modelRedirectConfigMapper.existsRedirect(req.getAliasName(), matchType, req.getProviderCode(), req.getTargetModel()) > 0) {
-                throw new BizException("CONFIG_CONFLICT",
-                        "该重定向规则已存在: alias=" + req.getAliasName()
-                                + ", matchType=" + matchType
-                                + ", provider=" + req.getProviderCode()
-                                + ", model=" + req.getTargetModel());
-            }
+        // 组合唯一性校验：通过 excludeId 排除自身记录（match_type 纳入唯一性判断）
+        if (modelRedirectConfigMapper.existsRedirect(req.getAliasName(), matchType, req.getProviderCode(), req.getTargetModel(), req.getId()) > 0) {
+            throw new BizException("CONFIG_CONFLICT",
+                    "该重定向规则已存在: alias=" + req.getAliasName()
+                            + ", matchType=" + matchType
+                            + ", provider=" + req.getProviderCode()
+                            + ", model=" + req.getTargetModel());
         }
 
         ModelRedirectConfigDO record = buildUpdateRecord(req);

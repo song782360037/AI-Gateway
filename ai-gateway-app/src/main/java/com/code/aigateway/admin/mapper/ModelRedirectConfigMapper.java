@@ -143,7 +143,8 @@ public interface ModelRedirectConfigMapper {
                    @Param("enabled") Boolean enabled);
 
     /**
-     * 校验指定重定向规则是否已存在，用于新增前去重。
+     * 校验指定重定向规则是否已存在，用于新增/更新前去重。
+     * excludeId 非空时排除自身记录，避免更新时与自己冲突。
      */
     @Select("""
             SELECT COUNT(1)
@@ -153,11 +154,13 @@ public interface ModelRedirectConfigMapper {
               AND provider_code = #{providerCode}
               AND target_model = #{targetModel}
               AND deleted = 0
+              AND (#{excludeId} IS NULL OR id != #{excludeId})
             """)
     int existsRedirect(@Param("aliasName") String aliasName,
                        @Param("matchType") String matchType,
                        @Param("providerCode") String providerCode,
-                       @Param("targetModel") String targetModel);
+                       @Param("targetModel") String targetModel,
+                       @Param("excludeId") Long excludeId);
 
     /**
      * 查询全部启用中的重定向配置，供路由缓存或预热使用。
