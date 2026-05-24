@@ -3,6 +3,7 @@ package com.code.aigateway.admin.service;
 import com.code.aigateway.admin.mapper.AutoRouteCandidateMapper;
 import com.code.aigateway.admin.mapper.AutoRouteConfigMapper;
 import com.code.aigateway.admin.mapper.ModelRedirectConfigMapper;
+import com.code.aigateway.admin.mapper.ProviderApiKeyMapper;
 import com.code.aigateway.admin.mapper.ProviderConfigMapper;
 import com.code.aigateway.admin.mapper.SupportedModelMapper;
 import com.code.aigateway.admin.mapper.GlobalConfigMapper;
@@ -10,12 +11,16 @@ import com.code.aigateway.admin.model.dataobject.AutoRouteCandidateDO;
 import com.code.aigateway.admin.model.dataobject.AutoRouteConfigDO;
 import com.code.aigateway.admin.model.dataobject.ModelRedirectConfigDO;
 import com.code.aigateway.admin.model.dataobject.ProviderConfigDO;
+import com.code.aigateway.admin.model.dataobject.ProviderApiKeyDO;
 import com.code.aigateway.admin.model.dataobject.SupportedModelDO;
 import com.code.aigateway.common.util.CustomHeaderUtils;
 import com.code.aigateway.sdk.model.ProtocolType;
 import com.code.aigateway.core.router.GlobPatternUtil;
 import com.code.aigateway.core.router.MatchType;
 import com.code.aigateway.core.router.RouteCandidate;
+import com.code.aigateway.core.router.ProviderKeyEntry;
+import com.code.aigateway.core.router.ProviderKeySelector;
+import com.code.aigateway.core.router.KeySelectionStrategy;
 import com.code.aigateway.core.router.RoutingConfigSnapshot;
 import com.code.aigateway.core.runtime.RedisRoutingCacheService;
 import com.code.aigateway.core.runtime.RoutingSnapshotHolder;
@@ -52,6 +57,9 @@ public class RuntimeConfigRefreshService {
     /** 提供商配置数据访问层 */
     private final ProviderConfigMapper providerConfigMapper;
 
+    /** 提供商 API Key 数据访问层 */
+    private final ProviderApiKeyMapper providerApiKeyMapper;
+
     /** 模型重定向配置数据访问层 */
     private final ModelRedirectConfigMapper modelRedirectConfigMapper;
 
@@ -69,6 +77,9 @@ public class RuntimeConfigRefreshService {
 
     /** API Key 加解密组件，用于把密文转换为运行时明文 */
     private final ApiKeyEncryptor apiKeyEncryptor;
+
+    /** Key 选择策略组件，刷新快照时清理过期的轮询计数器 */
+    private final ProviderKeySelector providerKeySelector;
 
     /** 本地快照持有器，负责原子替换当前生效快照 */
     private final RoutingSnapshotHolder routingSnapshotHolder;
@@ -99,10 +110,13 @@ public class RuntimeConfigRefreshService {
             List<ProviderConfigDO> providerConfigs = providerConfigMapper.selectAllEnabled();
 
             // 2. 解密每个 provider 的 API Key，并构建 providerCode -> ProviderEntry 的只读视图。
+            //    无可用 Key 的 Provider 会被跳过（buildProviderEntry 返回 null）
             Map<String, RoutingConfigSnapshot.ProviderEntry> providerMap = providerConfigs.stream()
+                    .map(this::buildProviderEntry)
+                    .filter(Objects::nonNull)
                     .collect(Collectors.toMap(
-                            ProviderConfigDO::getProviderCode,
-                            this::buildProviderEntry,
+                            RoutingConfigSnapshot.ProviderEntry::providerCode,
+                            entry -> entry,
                             (left, right) -> left,
                             LinkedHashMap::new
                     ));
@@ -193,6 +207,9 @@ public class RuntimeConfigRefreshService {
 
             log.info("[运行时配置刷新] 刷新成功，来源: {}，版本: {}，provider数: {}，精确alias数: {}，模式规则数: {}，auto规则数: {}，支持模型数: {}，全局自定义头数: {}",
                     source, version, providerMap.size(), aliasRouteMap.size(), patternRoutes.size(), autoRouteMap.size(), supportedModels.size(), globalCustomHeaders.size());
+
+            // 清理已删除 Provider 的轮询计数器，避免内存泄漏
+            providerKeySelector.cleanupStaleCounters(providerMap.keySet());
             return true;
         } catch (Exception ex) {
             // 12. 任意环节异常都不能影响主流程，需要打脏标记并记录错误日志。
@@ -205,26 +222,79 @@ public class RuntimeConfigRefreshService {
 
     /**
      * 将提供商数据库对象转换为运行时 ProviderEntry。
+     * 无可用 Key 时返回 null，调用方应跳过该 Provider。
      */
     private RoutingConfigSnapshot.ProviderEntry buildProviderEntry(ProviderConfigDO providerConfig) {
-        // 运行时路由需要使用明文 API Key，因此在构建快照时统一解密。
-        String apiKey = apiKeyEncryptor.decrypt(
-                providerConfig.getApiKeyIv(),
-                providerConfig.getApiKeyCiphertext()
-        );
+        // 从子表查询该 Provider 所有启用的 Key，逐个解密构建运行时条目
+        List<ProviderApiKeyDO> apiKeyDOs = providerApiKeyMapper.selectEnabledByProviderCode(providerConfig.getProviderCode());
+        if (apiKeyDOs.isEmpty()) {
+            log.warn("[运行时配置刷新] Provider {} 无可用 API Key，跳过", providerConfig.getProviderCode());
+            return null;
+        }
+        List<ProviderKeyEntry> apiKeys = apiKeyDOs.stream()
+                .map(keyDO -> {
+                    String apiKey = apiKeyEncryptor.decrypt(keyDO.getApiKeyIv(), keyDO.getApiKeyCiphertext());
+                    // 懒修复：检测 prefix 是否为 V22 迁移时基于密文生成的临时值。
+                    // 临时格式：LEFT(base64_ciphertext, 8) + "****"，前缀部分含 Base64 特有字符。
+                    // 合法格式：sk-abc1234**** 等，前缀仅含字母数字和连字符。
+                    String prefix = keyDO.getApiKeyPrefix();
+                    if (prefix != null && isMigratedTempPrefix(prefix)) {
+                        String correctPrefix = apiKeyEncryptor.mask(apiKey);
+                        if (!correctPrefix.equals(prefix)) {
+                            try {
+                                providerApiKeyMapper.updatePrefix(keyDO.getId(), correctPrefix);
+                                log.info("[懒修复] Provider {} Key id={} prefix 修正为 {}", providerConfig.getProviderCode(), keyDO.getId(), correctPrefix);
+                                prefix = correctPrefix;
+                            } catch (Exception ex) {
+                                log.warn("[懒修复] Provider {} Key id={} prefix 回写失败，使用已有值", providerConfig.getProviderCode(), keyDO.getId());
+                            }
+                        }
+                    }
+                    return new ProviderKeyEntry(
+                            keyDO.getId(),
+                            apiKey,
+                            prefix,
+                            keyDO.getWeight() == null ? 100 : keyDO.getWeight(),
+                            keyDO.getSortOrder() == null ? 0 : keyDO.getSortOrder()
+                    );
+                })
+                .toList();
+
+        KeySelectionStrategy strategy = KeySelectionStrategy.from(providerConfig.getKeySelectionStrategy());
 
         return new RoutingConfigSnapshot.ProviderEntry(
                 providerConfig.getProviderType(),
                 providerConfig.getProviderCode(),
                 Boolean.TRUE.equals(providerConfig.getEnabled()),
                 providerConfig.getBaseUrl(),
-                apiKey,
+                apiKeys,
+                strategy,
                 providerConfig.getTimeoutSeconds() == null ? 60 : providerConfig.getTimeoutSeconds(),
                 providerConfig.getPriority() == null ? 0 : providerConfig.getPriority(),
                 parseProtocols(providerConfig.getSupportedProtocols()),
                 parseHeadersJson(providerConfig.getCustomHeaders()),
                 ProviderConfigDO.normalizeThinkingCompatMode(providerConfig.getThinkingCompatMode())
         );
+    }
+
+    /**
+     * 检测 prefix 是否为 V22 迁移时基于密文生成的临时值。
+     * 临时格式：前缀的 **** 之前部分包含 Base64 特有字符（+、/、=），
+     * 合法的 API Key 前缀仅包含字母、数字和连字符。
+     */
+    private boolean isMigratedTempPrefix(String prefix) {
+        int maskIdx = prefix.indexOf("****");
+        if (maskIdx <= 0) {
+            return false;
+        }
+        String beforeMask = prefix.substring(0, maskIdx);
+        for (int i = 0; i < beforeMask.length(); i++) {
+            char c = beforeMask.charAt(i);
+            if (c == '+' || c == '/' || c == '=') {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -241,7 +311,7 @@ public class RuntimeConfigRefreshService {
                 .providerCode(providerEntry.providerCode())
                 .targetModel(redirectConfig.getTargetModel())
                 .providerBaseUrl(providerEntry.baseUrl())
-                .providerApiKey(providerEntry.apiKey())
+                .providerApiKey(null)  // Key 由路由层 KeySelector 选择后填入
                 .providerTimeoutSeconds(providerEntry.timeoutSeconds())
                 .providerPriority(providerEntry.priority())
                 .supportedProtocols(providerEntry.supportedProtocols())
@@ -313,7 +383,7 @@ public class RuntimeConfigRefreshService {
                 .providerCode(providerEntry.providerCode())
                 .targetModel(candidate.getTargetModel())
                 .providerBaseUrl(providerEntry.baseUrl())
-                .providerApiKey(providerEntry.apiKey())
+                .providerApiKey(null)  // Key 由路由层 KeySelector 选择后填入
                 .providerTimeoutSeconds(providerEntry.timeoutSeconds())
                 .providerPriority(candidate.getPriority() == null ? 0 : candidate.getPriority())
                 .supportedProtocols(providerEntry.supportedProtocols())

@@ -125,6 +125,8 @@ class CandidateAttemptRecorder {
         snapshot.setTotalFailovers(source.getTotalFailovers());
         snapshot.setTotalRetries(source.getTotalRetries());
         snapshot.setCircuitOpenSkippedCount(source.getCircuitOpenSkippedCount());
+        snapshot.setKeySelectionStrategy(source.getKeySelectionStrategy());
+        snapshot.setKeySelectionReason(source.getKeySelectionReason());
         for (TraceDetails.CandidateAttempt attempt : source.getCandidateAttemptsSnapshot()) {
             snapshot.addCandidateAttempt(attempt);
         }

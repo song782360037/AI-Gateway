@@ -1,12 +1,12 @@
 package com.code.aigateway.admin.service;
 
 import com.code.aigateway.admin.mapper.AutoRouteCandidateMapper;
+import com.code.aigateway.admin.mapper.ProviderApiKeyMapper;
 import com.code.aigateway.admin.mapper.ProviderConfigMapper;
 import com.code.aigateway.admin.model.dataobject.ProviderConfigDO;
 import com.code.aigateway.admin.model.req.ProviderConfigAddReq;
 import com.code.aigateway.admin.model.req.ProviderConfigUpdateReq;
 import com.code.aigateway.common.exception.BizException;
-import com.code.aigateway.infra.crypto.ApiKeyEncryptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -37,7 +37,7 @@ class ProviderConfigServiceImplTest {
 
     private ProviderConfigMapper providerConfigMapper;
     private AutoRouteCandidateMapper autoRouteCandidateMapper;
-    private ApiKeyEncryptor apiKeyEncryptor;
+    private ProviderApiKeyMapper providerApiKeyMapper;
     private RuntimeConfigRefreshService runtimeConfigRefreshService;
     private TransactionTemplate transactionTemplate;
     private ProviderConfigServiceImpl service;
@@ -46,7 +46,7 @@ class ProviderConfigServiceImplTest {
     void setUp() {
         providerConfigMapper = Mockito.mock(ProviderConfigMapper.class);
         autoRouteCandidateMapper = Mockito.mock(AutoRouteCandidateMapper.class);
-        apiKeyEncryptor = Mockito.mock(ApiKeyEncryptor.class);
+        providerApiKeyMapper = Mockito.mock(ProviderApiKeyMapper.class);
         runtimeConfigRefreshService = Mockito.mock(RuntimeConfigRefreshService.class);
 
         // 构造真实 TransactionTemplate，让 callback 直接执行（不走真实事务）
@@ -56,7 +56,7 @@ class ProviderConfigServiceImplTest {
         transactionTemplate = new TransactionTemplate(txManager);
 
         service = new ProviderConfigServiceImpl(
-                providerConfigMapper, autoRouteCandidateMapper, apiKeyEncryptor,
+                providerConfigMapper, providerApiKeyMapper, autoRouteCandidateMapper,
                 runtimeConfigRefreshService, transactionTemplate);
     }
 
@@ -75,14 +75,11 @@ class ProviderConfigServiceImplTest {
             req.setDisplayName("测试通道");
             req.setEnabled(true);
             req.setBaseUrl("http://localhost:11434");
-            req.setApiKey("sk-test-key");
             req.setTimeoutSeconds(30);
             req.setPriority(10);
 
             when(providerConfigMapper.existsByProviderCode("openai-test1")).thenReturn(0);
             when(providerConfigMapper.insert(any())).thenReturn(1);
-            when(apiKeyEncryptor.encrypt("sk-test-key"))
-                    .thenReturn(new ApiKeyEncryptor.EncryptResult("mock-iv", "mock-cipher"));
             when(runtimeConfigRefreshService.reloadFromDb(any())).thenReturn(true);
 
             service.add(req);
@@ -95,8 +92,6 @@ class ProviderConfigServiceImplTest {
             assertEquals("OPENAI", inserted.getProviderType());
             assertEquals("http://localhost:11434", inserted.getBaseUrl());
             assertEquals(10, inserted.getPriority());
-            assertEquals("mock-iv", inserted.getApiKeyIv());
-            assertEquals("mock-cipher", inserted.getApiKeyCiphertext());
         }
 
         @Test
@@ -110,8 +105,6 @@ class ProviderConfigServiceImplTest {
 
             when(providerConfigMapper.existsByProviderCode(any())).thenReturn(0);
             when(providerConfigMapper.insert(any())).thenReturn(1);
-            when(apiKeyEncryptor.encrypt(any()))
-                    .thenReturn(new ApiKeyEncryptor.EncryptResult("iv", "cipher"));
             when(runtimeConfigRefreshService.reloadFromDb(any())).thenReturn(true);
 
             service.add(req);
@@ -251,13 +244,10 @@ class ProviderConfigServiceImplTest {
     /**
      * 构建基础 add 请求，并预设必要的 mock：
      * - providerCode 不重复
-     * - apiKey 加密成功
      * 这样受保护头校验在 buildInsertRecord 阶段才能被触发。
      */
     private ProviderConfigAddReq buildBaseAddReqWithMocks() {
         when(providerConfigMapper.existsByProviderCode(any())).thenReturn(0);
-        when(apiKeyEncryptor.encrypt(any()))
-                .thenReturn(new ApiKeyEncryptor.EncryptResult("iv", "cipher"));
         return buildBaseAddReq();
     }
 
@@ -268,7 +258,6 @@ class ProviderConfigServiceImplTest {
         req.setDisplayName("测试");
         req.setEnabled(true);
         req.setBaseUrl("http://localhost:11434");
-        req.setApiKey("sk-test");
         req.setTimeoutSeconds(60);
         req.setPriority(0);
         return req;
@@ -282,8 +271,6 @@ class ProviderConfigServiceImplTest {
         doObj.setDisplayName("测试");
         doObj.setEnabled(true);
         doObj.setBaseUrl("http://localhost:11434");
-        doObj.setApiKeyCiphertext("cipher");
-        doObj.setApiKeyIv("iv");
         doObj.setTimeoutSeconds(60);
         doObj.setPriority(0);
         doObj.setVersionNo(0L);

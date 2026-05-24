@@ -75,11 +75,13 @@ class RoutingConfigSnapshotJsonIgnoreTest {
     class ProviderEntrySerializationTest {
 
         @Test
-        @DisplayName("apiKey 不参与 JSON 序列化")
+        @DisplayName("apiKeys 不参与 JSON 序列化")
         void shouldExcludeApiKeyFromSerialization() throws Exception {
             RoutingConfigSnapshot.ProviderEntry entry = new RoutingConfigSnapshot.ProviderEntry(
                     "OPENAI", "openai-main", true,
-                    "https://api.openai.com/v1", "sk-secret-key-should-not-appear",
+                    "https://api.openai.com/v1",
+                    List.of(new ProviderKeyEntry(1L, "sk-secret-key-should-not-appear", "sk-secr***pear", 100, 0)),
+                    KeySelectionStrategy.ROUND_ROBIN,
                     60, 10, List.of("openai-chat"), java.util.Map.of(), "full"
             );
 
@@ -96,7 +98,9 @@ class RoutingConfigSnapshotJsonIgnoreTest {
         void shouldSerializeOtherFieldsNormally() throws Exception {
             RoutingConfigSnapshot.ProviderEntry entry = new RoutingConfigSnapshot.ProviderEntry(
                     "OPENAI", "openai-main", true,
-                    "https://api.openai.com/v1", "sk-secret",
+                    "https://api.openai.com/v1",
+                    List.of(new ProviderKeyEntry(1L, "sk-secret", "sk-secr***ret", 100, 0)),
+                    KeySelectionStrategy.ROUND_ROBIN,
                     60, 10, List.of("openai-chat"), java.util.Map.of(), "full"
             );
 
@@ -131,7 +135,9 @@ class RoutingConfigSnapshotJsonIgnoreTest {
             // 构建含明文 Key 的 ProviderEntry
             RoutingConfigSnapshot.ProviderEntry providerEntry = new RoutingConfigSnapshot.ProviderEntry(
                     "ANTHROPIC", "anthropic-main", true,
-                    "https://api.anthropic.com", "sk-ant-provider-secret-key",
+                    "https://api.anthropic.com",
+                    List.of(new ProviderKeyEntry(1L, "sk-ant-provider-secret-key", "sk-ant-p***key", 100, 0)),
+                    KeySelectionStrategy.ROUND_ROBIN,
                     60, 5, List.of("anthropic-chat"), java.util.Map.of(), "full"
             );
 
@@ -152,7 +158,7 @@ class RoutingConfigSnapshotJsonIgnoreTest {
             assertFalse(json.contains("sk-candidate-secret-key"),
                     "RouteCandidate 中的 providerApiKey 不应序列化");
             assertFalse(json.contains("sk-ant-provider-secret-key"),
-                    "ProviderEntry 中的 apiKey 不应序列化");
+                    "ProviderEntry 中的 apiKeys 不应序列化");
             assertFalse(json.contains("providerApiKey"),
                     "providerApiKey 字段名不应出现在快照 JSON 中");
             assertFalse(json.contains("apiKey"),

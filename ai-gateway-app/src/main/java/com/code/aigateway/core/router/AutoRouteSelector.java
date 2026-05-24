@@ -10,6 +10,7 @@ import com.code.aigateway.provider.ProviderType;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Auto 智能路由选择器。
@@ -23,10 +24,14 @@ public class AutoRouteSelector {
 
     private final AutoRouteRequestClassifier requestClassifier;
     private final AutoRouteScorer routeScorer;
+    private final ProviderKeySelector providerKeySelector;
 
-    public AutoRouteSelector(AutoRouteRequestClassifier requestClassifier, AutoRouteScorer routeScorer) {
+    public AutoRouteSelector(AutoRouteRequestClassifier requestClassifier,
+                             AutoRouteScorer routeScorer,
+                             ProviderKeySelector providerKeySelector) {
         this.requestClassifier = requestClassifier;
         this.routeScorer = routeScorer;
+        this.providerKeySelector = providerKeySelector;
     }
 
     public boolean isAutoModel(String modelName) {
@@ -60,7 +65,8 @@ public class AutoRouteSelector {
                     "no auto route candidates match request profile for model " + request.getModel());
         }
         return rankedCandidates.stream()
-                .map(candidate -> buildRouteResult(candidate, request.getModel()))
+                .map(candidate -> buildRouteResult(candidate, request.getModel(), snapshot))
+                .filter(java.util.Objects::nonNull)
                 .toList();
     }
 
@@ -76,15 +82,26 @@ public class AutoRouteSelector {
         return routeKey;
     }
 
-    private RouteResult buildRouteResult(RouteCandidate candidate, String modelName) {
+    private RouteResult buildRouteResult(RouteCandidate candidate, String modelName, RoutingConfigSnapshot snapshot) {
+        RoutingConfigSnapshot.ProviderEntry providerEntry = snapshot.getProviderMap().get(candidate.getProviderCode());
+        if (providerEntry == null || providerEntry.apiKeys() == null || providerEntry.apiKeys().isEmpty()) {
+            return null;
+        }
+        ProviderKeyEntry selectedKey = providerKeySelector.select(providerEntry.providerCode(), providerEntry.apiKeys(), providerEntry.keySelectionStrategy());
+        if (selectedKey == null) {
+            return null;
+        }
         return RouteResult.builder()
                 .providerType(resolveProviderType(candidate.getProviderType(), modelName))
                 .providerName(candidate.getProviderCode())
                 .targetModel(candidate.getTargetModel())
                 .providerBaseUrl(candidate.getProviderBaseUrl())
                 .providerTimeoutSeconds(candidate.getProviderTimeoutSeconds())
-                .providerApiKey(candidate.getProviderApiKey())
+                .providerApiKey(selectedKey.apiKey())
                 .customHeaders(candidate.getCustomHeaders())
+                .providerKeyEntries(providerEntry.apiKeys())
+                .keySelectionStrategy(providerEntry.keySelectionStrategy())
+                .usedApiKeyPrefix(selectedKey.apiKeyPrefix())
                 .build();
     }
 

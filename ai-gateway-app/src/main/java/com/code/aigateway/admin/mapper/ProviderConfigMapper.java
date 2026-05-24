@@ -21,13 +21,12 @@ public interface ProviderConfigMapper {
             @Result(property = "displayName", column = "display_name"),
             @Result(property = "enabled", column = "enabled"),
             @Result(property = "baseUrl", column = "base_url"),
-            @Result(property = "apiKeyCiphertext", column = "api_key_ciphertext"),
-            @Result(property = "apiKeyIv", column = "api_key_iv"),
             @Result(property = "timeoutSeconds", column = "timeout_seconds"),
             @Result(property = "priority", column = "priority"),
             @Result(property = "supportedProtocols", column = "supported_protocols"),
             @Result(property = "customHeaders", column = "custom_headers"),
             @Result(property = "thinkingCompatMode", column = "thinking_compat_mode"),
+            @Result(property = "keySelectionStrategy", column = "key_selection_strategy"),
             @Result(property = "versionNo", column = "version_no"),
             @Result(property = "creator", column = "creator"),
             @Result(property = "createTime", column = "create_time"),
@@ -36,9 +35,9 @@ public interface ProviderConfigMapper {
             @Result(property = "deleted", column = "deleted")
     })
     @Select("""
-            SELECT id, provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                   api_key_iv, timeout_seconds, priority, supported_protocols, custom_headers,
-                   thinking_compat_mode, version_no,
+            SELECT id, provider_code, provider_type, display_name, enabled, base_url,
+                   timeout_seconds, priority, supported_protocols, custom_headers,
+                   thinking_compat_mode, key_selection_strategy, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM provider_config
             WHERE id = #{id}
@@ -50,9 +49,9 @@ public interface ProviderConfigMapper {
      * 按业务编码查询单条有效记录，便于配置管理和唯一性校验。
      */
     @Select("""
-            SELECT id, provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                   api_key_iv, timeout_seconds, priority, supported_protocols, custom_headers,
-                   thinking_compat_mode, version_no,
+            SELECT id, provider_code, provider_type, display_name, enabled, base_url,
+                   timeout_seconds, priority, supported_protocols, custom_headers,
+                   thinking_compat_mode, key_selection_strategy, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM provider_config
             WHERE provider_code = #{providerCode}
@@ -67,14 +66,14 @@ public interface ProviderConfigMapper {
      */
     @Insert("""
             INSERT INTO provider_config (
-                provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                api_key_iv, timeout_seconds, priority, supported_protocols, custom_headers,
-                thinking_compat_mode, version_no,
+                provider_code, provider_type, display_name, enabled, base_url,
+                timeout_seconds, priority, supported_protocols, custom_headers,
+                thinking_compat_mode, key_selection_strategy, version_no,
                 creator, create_time, updater, update_time, deleted
             ) VALUES (
-                #{providerCode}, #{providerType}, #{displayName}, #{enabled}, #{baseUrl}, #{apiKeyCiphertext},
-                #{apiKeyIv}, #{timeoutSeconds}, #{priority}, #{supportedProtocols}, #{customHeaders},
-                #{thinkingCompatMode}, #{versionNo},
+                #{providerCode}, #{providerType}, #{displayName}, #{enabled}, #{baseUrl},
+                #{timeoutSeconds}, #{priority}, #{supportedProtocols}, #{customHeaders},
+                #{thinkingCompatMode}, #{keySelectionStrategy}, #{versionNo},
                 #{creator}, #{createTime}, #{updater}, #{updateTime}, #{deleted}
             )
             """)
@@ -91,13 +90,12 @@ public interface ProviderConfigMapper {
                 display_name = #{displayName},
                 enabled = #{enabled},
                 base_url = #{baseUrl},
-                api_key_ciphertext = #{apiKeyCiphertext},
-                api_key_iv = #{apiKeyIv},
                 timeout_seconds = #{timeoutSeconds},
                 priority = #{priority},
                 supported_protocols = #{supportedProtocols},
                 custom_headers = #{customHeaders},
                 thinking_compat_mode = #{thinkingCompatMode},
+                key_selection_strategy = #{keySelectionStrategy},
                 version_no = #{versionNo} + 1,
                 updater = #{updater},
                 update_time = #{updateTime}
@@ -138,14 +136,14 @@ public interface ProviderConfigMapper {
      */
     @Select("""
             <script>
-            SELECT id, provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                   api_key_iv, timeout_seconds, priority, supported_protocols, custom_headers,
-                   thinking_compat_mode, version_no,
+            SELECT id, provider_code, provider_type, display_name, enabled, base_url,
+                   timeout_seconds, priority, supported_protocols, custom_headers,
+                   thinking_compat_mode, key_selection_strategy, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM provider_config
             WHERE deleted = 0
             <if test='providerCode != null and providerCode != ""'>
-                AND provider_code LIKE CONCAT('%', #{providerCode}, '%')
+                AND provider_code LIKE CONCAT('%', REPLACE(REPLACE(#{providerCode}, '%', '\\%'), '_', '\\_'), '%') ESCAPE '\\'
             </if>
             <if test='providerType != null and providerType != ""'>
                 AND provider_type = #{providerType}
@@ -173,7 +171,7 @@ public interface ProviderConfigMapper {
             FROM provider_config
             WHERE deleted = 0
             <if test='providerCode != null and providerCode != ""'>
-                AND provider_code LIKE CONCAT('%', #{providerCode}, '%')
+                AND provider_code LIKE CONCAT('%', REPLACE(REPLACE(#{providerCode}, '%', '\\%'), '_', '\\_'), '%') ESCAPE '\\'
             </if>
             <if test='providerType != null and providerType != ""'>
                 AND provider_type = #{providerType}
@@ -229,9 +227,9 @@ public interface ProviderConfigMapper {
      * 查询全部启用中的提供商配置，供系统启动时预热缓存或客户端使用。
      */
     @Select("""
-            SELECT id, provider_code, provider_type, display_name, enabled, base_url, api_key_ciphertext,
-                   api_key_iv, timeout_seconds, priority, supported_protocols, custom_headers,
-                   thinking_compat_mode, version_no,
+            SELECT id, provider_code, provider_type, display_name, enabled, base_url,
+                   timeout_seconds, priority, supported_protocols, custom_headers,
+                   thinking_compat_mode, key_selection_strategy, version_no,
                    creator, create_time, updater, update_time, deleted
             FROM provider_config
             WHERE enabled = 1

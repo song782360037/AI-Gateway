@@ -99,57 +99,58 @@ public class GeminiProviderClient extends AbstractProviderClient {
 
     @Override
     public Mono<UnifiedResponse> chat(UnifiedRequest request) {
-        ProviderRuntimeConfig config = resolveRuntimeConfig(request);
         Map<String, Object> requestBody = buildRequestBody(request);
         String uri = buildUri(request.getModel(), false);
+        return withKeyDegradedRetry(request, config -> {
+            Mono<JsonNode> responseMono = buildWebClient(config, extractCorrelationId(request))
+                    .post()
+                    .uri(uri)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(BodyInserters.fromValue(requestBody))
+                    .retrieve()
+                    .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
+                    .bodyToMono(JsonNode.class)
+                    .timeout(Duration.ofSeconds(config.timeoutSeconds()));
 
-        Mono<JsonNode> responseMono = buildWebClient(config, extractCorrelationId(request))
-                .post()
-                .uri(uri)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(BodyInserters.fromValue(requestBody))
-                .retrieve()
-                .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
-                .bodyToMono(JsonNode.class)
-                .timeout(Duration.ofSeconds(config.timeoutSeconds()));
+            if (config.maxRetries() > 0) {
+                responseMono = responseMono.retryWhen(buildRetrySpec(config, getStatsContext(request)));
+            }
 
-        if (config.maxRetries() > 0) {
-            responseMono = responseMono.retryWhen(buildRetrySpec(config, getStatsContext(request)));
-        }
-
-        return withCircuitBreaker(config.providerName(), request.getModel(), responseMono)
-                .onErrorMap(this::mapTransportError)
-                .map(json -> parseResponse(json, request.getModel()));
+            return withCircuitBreaker(config.providerName(), request.getModel(), responseMono)
+                    .onErrorMap(this::mapTransportError)
+                    .map(json -> parseResponse(json, request.getModel()));
+        });
     }
 
     @Override
     public Flux<UnifiedStreamEvent> streamChat(UnifiedRequest request) {
-        ProviderRuntimeConfig config = resolveRuntimeConfig(request);
         Map<String, Object> requestBody = buildRequestBody(request);
         String uri = buildUri(request.getModel(), true);
         AtomicBoolean firstTokenReceived = new AtomicBoolean(false);
 
-        // Gemini 流式通过 ?alt=sse 返回 SSE 格式数据
-        Flux<ServerSentEvent<String>> sseFlux = buildWebClient(config, extractCorrelationId(request))
-                .post()
-                .uri(uri)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(BodyInserters.fromValue(requestBody))
-                .retrieve()
-                .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
-                .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
-                .timeout(Duration.ofSeconds(config.timeoutSeconds()));
+        return withStreamKeyDegradedRetry(request, config -> {
+            // Gemini 流式通过 ?alt=sse 返回 SSE 格式数据
+            Flux<ServerSentEvent<String>> sseFlux = buildWebClient(config, extractCorrelationId(request))
+                    .post()
+                    .uri(uri)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(BodyInserters.fromValue(requestBody))
+                    .retrieve()
+                    .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
+                    .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
+                    .timeout(Duration.ofSeconds(config.timeoutSeconds()));
 
-        if (config.maxRetries() > 0) {
-            sseFlux = sseFlux
-                    .doOnNext(event -> firstTokenReceived.set(true))
-                    .retryWhen(buildStreamRetrySpec(config, firstTokenReceived, getStatsContext(request)));
-        }
+            if (config.maxRetries() > 0) {
+                sseFlux = sseFlux
+                        .doOnNext(event -> firstTokenReceived.set(true))
+                        .retryWhen(buildStreamRetrySpec(config, firstTokenReceived, getStatsContext(request)));
+            }
 
-        return withCircuitBreakerFlux(config.providerName(), request.getModel(), sseFlux)
-                .onErrorMap(this::mapTransportError)
-                .filter(event -> event.data() != null && !event.data().isBlank())
-                .flatMap(event -> parseStreamChunks(event.data()));
+            return withCircuitBreakerFlux(config.providerName(), request.getModel(), sseFlux)
+                    .onErrorMap(this::mapTransportError)
+                    .filter(event -> event.data() != null && !event.data().isBlank())
+                    .flatMap(event -> parseStreamChunks(event.data()));
+        }, firstTokenReceived);
     }
 
     // ==================== 请求构建 ====================

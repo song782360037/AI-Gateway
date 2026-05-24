@@ -38,6 +38,9 @@ public class PersistentModelRouter implements ModelRouter {
     /** Auto 智能路由选择器 */
     private final AutoRouteSelector autoRouteSelector;
 
+    /** API Key 选择策略组件 */
+    private final ProviderKeySelector providerKeySelector;
+
     @Override
     public RouteResult route(UnifiedRequest request) {
         if (request.getModel() == null || request.getModel().isBlank()) {
@@ -120,31 +123,40 @@ public class PersistentModelRouter implements ModelRouter {
 
     /**
      * 从候选列表中按协议过滤并选出首选候选，构建 RouteResult。
+     * Key 选择在此处完成：从 ProviderEntry 中获取可用 Key 列表，按策略选中一个。
+     * 当候选的 Provider 无可用 Key 时，自动尝试下一个候选。
      */
     private RouteResult selectCandidate(List<RouteCandidate> candidates, UnifiedRequest request) {
         String requestProtocol = request.getRequestProtocol();
-        RouteCandidate selected = candidates.stream()
-                .filter(c -> c.supportsProtocol(requestProtocol))
-                .findFirst()
-                .orElse(null);
+        RoutingConfigSnapshot snapshot = routingSnapshotHolder.get();
 
-        if (selected == null) {
-            throw new GatewayException(ErrorCode.PROVIDER_NOT_FOUND,
-                    "no providers support protocol " + requestProtocol + " for model " + request.getModel());
+        for (RouteCandidate c : candidates) {
+            if (!c.supportsProtocol(requestProtocol)) {
+                continue;
+            }
+            RoutingConfigSnapshot.ProviderEntry providerEntry = snapshot.getProviderMap().get(c.getProviderCode());
+            ProviderKeyEntry selectedKey = selectKey(providerEntry);
+            if (selectedKey == null) {
+                log.warn("[持久化路由] Provider {} 无可用 Key，尝试下一个候选", c.getProviderCode());
+                continue;
+            }
+            return RouteResult.builder()
+                    .providerType(resolveProviderType(c.getProviderType(), request.getModel()))
+                    .providerName(c.getProviderCode())
+                    .targetModel(c.getTargetModel())
+                    .providerBaseUrl(c.getProviderBaseUrl())
+                    .providerTimeoutSeconds(c.getProviderTimeoutSeconds())
+                    .providerApiKey(selectedKey.apiKey())
+                    .customHeaders(c.getCustomHeaders())
+                    .thinkingCompatMode(c.getThinkingCompatMode())
+                    .providerKeyEntries(providerEntry.apiKeys())
+                    .keySelectionStrategy(providerEntry.keySelectionStrategy())
+                    .usedApiKeyPrefix(selectedKey.apiKeyPrefix())
+                    .build();
         }
 
-        ProviderType providerType = resolveProviderType(selected.getProviderType(), request.getModel());
-
-        return RouteResult.builder()
-                .providerType(providerType)
-                .providerName(selected.getProviderCode())
-                .targetModel(selected.getTargetModel())
-                .providerBaseUrl(selected.getProviderBaseUrl())
-                .providerTimeoutSeconds(selected.getProviderTimeoutSeconds())
-                .providerApiKey(selected.getProviderApiKey())
-                .customHeaders(selected.getCustomHeaders())
-                .thinkingCompatMode(selected.getThinkingCompatMode())
-                .build();
+        throw new GatewayException(ErrorCode.PROVIDER_NOT_FOUND,
+                "no providers with available keys support protocol " + requestProtocol + " for model " + request.getModel());
     }
 
     /**
@@ -152,18 +164,33 @@ public class PersistentModelRouter implements ModelRouter {
      */
     private List<RouteResult> buildRouteResults(List<RouteCandidate> candidates, UnifiedRequest request) {
         String requestProtocol = request.getRequestProtocol();
+        RoutingConfigSnapshot snapshot = routingSnapshotHolder.get();
+
         List<RouteResult> filtered = candidates.stream()
                 .filter(c -> c.supportsProtocol(requestProtocol))
-                .map(c -> RouteResult.builder()
-                        .providerType(resolveProviderType(c.getProviderType(), request.getModel()))
-                        .providerName(c.getProviderCode())
-                        .targetModel(c.getTargetModel())
-                        .providerBaseUrl(c.getProviderBaseUrl())
-                        .providerTimeoutSeconds(c.getProviderTimeoutSeconds())
-                        .providerApiKey(c.getProviderApiKey())
-                        .customHeaders(c.getCustomHeaders())
-                        .thinkingCompatMode(c.getThinkingCompatMode())
-                        .build())
+                .map(c -> {
+                    RoutingConfigSnapshot.ProviderEntry providerEntry = snapshot.getProviderMap().get(c.getProviderCode());
+                    ProviderKeyEntry selectedKey = selectKey(providerEntry);
+                    if (selectedKey == null) {
+                        log.warn("[持久化路由] Provider {} 无可用 Key，从故障转移列表中跳过",
+                                c.getProviderCode());
+                        return null;
+                    }
+                    return RouteResult.builder()
+                            .providerType(resolveProviderType(c.getProviderType(), request.getModel()))
+                            .providerName(c.getProviderCode())
+                            .targetModel(c.getTargetModel())
+                            .providerBaseUrl(c.getProviderBaseUrl())
+                            .providerTimeoutSeconds(c.getProviderTimeoutSeconds())
+                            .providerApiKey(selectedKey.apiKey())
+                            .customHeaders(c.getCustomHeaders())
+                            .thinkingCompatMode(c.getThinkingCompatMode())
+                            .providerKeyEntries(providerEntry.apiKeys())
+                            .keySelectionStrategy(providerEntry.keySelectionStrategy())
+                            .usedApiKeyPrefix(selectedKey.apiKeyPrefix())
+                            .build();
+                })
+                .filter(java.util.Objects::nonNull)
                 .toList();
 
         if (filtered.isEmpty()) {
@@ -244,16 +271,26 @@ public class PersistentModelRouter implements ModelRouter {
                                                           String requestProtocol) {
         List<RouteResult> passthroughCandidates = snapshot.getAllProvidersByPriority().stream()
                 .filter(entry -> isProviderProtocolSupported(entry, requestProtocol))
-                .map(entry -> RouteResult.builder()
-                        .providerType(resolveProviderType(entry.providerType(), originalModel))
-                        .providerName(entry.providerCode())
-                        .targetModel(originalModel)
-                        .providerBaseUrl(entry.baseUrl())
-                        .providerApiKey(entry.apiKey())
-                        .providerTimeoutSeconds(entry.timeoutSeconds())
-                        .customHeaders(CustomHeaderUtils.mergeCustomHeaders(snapshot.getGlobalCustomHeaders(), entry.customHeaders(), "透传路由"))
-                        .thinkingCompatMode(entry.thinkingCompatMode())
-                        .build())
+                .map(entry -> {
+                    ProviderKeyEntry selectedKey = selectKey(entry);
+                    if (selectedKey == null) {
+                        return null;
+                    }
+                    return RouteResult.builder()
+                            .providerType(resolveProviderType(entry.providerType(), originalModel))
+                            .providerName(entry.providerCode())
+                            .targetModel(originalModel)
+                            .providerBaseUrl(entry.baseUrl())
+                            .providerApiKey(selectedKey.apiKey())
+                            .providerTimeoutSeconds(entry.timeoutSeconds())
+                            .customHeaders(CustomHeaderUtils.mergeCustomHeaders(snapshot.getGlobalCustomHeaders(), entry.customHeaders(), "透传路由"))
+                            .thinkingCompatMode(entry.thinkingCompatMode())
+                            .providerKeyEntries(entry.apiKeys())
+                            .keySelectionStrategy(entry.keySelectionStrategy())
+                            .usedApiKeyPrefix(selectedKey.apiKeyPrefix())
+                            .build();
+                })
+                .filter(java.util.Objects::nonNull)
                 .toList();
 
         log.info("[持久化路由] 无路由规则，走透传分支，model: {}，候选数: {}",
@@ -275,5 +312,16 @@ public class PersistentModelRouter implements ModelRouter {
         String normalized = ProtocolType.normalize(requestProtocol);
         return supported.stream()
                 .anyMatch(s -> ProtocolType.normalize(s).equals(normalized));
+    }
+
+    /**
+     * 从 ProviderEntry 中按策略选择一个 API Key。
+     */
+    private ProviderKeyEntry selectKey(RoutingConfigSnapshot.ProviderEntry entry) {
+        if (entry == null || entry.apiKeys() == null || entry.apiKeys().isEmpty()) {
+            log.warn("[持久化路由] Provider {} 无可用 API Key", entry != null ? entry.providerCode() : "null");
+            return null;
+        }
+        return providerKeySelector.select(entry.providerCode(), entry.apiKeys(), entry.keySelectionStrategy());
     }
 }

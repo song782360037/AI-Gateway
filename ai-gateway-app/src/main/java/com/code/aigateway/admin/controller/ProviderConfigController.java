@@ -158,7 +158,7 @@ public class ProviderConfigController {
                         return Mono.just(R.ok(ConnectionTestResult.builder()
                                 .success(false)
                                 .errorType("UNKNOWN")
-                                .errorMessage("提供商配置不存在，id=" + id)
+                                .errorMessage(connectionTestService.getLoadFailureReason())
                                 .build()));
                     }
                     // 响应式 HTTP 测试直接在事件线程执行

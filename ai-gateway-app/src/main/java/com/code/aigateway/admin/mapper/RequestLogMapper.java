@@ -84,7 +84,7 @@ public interface RequestLogMapper {
     @Insert("""
             INSERT INTO request_log (
                 request_id, alias_model, target_model, provider_code, provider_type,
-                response_protocol, request_path, http_method, api_key_prefix,
+                response_protocol, request_path, http_method, api_key_prefix, provider_api_key_masked,
                 candidate_count, attempt_count, failover_count, retry_count, circuit_open_skipped_count,
                 rate_limit_triggered, upstream_http_status, upstream_error_type, terminal_stage,
                 thinking_enabled, thinking_depth, thinking_mapped, trace_details_json, first_token_latency_ms,
@@ -92,7 +92,7 @@ public interface RequestLogMapper {
                 status, error_code, error_message, source_ip, create_time
             ) VALUES (
                 #{requestId}, #{aliasModel}, #{targetModel}, #{providerCode}, #{providerType},
-                #{responseProtocol}, #{requestPath}, #{httpMethod}, #{apiKeyPrefix},
+                #{responseProtocol}, #{requestPath}, #{httpMethod}, #{apiKeyPrefix}, #{providerApiKeyMasked},
                 #{candidateCount}, #{attemptCount}, #{failoverCount}, #{retryCount}, #{circuitOpenSkippedCount},
                 #{rateLimitTriggered}, #{upstreamHttpStatus}, #{upstreamErrorType}, #{terminalStage},
                 #{thinkingEnabled}, #{thinkingDepth}, #{thinkingMapped}, #{traceDetailsJson}, #{firstTokenLatencyMs},

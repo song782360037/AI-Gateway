@@ -52,6 +52,9 @@ public class RequestStatsContext {
     /** API Key 前缀（脱敏） */
     private String apiKeyPrefix;
 
+    /** 本次请求使用的提供商 API Key（脱敏，前8后4） */
+    private String providerApiKeyMasked;
+
     /** 鉴权状态：DISABLED / PASSED / FAILED */
     private String authStatus;
 

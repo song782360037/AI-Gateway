@@ -7,7 +7,7 @@
           <p class="provider-page-hero__eyebrow">Provider Console</p>
           <h3 class="provider-page-hero__title">提供商管理</h3>
           <p class="provider-page-hero__desc">
-            统一维护接入通道与模型路由，展开单行即可管理该提供商的模型映射规则。
+            统一维护接入通道与模型路由。编辑提供商可管理 API Key，展开行查看路由规则。
           </p>
         </div>
         <div class="provider-page-hero__meta">
@@ -48,7 +48,7 @@
               style="width: 160px"
               size="default"
             >
-              <el-option label="OpenAI Chat" value="OPENAI_CHAT" />
+              <el-option label="OpenAI Chat" value="OPENAI" />
               <el-option label="Response" value="OPENAI_RESPONSES" />
               <el-option label="Anthropic" value="ANTHROPIC" />
               <el-option label="Gemini" value="GEMINI" />
@@ -77,7 +77,7 @@
       <div class="provider-card-header">
         <div class="provider-card-header__main">
           <span class="provider-card-header__title">提供商列表</span>
-          <p class="provider-card-header__desc">展开任意行查看并维护该提供商下的模型路由规则。</p>
+          <p class="provider-card-header__desc">展开任意行查看该提供商下的模型路由规则。</p>
         </div>
       </div>
 
@@ -161,6 +161,16 @@
               {{ Object.keys(row.customHeaders).length }} 项
             </el-tag>
             <span v-else style="color: var(--el-text-color-placeholder)">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="Key 数量" min-width="80" align="center">
+          <template #default="{ row }">
+            <el-tag
+              size="small"
+              :type="(row.apiKeyCount ?? 0) > 0 ? 'success' : 'danger'"
+            >
+              {{ row.apiKeyCount ?? 0 }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" fixed="right" width="260" align="center">
@@ -599,14 +609,14 @@ async function removeRedirect(item: ModelRedirectConfigRsp) {
 /* ==================== 类型标签映射（与请求日志协议样式保持一致） ==================== */
 
 const providerLabelMap: Record<string, string> = {
-  OPENAI_CHAT: 'OpenAI Chat',
+  OPENAI: 'OpenAI Chat',
   OPENAI_RESPONSES: 'Response',
   ANTHROPIC: 'Anthropic',
   GEMINI: 'Gemini',
 }
 
 const providerTagTypeMap: Record<string, string> = {
-  OPENAI_CHAT: 'primary',
+  OPENAI: 'primary',
   OPENAI_RESPONSES: 'primary',
   ANTHROPIC: 'warning',
   GEMINI: 'success',

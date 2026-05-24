@@ -117,54 +117,54 @@ public class AnthropicProviderClient extends AbstractProviderClient {
 
     @Override
     public Mono<UnifiedResponse> chat(UnifiedRequest request) {
-        ProviderRuntimeConfig config = resolveRuntimeConfig(request);
         Map<String, Object> requestBody = buildRequestBody(request, false);
+        return withKeyDegradedRetry(request, config -> {
+            Mono<JsonNode> responseMono = buildWebClient(config, extractCorrelationId(request))
+                    .post()
+                    .uri(MESSAGES_PATH)
+                    .body(BodyInserters.fromValue(requestBody))
+                    .retrieve()
+                    .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
+                    .bodyToMono(JsonNode.class)
+                    .timeout(Duration.ofSeconds(config.timeoutSeconds()));
 
-        Mono<JsonNode> responseMono = buildWebClient(config, extractCorrelationId(request))
-                .post()
-                .uri(MESSAGES_PATH)
-                .body(BodyInserters.fromValue(requestBody))
-                .retrieve()
-                .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
-                .bodyToMono(JsonNode.class)
-                .timeout(Duration.ofSeconds(config.timeoutSeconds()));
+            if (config.maxRetries() > 0) {
+                responseMono = responseMono.retryWhen(buildRetrySpec(config, getStatsContext(request)));
+            }
 
-        if (config.maxRetries() > 0) {
-            responseMono = responseMono.retryWhen(buildRetrySpec(config, getStatsContext(request)));
-        }
-
-        return withCircuitBreaker(config.providerName(), request.getModel(), responseMono)
-                .onErrorMap(this::mapTransportError)
-                .map(this::parseResponse);
+            return withCircuitBreaker(config.providerName(), request.getModel(), responseMono)
+                    .onErrorMap(this::mapTransportError)
+                    .map(this::parseResponse);
+        });
     }
 
     @Override
     public Flux<UnifiedStreamEvent> streamChat(UnifiedRequest request) {
-        ProviderRuntimeConfig config = resolveRuntimeConfig(request);
         Map<String, Object> requestBody = buildRequestBody(request, true);
         AtomicBoolean firstTokenReceived = new AtomicBoolean(false);
 
-        // 流式状态跟踪器：累积 tool call 参数
-        AnthropicStreamState state = new AnthropicStreamState();
+        return withStreamKeyDegradedRetry(request, config -> {
+            // 每次 Key 重试使用全新的状态跟踪器，避免残留脏数据
+            AnthropicStreamState state = new AnthropicStreamState();
+            Flux<ServerSentEvent<String>> sseFlux = buildWebClient(config, extractCorrelationId(request))
+                    .post()
+                    .uri(MESSAGES_PATH)
+                    .body(BodyInserters.fromValue(requestBody))
+                    .retrieve()
+                    .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
+                    .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
+                    .timeout(Duration.ofSeconds(config.timeoutSeconds()));
 
-        Flux<ServerSentEvent<String>> sseFlux = buildWebClient(config, extractCorrelationId(request))
-                .post()
-                .uri(MESSAGES_PATH)
-                .body(BodyInserters.fromValue(requestBody))
-                .retrieve()
-                .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
-                .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
-                .timeout(Duration.ofSeconds(config.timeoutSeconds()));
+            if (config.maxRetries() > 0) {
+                sseFlux = sseFlux
+                        .doOnNext(event -> firstTokenReceived.set(true))
+                        .retryWhen(buildStreamRetrySpec(config, firstTokenReceived, getStatsContext(request)));
+            }
 
-        if (config.maxRetries() > 0) {
-            sseFlux = sseFlux
-                    .doOnNext(event -> firstTokenReceived.set(true))
-                    .retryWhen(buildStreamRetrySpec(config, firstTokenReceived, getStatsContext(request)));
-        }
-
-        return withCircuitBreakerFlux(config.providerName(), request.getModel(), sseFlux)
-                .onErrorMap(this::mapTransportError)
-                .flatMap(event -> parseStreamEvent(event, state));
+            return withCircuitBreakerFlux(config.providerName(), request.getModel(), sseFlux)
+                    .onErrorMap(this::mapTransportError)
+                    .flatMap(event -> parseStreamEvent(event, state));
+        }, firstTokenReceived);
     }
 
     // ==================== 请求构建 ====================
@@ -399,7 +399,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
 
         return buildSimplifiedAssistantMessage(content);
     }
-    
+
     /**
      * 重建 text / thinking 块，返回是否包含 thinking 块
      * <p>
@@ -412,7 +412,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
         if (msg.getParts() == null) {
             return hasThinking;
         }
-        
+
         for (UnifiedPart part : msg.getParts()) {
             if ("text".equals(part.getType())) {
                 if (part.getText() != null && !part.getText().isEmpty()) {
@@ -425,7 +425,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
         }
         return hasThinking;
     }
-    
+
     /**
      * 构建单个 thinking content block
      * <p>
@@ -435,7 +435,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
      */
     private Map<String, Object> buildThinkingBlock(UnifiedPart part, boolean simplifiedThinking) {
         Map<String, Object> thinking = new LinkedHashMap<>();
-        
+
         // 简化模式：统一用 "thinking" 类型，去除 signature
         // 完整模式：恢复原始类型（redacted_thinking → redacted_thinking），保留 signature
         if (simplifiedThinking) {
@@ -446,19 +446,19 @@ public class AnthropicProviderClient extends AbstractProviderClient {
                     ? "redacted_thinking" : "thinking";
             thinking.put("type", originalType);
         }
-        
+
         thinking.put("thinking", part.getText() != null ? part.getText() : "");
-        
+
         // 完整模式下保留 signature 字段
         if (!simplifiedThinking
                 && part.getAttributes() != null
                 && part.getAttributes().get("signature") instanceof String sig) {
             thinking.put("signature", sig);
         }
-        
+
         return thinking;
     }
-    
+
     /**
      * 跨协议兼容：当存在 tool_calls 但缺少 thinking 块时，注入最小 thinking 占位块
      * <p>
@@ -478,7 +478,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
             content.add(placeholder);
         }
     }
-    
+
     /**
      * 构建 tool_calls → tool_use content blocks
      */
@@ -486,7 +486,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
         if (msg.getToolCalls() == null || msg.getToolCalls().isEmpty()) {
             return;
         }
-        
+
         for (UnifiedToolCall tc : msg.getToolCalls()) {
             Map<String, Object> toolUse = new LinkedHashMap<>();
             toolUse.put("type", "tool_use");
@@ -497,7 +497,7 @@ public class AnthropicProviderClient extends AbstractProviderClient {
             content.add(toolUse);
         }
     }
-    
+
     /**
      * 构建简化的 assistant 消息格式
      * <p>

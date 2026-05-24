@@ -117,6 +117,9 @@
                 <InfoItem label="请求别名" :value="data.aliasModel" />
                 <InfoItem label="最终路由" :value="data.targetModel" />
                 <InfoItem label="提供商类型" :value="providerLabel(data.providerType)" />
+                <InfoItem label="Provider Key" :value="data.providerApiKeyMasked" />
+                <InfoItem label="Key 选择策略" :value="keySelectionStrategyLabel(parsedTraceDetails?.keySelectionStrategy)" />
+                <InfoItem label="选择原因" :value="parsedTraceDetails?.keySelectionReason" />
               </div>
             </div>
           </div>
@@ -473,6 +476,17 @@ function candidateStatusLabel(status: string): string {
     case 'STREAMING': return '流式中断'
     default: return status
   }
+}
+
+/** Key 选择策略中文标签 */
+function keySelectionStrategyLabel(strategy?: string | null): string {
+  if (!strategy) return '-'
+  const map: Record<string, string> = {
+    ROUND_ROBIN: '轮询',
+    RANDOM: '加权随机',
+    FALLBACK: '降级',
+  }
+  return map[strategy] ?? strategy
 }
 
 async function copyText(text: string) {

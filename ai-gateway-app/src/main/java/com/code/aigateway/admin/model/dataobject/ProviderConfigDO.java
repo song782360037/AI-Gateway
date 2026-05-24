@@ -41,16 +41,6 @@ public class ProviderConfigDO {
     private String baseUrl;
 
     /**
-     * 加密后的 API Key 密文
-     */
-    private String apiKeyCiphertext;
-
-    /**
-     * API Key 加密向量
-     */
-    private String apiKeyIv;
-
-    /**
      * 请求超时时间，单位秒
      */
     private Integer timeoutSeconds;
@@ -78,6 +68,11 @@ public class ProviderConfigDO {
      * </ul>
      */
     private String thinkingCompatMode;
+
+    /**
+     * Key 选择策略：ROUND_ROBIN / RANDOM / FALLBACK
+     */
+    private String keySelectionStrategy;
 
     /**
      * 规范化 thinking 兼容模式值。

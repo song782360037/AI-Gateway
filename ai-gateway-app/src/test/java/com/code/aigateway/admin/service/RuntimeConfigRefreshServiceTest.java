@@ -4,6 +4,7 @@ import com.code.aigateway.admin.mapper.AutoRouteCandidateMapper;
 import com.code.aigateway.admin.mapper.AutoRouteConfigMapper;
 import com.code.aigateway.admin.mapper.GlobalConfigMapper;
 import com.code.aigateway.admin.mapper.ModelRedirectConfigMapper;
+import com.code.aigateway.admin.mapper.ProviderApiKeyMapper;
 import com.code.aigateway.admin.mapper.ProviderConfigMapper;
 import com.code.aigateway.admin.mapper.SupportedModelMapper;
 import com.code.aigateway.admin.model.dataobject.AutoRouteCandidateDO;
@@ -11,9 +12,12 @@ import com.code.aigateway.admin.model.dataobject.AutoRouteConfigDO;
 import com.code.aigateway.admin.model.dataobject.GlobalConfigDO;
 import com.code.aigateway.admin.model.dataobject.ModelRedirectConfigDO;
 import com.code.aigateway.admin.model.dataobject.ProviderConfigDO;
+import com.code.aigateway.admin.model.dataobject.ProviderApiKeyDO;
 import com.code.aigateway.admin.model.dataobject.SupportedModelDO;
 import com.code.aigateway.core.router.MatchType;
 import com.code.aigateway.core.router.RouteCandidate;
+import com.code.aigateway.core.router.ProviderKeyEntry;
+import com.code.aigateway.core.router.ProviderKeySelector;
 import com.code.aigateway.core.router.RoutingConfigSnapshot;
 import com.code.aigateway.core.runtime.RedisRoutingCacheService;
 import com.code.aigateway.core.runtime.RoutingSnapshotHolder;
@@ -60,6 +64,9 @@ class RuntimeConfigRefreshServiceTest {
     private ProviderConfigMapper providerConfigMapper;
 
     @Mock
+    private ProviderApiKeyMapper providerApiKeyMapper;
+
+    @Mock
     private ModelRedirectConfigMapper modelRedirectConfigMapper;
 
     @Mock
@@ -86,22 +93,35 @@ class RuntimeConfigRefreshServiceTest {
     @Mock
     private ObjectMapper objectMapper;
 
+    @Mock
+    private ProviderKeySelector providerKeySelector;
+
     private RuntimeConfigRefreshService service;
 
     @BeforeEach
     void setUp() {
         service = new RuntimeConfigRefreshService(
                 providerConfigMapper,
+                providerApiKeyMapper,
                 modelRedirectConfigMapper,
                 autoRouteConfigMapper,
                 autoRouteCandidateMapper,
                 supportedModelMapper,
                 globalConfigMapper,
                 apiKeyEncryptor,
+                providerKeySelector,
                 routingSnapshotHolder,
                 redisRoutingCacheService,
                 objectMapper
         );
+
+        // 默认 mock：providerApiKeyMapper 返回包含一个 Key 的列表
+        // anyString() 匹配所有 providerCode，每个 provider 都会获得一个 mock Key
+        when(providerApiKeyMapper.selectEnabledByProviderCode(anyString()))
+                .thenAnswer(invocation -> {
+                    String providerCode = invocation.getArgument(0);
+                    return List.of(buildApiKeyDO(1L, providerCode));
+                });
     }
 
     // ==================== 辅助方法 ====================
@@ -115,12 +135,24 @@ class RuntimeConfigRefreshServiceTest {
         p.setProviderType(providerType);
         p.setEnabled(true);
         p.setBaseUrl(baseUrl);
-        p.setApiKeyCiphertext("encrypted-key");
-        p.setApiKeyIv("iv-value");
         p.setTimeoutSeconds(60);
         p.setPriority(priority);
         p.setSupportedProtocols(protocols);
         return p;
+    }
+
+    /** 构建启用的 ProviderApiKeyDO */
+    private ProviderApiKeyDO buildApiKeyDO(Long id, String providerCode) {
+        ProviderApiKeyDO k = new ProviderApiKeyDO();
+        k.setId(id);
+        k.setProviderCode(providerCode);
+        k.setApiKeyCiphertext("encrypted-key");
+        k.setApiKeyIv("iv-value");
+        k.setApiKeyPrefix("sk-test****key");
+        k.setWeight(100);
+        k.setSortOrder(0);
+        k.setEnabled(true);
+        return k;
     }
 
     /** 构建启用的 ModelRedirectConfigDO */
@@ -246,7 +278,8 @@ class RuntimeConfigRefreshServiceTest {
             assertNotNull(entry, "Provider 应存在");
             assertEquals("anthropic", entry.providerType());
             assertEquals("https://api.anthropic.com", entry.baseUrl());
-            assertEquals("sk-claude-key", entry.apiKey());
+            assertEquals(1, entry.apiKeys().size(), "应有1个 API Key");
+            assertEquals("sk-claude-key", entry.apiKeys().get(0).apiKey());
             assertEquals(60, entry.timeoutSeconds());
             assertEquals(5, entry.priority());
             assertEquals(2, entry.supportedProtocols().size(), "应解析2个协议");
@@ -935,6 +968,98 @@ class RuntimeConfigRefreshServiceTest {
         }
     }
 
+    // ==================== Provider 无 Key 跳过 ====================
+
+    @Nested
+    @DisplayName("reloadFromDb - Provider 无可用 Key")
+    class ProviderWithNoKeys {
+
+        @Test
+        @DisplayName("Provider 无启用 Key 时从快照中跳过")
+        void shouldSkipProviderWithNoEnabledKeys() throws Exception {
+            ProviderConfigDO provider = buildProviderDO("empty-provider", "openai",
+                    "https://api.openai.com", 10, null);
+            when(providerConfigMapper.selectAllEnabled()).thenReturn(List.of(provider));
+            // 该 Provider 无启用 Key
+            when(providerApiKeyMapper.selectEnabledByProviderCode("empty-provider"))
+                    .thenReturn(List.of());
+
+            when(modelRedirectConfigMapper.selectAllEnabled()).thenReturn(List.of());
+            when(autoRouteConfigMapper.selectAllEnabled()).thenReturn(List.of());
+            when(autoRouteCandidateMapper.selectAllEnabled()).thenReturn(List.of());
+            when(supportedModelMapper.selectAllEnabled()).thenReturn(List.of());
+            when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+
+            boolean result = service.reloadFromDb("startup");
+
+            assertTrue(result, "刷新应成功");
+            ArgumentCaptor<RoutingConfigSnapshot> captor =
+                    ArgumentCaptor.forClass(RoutingConfigSnapshot.class);
+            verify(routingSnapshotHolder).update(captor.capture());
+
+            RoutingConfigSnapshot snapshot = captor.getValue();
+            assertFalse(snapshot.getProviderMap().containsKey("empty-provider"),
+                    "无 Key 的 Provider 应从快照中跳过");
+        }
+
+        @Test
+        @DisplayName("部分 Provider 无 Key 时仅跳过该 Provider，不影响其他")
+        void shouldSkipOnlyProviderWithNoKeys() throws Exception {
+            ProviderConfigDO providerWithKey = buildProviderDO("openai-main", "openai",
+                    "https://api.openai.com", 10, null);
+            ProviderConfigDO providerNoKey = buildProviderDO("empty-provider", "openai",
+                    "https://empty.com", 5, null);
+            when(providerConfigMapper.selectAllEnabled()).thenReturn(List.of(providerWithKey, providerNoKey));
+
+            // openai-main 有 Key，empty-provider 无 Key
+            when(providerApiKeyMapper.selectEnabledByProviderCode("openai-main"))
+                    .thenReturn(List.of(buildApiKeyDO(1L, "openai-main")));
+            when(providerApiKeyMapper.selectEnabledByProviderCode("empty-provider"))
+                    .thenReturn(List.of());
+            when(apiKeyEncryptor.decrypt(anyString(), anyString())).thenReturn("sk-test-key");
+
+            when(modelRedirectConfigMapper.selectAllEnabled()).thenReturn(List.of());
+            when(autoRouteConfigMapper.selectAllEnabled()).thenReturn(List.of());
+            when(autoRouteCandidateMapper.selectAllEnabled()).thenReturn(List.of());
+            when(supportedModelMapper.selectAllEnabled()).thenReturn(List.of());
+            when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+
+            service.reloadFromDb("startup");
+
+            ArgumentCaptor<RoutingConfigSnapshot> captor =
+                    ArgumentCaptor.forClass(RoutingConfigSnapshot.class);
+            verify(routingSnapshotHolder).update(captor.capture());
+
+            RoutingConfigSnapshot snapshot = captor.getValue();
+            assertTrue(snapshot.getProviderMap().containsKey("openai-main"),
+                    "有 Key 的 Provider 应存在");
+            assertFalse(snapshot.getProviderMap().containsKey("empty-provider"),
+                    "无 Key 的 Provider 应被跳过");
+        }
+    }
+
+    // ==================== cleanupStaleCounters 验证 ====================
+
+    @Nested
+    @DisplayName("reloadFromDb - 轮询计数器清理")
+    class CounterCleanup {
+
+        @Test
+        @DisplayName("刷新成功后应调用 cleanupStaleCounters 清理过期计数器")
+        void shouldCleanupStaleCountersAfterRefresh() throws Exception {
+            when(providerConfigMapper.selectAllEnabled()).thenReturn(List.of());
+            when(modelRedirectConfigMapper.selectAllEnabled()).thenReturn(List.of());
+            when(autoRouteConfigMapper.selectAllEnabled()).thenReturn(List.of());
+            when(autoRouteCandidateMapper.selectAllEnabled()).thenReturn(List.of());
+            when(supportedModelMapper.selectAllEnabled()).thenReturn(List.of());
+            when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+
+            service.reloadFromDb("startup");
+
+            verify(providerKeySelector).cleanupStaleCounters(any());
+        }
+    }
+
     // ==================== 透传候选测试 ====================
 
     @Nested
@@ -1074,9 +1199,10 @@ class RuntimeConfigRefreshServiceTest {
             // 用真实 ObjectMapper 才能正确解析 JSON
             ObjectMapper realMapper = new ObjectMapper();
             RuntimeConfigRefreshService realService = new RuntimeConfigRefreshService(
-                    providerConfigMapper, modelRedirectConfigMapper, autoRouteConfigMapper,
-                    autoRouteCandidateMapper, supportedModelMapper, globalConfigMapper,
-                    apiKeyEncryptor, routingSnapshotHolder, redisRoutingCacheService, realMapper
+                    providerConfigMapper, providerApiKeyMapper, modelRedirectConfigMapper,
+                    autoRouteConfigMapper, autoRouteCandidateMapper, supportedModelMapper,
+                    globalConfigMapper, apiKeyEncryptor, providerKeySelector,
+                    routingSnapshotHolder, redisRoutingCacheService, realMapper
             );
 
             ProviderConfigDO provider = buildProviderDO("openai-main", "openai",
@@ -1179,9 +1305,10 @@ class RuntimeConfigRefreshServiceTest {
 
             // 使用真实 ObjectMapper 以便 JSON 正确解析
             RuntimeConfigRefreshService realService = new RuntimeConfigRefreshService(
-                    providerConfigMapper, modelRedirectConfigMapper, autoRouteConfigMapper,
-                    autoRouteCandidateMapper, supportedModelMapper, globalConfigMapper,
-                    apiKeyEncryptor, routingSnapshotHolder, redisRoutingCacheService, realMapper
+                    providerConfigMapper, providerApiKeyMapper, modelRedirectConfigMapper,
+                    autoRouteConfigMapper, autoRouteCandidateMapper, supportedModelMapper,
+                    globalConfigMapper, apiKeyEncryptor, providerKeySelector,
+                    routingSnapshotHolder, redisRoutingCacheService, realMapper
             );
 
             realService.reloadFromDb("startup");

@@ -62,6 +62,10 @@ export interface TraceDetails {
   circuitOpenSkippedCount: number
   /** 每个候选提供商的尝试记录 */
   candidateAttempts: CandidateAttempt[]
+  /** Key 选择策略：ROUND_ROBIN / RANDOM / FALLBACK */
+  keySelectionStrategy?: string | null
+  /** Key 选择原因说明 */
+  keySelectionReason?: string | null
 }
 
 /** 请求日志响应 */
@@ -76,6 +80,8 @@ export interface RequestLogRsp {
   requestPath: string | null
   httpMethod: string | null
   apiKeyPrefix: string | null
+  /** 提供商 API Key 脱敏标识（前8后4） */
+  providerApiKeyMasked: string | null
   candidateCount: number | null
   attemptCount: number | null
   failoverCount: number | null

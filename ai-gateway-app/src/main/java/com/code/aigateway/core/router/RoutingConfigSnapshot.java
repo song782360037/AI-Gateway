@@ -236,14 +236,18 @@ public final class RoutingConfigSnapshot {
         /**
          * 获取预编译的 Pattern，首次调用时惰性编译并缓存。
          *
-         * <p>使用局部变量 + volatile 保证线程安全：即使多个线程同时通过 null 检查，
-         * 也只会重复编译（幂等），不会返回未完整构造的对象。</p>
+         * <p>使用标准 DCL（Double-Checked Locking）保证线程安全且仅编译一次。</p>
          */
         @JsonIgnore
         public Pattern compiledPattern() {
             Pattern p = compiledPattern;
             if (p == null) {
-                compiledPattern = p = Pattern.compile(regex);
+                synchronized (this) {
+                    p = compiledPattern;
+                    if (p == null) {
+                        compiledPattern = p = Pattern.compile(regex);
+                    }
+                }
             }
             return p;
         }
@@ -266,15 +270,16 @@ public final class RoutingConfigSnapshot {
      * 提供商运行时配置条目。
      *
      * <p>该对象已经是聚合后的只读视图，
-     * 其中 apiKey 为运行时解密后的明文，仅在内存快照中使用。
-     * 序列化时排除 apiKey 以防止泄露到 Redis/日志。</p>
+     * 其中 apiKeys 为运行时解密后的明文列表，仅在内存快照中使用。
+     * 序列化时排除 apiKeys 以防止泄露到 Redis/日志。</p>
      */
     public record ProviderEntry(
             String providerType,
             String providerCode,
             boolean enabled,
             String baseUrl,
-            @JsonIgnore String apiKey,
+            @JsonIgnore List<ProviderKeyEntry> apiKeys,
+            KeySelectionStrategy keySelectionStrategy,
             int timeoutSeconds,
             int priority,
             List<String> supportedProtocols,

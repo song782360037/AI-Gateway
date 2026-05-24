@@ -11,6 +11,7 @@ import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionTemplate;
 import reactor.core.publisher.Sinks;
 import reactor.core.scheduler.Schedulers;
 import reactor.util.concurrent.Queues;
@@ -42,6 +43,7 @@ public class RequestStatsCollector {
 
     private final RequestLogMapper requestLogMapper;
     private final RequestStatHourlyMapper statHourlyMapper;
+    private final TransactionTemplate transactionTemplate;
 
     /** 异步缓冲队列：初始容量 8192，可动态扩容 */
     private final Sinks.Many<RequestLogDO> sink = Sinks.many().unicast().onBackpressureBuffer(Queues.<RequestLogDO>unbounded(8192).get());
@@ -159,14 +161,19 @@ public class RequestStatsCollector {
     }
 
     /**
-     * 批量刷盘：逐条写入 request_log + upsert request_stat_hourly，单条失败不影响其他记录
+     * 批量刷盘：逐条写入 request_log + upsert request_stat_hourly
+     * <p>每条记录在独立事务中执行，request_log 和 request_stat_hourly 保持一致性，
+     * 单条失败不影响其他记录。</p>
      */
     private void flushBatch(List<RequestLogDO> batch) {
         int failCount = 0;
         for (RequestLogDO record : batch) {
             try {
-                requestLogMapper.insert(record);
-                upsertHourlyStat(record);
+                // 在同一事务中写入日志和聚合统计，保证数据一致性
+                transactionTemplate.executeWithoutResult(status -> {
+                    requestLogMapper.insert(record);
+                    upsertHourlyStat(record);
+                });
             } catch (Exception e) {
                 failCount++;
                 log.warn("[请求统计] 单条写入失败，requestId={}", record.getRequestId(), e);
@@ -225,6 +232,7 @@ public class RequestStatsCollector {
         logDO.setRequestPath(context.getRequestPath());
         logDO.setHttpMethod(context.getHttpMethod());
         logDO.setApiKeyPrefix(context.getApiKeyPrefix());
+        logDO.setProviderApiKeyMasked(context.getProviderApiKeyMasked());
         logDO.setCandidateCount(context.getCandidateCount());
         logDO.setAttemptCount(context.getAttemptCount());
         logDO.setFailoverCount(context.getFailoverCount());

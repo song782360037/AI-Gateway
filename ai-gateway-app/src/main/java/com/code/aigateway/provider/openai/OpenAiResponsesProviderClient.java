@@ -85,71 +85,72 @@ public class OpenAiResponsesProviderClient extends AbstractProviderClient {
 
     @Override
     public Mono<UnifiedResponse> chat(UnifiedRequest request) {
-        ProviderRuntimeConfig config = resolveRuntimeConfig(request);
         Map<String, Object> requestBody = buildRequestBody(request, false);
+        return withKeyDegradedRetry(request, config -> {
+            // 诊断：记录发送到上游的请求体摘要
+            List<?> inputItems = (List<?>) requestBody.get("input");
+            log.debug("[OpenAI Responses] 发送非流式请求, provider={}, model={}, inputSize={}, bodyKeys={}",
+                    config.providerName(), request.getModel(),
+                    inputItems != null ? inputItems.size() : "null",
+                    requestBody.keySet());
 
-        // 诊断：记录发送到上游的请求体摘要
-        List<?> inputItems = (List<?>) requestBody.get("input");
-        log.info("[OpenAI Responses] 发送非流式请求, provider={}, model={}, inputSize={}, bodyKeys={}",
-                config.providerName(), request.getModel(),
-                inputItems != null ? inputItems.size() : "null",
-                requestBody.keySet());
+            Mono<JsonNode> responseMono = buildWebClient(config, extractCorrelationId(request))
+                    .post()
+                    .uri(RESPONSES_PATH)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .body(BodyInserters.fromValue(requestBody))
+                    .retrieve()
+                    .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
+                    .bodyToMono(JsonNode.class)
+                    .timeout(Duration.ofSeconds(config.timeoutSeconds()));
 
-        Mono<JsonNode> responseMono = buildWebClient(config, extractCorrelationId(request))
-                .post()
-                .uri(RESPONSES_PATH)
-                .contentType(MediaType.APPLICATION_JSON)
-                .accept(MediaType.APPLICATION_JSON)
-                .body(BodyInserters.fromValue(requestBody))
-                .retrieve()
-                .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
-                .bodyToMono(JsonNode.class)
-                .timeout(Duration.ofSeconds(config.timeoutSeconds()));
+            if (config.maxRetries() > 0) {
+                responseMono = responseMono.retryWhen(buildRetrySpec(config, getStatsContext(request)));
+            }
 
-        if (config.maxRetries() > 0) {
-            responseMono = responseMono.retryWhen(buildRetrySpec(config, getStatsContext(request)));
-        }
-
-        return withCircuitBreaker(config.providerName(), request.getModel(), responseMono)
-                .onErrorMap(this::mapTransportError)
-                .map(this::parseResponse);
+            return withCircuitBreaker(config.providerName(), request.getModel(), responseMono)
+                    .onErrorMap(this::mapTransportError)
+                    .map(this::parseResponse);
+        });
     }
 
     @Override
     public Flux<UnifiedStreamEvent> streamChat(UnifiedRequest request) {
-        ProviderRuntimeConfig config = resolveRuntimeConfig(request);
         Map<String, Object> requestBody = buildRequestBody(request, true);
-
-        // 诊断：记录发送到上游的请求体摘要
-        List<?> inputItems = (List<?>) requestBody.get("input");
-        log.info("[OpenAI Responses] 发送流式请求, provider={}, model={}, inputSize={}, bodyKeys={}",
-                config.providerName(), request.getModel(),
-                inputItems != null ? inputItems.size() : "null",
-                requestBody.keySet());
-
         AtomicBoolean firstTokenReceived = new AtomicBoolean(false);
-        OpenAiResponsesStreamParser state = new OpenAiResponsesStreamParser();
 
-        Flux<ServerSentEvent<String>> sseFlux = buildWebClient(config, extractCorrelationId(request))
-                .post()
-                .uri(RESPONSES_PATH)
-                .contentType(MediaType.APPLICATION_JSON)
-                .accept(MediaType.TEXT_EVENT_STREAM)
-                .body(BodyInserters.fromValue(requestBody))
-                .retrieve()
-                .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
-                .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
-                .timeout(Duration.ofSeconds(config.timeoutSeconds()));
+        return withStreamKeyDegradedRetry(request, config -> {
+            // 每次 Key 重试使用全新的解析器，避免残留脏数据
+            OpenAiResponsesStreamParser state = new OpenAiResponsesStreamParser();
+            // 诊断：记录发送到上游的请求体摘要
+            List<?> inputItems = (List<?>) requestBody.get("input");
+            log.debug("[OpenAI Responses] 发送流式请求, provider={}, model={}, inputSize={}, bodyKeys={}",
+                    config.providerName(), request.getModel(),
+                    inputItems != null ? inputItems.size() : "null",
+                    requestBody.keySet());
 
-        if (config.maxRetries() > 0) {
-            sseFlux = sseFlux
-                    .doOnNext(event -> firstTokenReceived.set(true))
-                    .retryWhen(buildStreamRetrySpec(config, firstTokenReceived, getStatsContext(request)));
-        }
+            Flux<ServerSentEvent<String>> sseFlux = buildWebClient(config, extractCorrelationId(request))
+                    .post()
+                    .uri(RESPONSES_PATH)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.TEXT_EVENT_STREAM)
+                    .body(BodyInserters.fromValue(requestBody))
+                    .retrieve()
+                    .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
+                    .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
+                    .timeout(Duration.ofSeconds(config.timeoutSeconds()));
 
-        return withCircuitBreakerFlux(config.providerName(), request.getModel(), sseFlux)
-                .onErrorMap(this::mapTransportError)
-                .flatMap(event -> parseStreamEvent(event, state));
+            if (config.maxRetries() > 0) {
+                sseFlux = sseFlux
+                        .doOnNext(event -> firstTokenReceived.set(true))
+                        .retryWhen(buildStreamRetrySpec(config, firstTokenReceived, getStatsContext(request)));
+            }
+
+            return withCircuitBreakerFlux(config.providerName(), request.getModel(), sseFlux)
+                    .onErrorMap(this::mapTransportError)
+                    .flatMap(event -> parseStreamEvent(event, state));
+        }, firstTokenReceived);
     }
 
     // ==================== 请求构建 ====================

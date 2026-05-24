@@ -61,7 +61,6 @@ class ProviderConfigControllerTest {
         req.setProviderType("OPENAI");
         req.setDisplayName("主 OpenAI 通道");
         req.setBaseUrl("https://api.openai.com");
-        req.setApiKey("sk-test-key-123");
 
         Mockito.when(providerConfigService.add(Mockito.any(ProviderConfigAddReq.class)))
                 .thenReturn(1L);
@@ -85,7 +84,6 @@ class ProviderConfigControllerTest {
         ProviderConfigAddReq req = new ProviderConfigAddReq();
         req.setProviderType("OPENAI");
         req.setBaseUrl("https://api.openai.com");
-        req.setApiKey("sk-test");
 
         webTestClient.post()
                 .uri("/admin/provider-config/add")
@@ -150,7 +148,8 @@ class ProviderConfigControllerTest {
         rsp.setDisplayName("主 OpenAI 通道");
         rsp.setEnabled(true);
         rsp.setBaseUrl("https://api.openai.com");
-        rsp.setApiKeyMasked("sk-*** masked");
+        rsp.setKeySelectionStrategy("ROUND_ROBIN");
+        rsp.setApiKeyCount(2);
         rsp.setTimeoutSeconds(60);
         rsp.setPriority(0);
         rsp.setVersionNo(1L);
@@ -167,7 +166,8 @@ class ProviderConfigControllerTest {
                 .jsonPath("$.success").isEqualTo(true)
                 .jsonPath("$.data.id").isEqualTo(1)
                 .jsonPath("$.data.providerCode").isEqualTo("openai-main")
-                .jsonPath("$.data.apiKeyMasked").isEqualTo("sk-*** masked");
+                .jsonPath("$.data.keySelectionStrategy").isEqualTo("ROUND_ROBIN")
+                .jsonPath("$.data.apiKeyCount").isEqualTo(2);
     }
 
     @Test

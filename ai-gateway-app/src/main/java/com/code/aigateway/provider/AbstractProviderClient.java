@@ -4,7 +4,10 @@ import com.code.aigateway.common.util.CustomHeaderUtils;
 import com.code.aigateway.config.GatewayProperties;
 import com.code.aigateway.sdk.error.ErrorCode;
 import com.code.aigateway.core.error.GatewayException;
+import com.code.aigateway.core.GatewayMetadataKeys;
 import com.code.aigateway.core.resilience.CircuitBreakerManager;
+import com.code.aigateway.core.router.ProviderKeyEntry;
+import com.code.aigateway.core.router.KeySelectionStrategy;
 import com.code.aigateway.core.stats.RequestStatsContext;
 import com.code.aigateway.sdk.model.UnifiedMessage;
 import com.code.aigateway.sdk.model.UnifiedPart;
@@ -25,7 +28,10 @@ import reactor.util.retry.Retry;
 
 import java.net.ConnectException;
 import java.time.Duration;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -96,7 +102,8 @@ public abstract class AbstractProviderClient implements ProviderClient {
                 ? ctx.getProviderApiKey()
                 : (props != null ? props.getApiKey() : null);
         if (apiKey == null || apiKey.isBlank()) {
-            throw new GatewayException(ErrorCode.PROVIDER_ERROR, "provider api key is missing: " + providerName);
+            throw new GatewayException(ErrorCode.PROVIDER_NOT_FOUND,
+                    "provider " + providerName + " 无可用 API Key，请检查该 Provider 是否已添加并启用 Key");
         }
 
         String baseUrl = ctx != null && ctx.getProviderBaseUrl() != null
@@ -123,6 +130,22 @@ public abstract class AbstractProviderClient implements ProviderClient {
                 maxRetries, initialIntervalMs, maxIntervalMs,
                 resolveCustomHeaders(request)
         );
+    }
+
+    /**
+     * 解析 provider 运行时配置，并用 apiKeyOverride 替换原始 apiKey。
+     * 用于 Key 降级重试场景，避免修改 request 对象。
+     */
+    protected ProviderRuntimeConfig resolveRuntimeConfig(UnifiedRequest request, String apiKeyOverride) {
+        ProviderRuntimeConfig config = resolveRuntimeConfig(request);
+        if (apiKeyOverride != null) {
+            return new ProviderRuntimeConfig(
+                    config.providerName(), config.baseUrl(), apiKeyOverride,
+                    config.timeoutSeconds(), config.maxRetries(),
+                    config.initialIntervalMs(), config.maxIntervalMs(),
+                    config.customHeaders());
+        }
+        return config;
     }
 
     // ==================== WebClient 构建 ====================
@@ -241,6 +264,206 @@ public abstract class AbstractProviderClient implements ProviderClient {
                     || gatewayEx.getErrorCode() == ErrorCode.PROVIDER_SERVER_ERROR;
         }
         return false;
+    }
+
+    // ==================== Key 降级重试 ====================
+
+    /** metadata key：该 Provider 所有可用 Key 列表 */
+    private static final String META_PROVIDER_KEY_ENTRIES = GatewayMetadataKeys.PROVIDER_KEY_ENTRIES;
+
+    /** 最大 Key 降级重试次数上限，实际不超过 allKeys.size()-1 */
+    private static final int MAX_KEY_DEGRADATION_RETRIES = 5;
+
+    /**
+     * 判断异常是否可触发 Key 降级重试（仅 429 限流）。
+     *
+     * <p>设计决策：仅对 429 (Rate Limit) 触发降级，原因：
+     * <ul>
+     *   <li>429 — 该 Key 被限流，切换其他 Key 可能正常服务</li>
+     *   <li>401/403 — Key 永久失效（过期/错误/权限不足），切换其他 Key 也大概率失败</li>
+     *   <li>5xx — 上游服务故障，与 Key 无关，应由 Provider 级别的 Failover 处理</li>
+     * </ul>
+     * 如需扩展（如 Key 额度耗尽的特定错误码），子类可覆写此方法。</p>
+     */
+    protected boolean isKeyDegradableError(Throwable throwable) {
+        if (throwable instanceof GatewayException gwEx) {
+            return gwEx.getErrorCode() == ErrorCode.PROVIDER_RATE_LIMIT;
+        }
+        return false;
+    }
+
+    /**
+     * Provider 内部 Key 降级重试（非流式）。
+     * 遇到 429 时自动切换同 Provider 其他可用 Key 重试。
+     */
+    protected <T> Mono<T> withKeyDegradedRetry(UnifiedRequest request,
+                                                java.util.function.Function<ProviderRuntimeConfig, Mono<T>> callFunction) {
+        List<ProviderKeyEntry> allKeys = getProviderKeyEntries(request);
+        if (allKeys == null || allKeys.size() <= 1) {
+            return callFunction.apply(resolveRuntimeConfig(request));
+        }
+
+        Set<Long> usedKeyIds = initUsedKeyIds(allKeys, request);
+
+        int maxRetries = Math.min(MAX_KEY_DEGRADATION_RETRIES, allKeys.size() - 1);
+
+        return callFunction.apply(resolveRuntimeConfig(request))
+                .onErrorResume(ex -> isKeyDegradableError(ex)
+                        ? degradedRetryMono(request, allKeys, usedKeyIds, callFunction, ex, 0, maxRetries)
+                        : Mono.error(ex));
+    }
+
+    /**
+     * Provider 内部 Key 降级重试（流式）。
+     * 仅在首 token 前可降级，避免向客户端重复输出。
+     */
+    protected <T> reactor.core.publisher.Flux<T> withStreamKeyDegradedRetry(
+            UnifiedRequest request,
+            java.util.function.Function<ProviderRuntimeConfig, reactor.core.publisher.Flux<T>> callFunction,
+            AtomicBoolean firstTokenReceived) {
+        List<ProviderKeyEntry> allKeys = getProviderKeyEntries(request);
+        if (allKeys == null || allKeys.size() <= 1) {
+            return callFunction.apply(resolveRuntimeConfig(request));
+        }
+
+        Set<Long> usedKeyIds = initUsedKeyIds(allKeys, request);
+
+        int maxRetries = Math.min(MAX_KEY_DEGRADATION_RETRIES, allKeys.size() - 1);
+
+        return callFunction.apply(resolveRuntimeConfig(request))
+                .onErrorResume(ex -> {
+                    if (firstTokenReceived.get() || !isKeyDegradableError(ex)) {
+                        return reactor.core.publisher.Flux.error(ex);
+                    }
+                    return degradedRetryFlux(request, allKeys, usedKeyIds, callFunction, firstTokenReceived, ex, 0, maxRetries);
+                });
+    }
+
+    /** 初始化已使用的 Key ID 集合 */
+    private Set<Long> initUsedKeyIds(List<ProviderKeyEntry> allKeys, UnifiedRequest request) {
+        Set<Long> usedKeyIds = new HashSet<>();
+        String currentApiKey = request.getExecutionContext() != null
+                ? request.getExecutionContext().getProviderApiKey() : null;
+        ProviderKeyEntry currentKey = findCurrentKey(allKeys, currentApiKey);
+        if (currentKey != null) {
+            usedKeyIds.add(currentKey.id());
+        }
+        return usedKeyIds;
+    }
+
+    /** 判断是否可以继续 Key 降级重试 */
+    private boolean canDegradeRetry(Throwable ex, AtomicBoolean firstTokenReceived) {
+        if (!isKeyDegradableError(ex)) return false;
+        return firstTokenReceived == null || !firstTokenReceived.get();
+    }
+
+    private <T> Mono<T> degradedRetryMono(UnifiedRequest request,
+                                           List<ProviderKeyEntry> allKeys,
+                                           Set<Long> usedKeyIds,
+                                           java.util.function.Function<ProviderRuntimeConfig, Mono<T>> callFunction,
+                                           Throwable lastError,
+                                           int depth,
+                                           int maxRetries) {
+        if (depth >= maxRetries) return Mono.error(lastError);
+        ProviderKeyEntry nextKey = pickNextKey(request, allKeys, usedKeyIds, "");
+        if (nextKey == null) return Mono.error(lastError);
+
+        return callFunction.apply(resolveRuntimeConfig(request, nextKey.apiKey()))
+                .onErrorResume(ex -> canDegradeRetry(ex, null)
+                        ? degradedRetryMono(request, allKeys, usedKeyIds, callFunction, ex, depth + 1, maxRetries)
+                        : Mono.error(ex));
+    }
+
+    private <T> reactor.core.publisher.Flux<T> degradedRetryFlux(
+            UnifiedRequest request,
+            List<ProviderKeyEntry> allKeys,
+            Set<Long> usedKeyIds,
+            java.util.function.Function<ProviderRuntimeConfig, reactor.core.publisher.Flux<T>> callFunction,
+            AtomicBoolean firstTokenReceived,
+            Throwable lastError,
+            int depth,
+            int maxRetries) {
+        if (depth >= maxRetries) return reactor.core.publisher.Flux.error(lastError);
+        ProviderKeyEntry nextKey = pickNextKey(request, allKeys, usedKeyIds, "-流式");
+        if (nextKey == null) return reactor.core.publisher.Flux.error(lastError);
+
+        return callFunction.apply(resolveRuntimeConfig(request, nextKey.apiKey()))
+                .onErrorResume(ex -> canDegradeRetry(ex, firstTokenReceived)
+                        ? degradedRetryFlux(request, allKeys, usedKeyIds, callFunction, firstTokenReceived, ex, depth + 1, maxRetries)
+                        : reactor.core.publisher.Flux.error(ex));
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<ProviderKeyEntry> getProviderKeyEntries(UnifiedRequest request) {
+        if (request.getMetadata() == null) return null;
+        Object value = request.getMetadata().get(META_PROVIDER_KEY_ENTRIES);
+        if (value instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof ProviderKeyEntry) {
+            return (List<ProviderKeyEntry>) list;
+        }
+        return null;
+    }
+
+    /** 从 metadata 获取 Key 选择策略枚举 */
+    private KeySelectionStrategy getKeySelectionStrategy(UnifiedRequest request) {
+        if (request.getMetadata() == null) return KeySelectionStrategy.ROUND_ROBIN;
+        Object strategy = request.getMetadata().get(GatewayMetadataKeys.KEY_SELECTION_STRATEGY);
+        if (strategy instanceof KeySelectionStrategy kss) return kss;
+        return strategy != null ? KeySelectionStrategy.from(strategy.toString()) : KeySelectionStrategy.ROUND_ROBIN;
+    }
+
+    private ProviderKeyEntry findCurrentKey(List<ProviderKeyEntry> keys, String apiKey) {
+        if (apiKey == null) return null;
+        return keys.stream()
+                .filter(k -> apiKey.equals(k.apiKey()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * 选择下一个降级 Key（共用逻辑）。
+     * FALLBACK 策略按 sortOrder 顺序选下一个，其余策略用随机选择。
+     */
+    private ProviderKeyEntry pickNextKey(UnifiedRequest request,
+                                          List<ProviderKeyEntry> allKeys,
+                                          Set<Long> usedKeyIds,
+                                          String streamTag) {
+        List<ProviderKeyEntry> remaining = allKeys.stream()
+                .filter(k -> !usedKeyIds.contains(k.id()))
+                .toList();
+        if (remaining.isEmpty()) {
+            return null;
+        }
+
+        KeySelectionStrategy strategy = getKeySelectionStrategy(request);
+        ProviderKeyEntry nextKey;
+        if (strategy == KeySelectionStrategy.FALLBACK || strategy == KeySelectionStrategy.ROUND_ROBIN) {
+            // FALLBACK 与 ROUND_ROBIN 降级时均按 sortOrder 顺序选择，保证每个 Key 都有均等的降级机会
+            nextKey = remaining.stream()
+                    .min(java.util.Comparator.comparingInt(ProviderKeyEntry::sortOrder))
+                    .orElse(remaining.get(0));
+        } else {
+            nextKey = remaining.get(java.util.concurrent.ThreadLocalRandom.current().nextInt(remaining.size()));
+        }
+        usedKeyIds.add(nextKey.id());
+
+        log.warn("[Key降级{}] provider={}, 原Key失败(429), 切换到Key prefix={}, 策略={}",
+                streamTag,
+                request.getExecutionContext() != null ? request.getExecutionContext().getProviderName() : "unknown",
+                nextKey.apiKeyPrefix(),
+                strategy);
+
+        // 更新 metadata 中的 usedApiKeyPrefix，用于统计采集。
+        // 安全说明：request 对象为单请求隔离，不会跨请求共享，因此此处修改是安全的。
+        if (request.getMetadata() != null) {
+            request.getMetadata().put(GatewayMetadataKeys.USED_API_KEY_PREFIX, nextKey.apiKeyPrefix());
+            // 同步更新统计上下文，确保日志记录的是实际使用的 Key 标识
+            Object statsCtx = request.getMetadata().get(GatewayMetadataKeys.STATS_CONTEXT);
+            if (statsCtx instanceof RequestStatsContext ctx) {
+                ctx.setProviderApiKeyMasked(nextKey.apiKeyPrefix());
+            }
+        }
+
+        return nextKey;
     }
 
     /**
@@ -474,7 +697,7 @@ public abstract class AbstractProviderClient implements ProviderClient {
      */
     protected RequestStatsContext getStatsContext(UnifiedRequest request) {
         if (request.getMetadata() == null) return null;
-        return (RequestStatsContext) request.getMetadata().get("statsContext");
+        return (RequestStatsContext) request.getMetadata().get(GatewayMetadataKeys.STATS_CONTEXT);
     }
 
     /**

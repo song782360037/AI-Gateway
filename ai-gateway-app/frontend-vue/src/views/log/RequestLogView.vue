@@ -136,6 +136,19 @@
           show-overflow-tooltip
           align="center"
         />
+        <!-- 4.5 Provider Key -->
+        <el-table-column
+          prop="providerApiKeyMasked"
+          label="Provider Key"
+          min-width="150"
+          show-overflow-tooltip
+          align="center"
+        >
+          <template #default="{ row }">
+            <span v-if="row.providerApiKeyMasked" style="font-family: monospace; font-size: 12px">{{ row.providerApiKeyMasked }}</span>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
         <!-- 5. 流式 -->
         <el-table-column label="流式" min-width="70" align="center">
           <template #default="{ row }">

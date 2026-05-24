@@ -1,6 +1,8 @@
 package com.code.aigateway.admin.service;
 
 import com.code.aigateway.admin.mapper.ProviderConfigMapper;
+import com.code.aigateway.admin.mapper.ProviderApiKeyMapper;
+import com.code.aigateway.admin.model.dataobject.ProviderApiKeyDO;
 import com.code.aigateway.admin.model.dataobject.ProviderConfigDO;
 import com.code.aigateway.admin.model.rsp.ConnectionTestResult;
 import com.code.aigateway.infra.crypto.ApiKeyEncryptor;
@@ -13,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.util.List;
 import java.net.ConnectException;
 import java.nio.channels.ClosedChannelException;
 import java.time.Duration;
@@ -37,7 +40,11 @@ public class ProviderConnectionTestService {
     /** 连接测试专用超时，不宜过长 */
     private static final int TEST_TIMEOUT_SECONDS = 10;
 
+    /** 最近一次 loadTestContext 返回 null 的原因 */
+    private String lastLoadFailureReason;
+
     private final ProviderConfigMapper providerConfigMapper;
+    private final ProviderApiKeyMapper providerApiKeyMapper;
     private final ApiKeyEncryptor apiKeyEncryptor;
     private final WebClient.Builder webClientBuilder;
 
@@ -45,16 +52,32 @@ public class ProviderConnectionTestService {
      * 加载提供商配置并解密 API Key（阻塞操作，调用方需切线程）
      *
      * @param providerId 提供商配置主键
-     * @return 加载结果，配置不存在时返回 null
+     * @return 加载结果，配置不存在或无可用 Key 时返回 null（通过 {@link #getLoadFailureReason()} 获取原因）
      */
     public TestContext loadTestContext(Long providerId) {
+        lastLoadFailureReason = null;
         ProviderConfigDO config = providerConfigMapper.selectById(providerId);
         if (config == null) {
+            lastLoadFailureReason = "提供商配置不存在，id=" + providerId;
             return null;
         }
-        String apiKey = apiKeyEncryptor.decrypt(config.getApiKeyIv(), config.getApiKeyCiphertext());
+        // 从子表取第一个启用的 Key 用于连接测试
+        List<ProviderApiKeyDO> keys = providerApiKeyMapper.selectEnabledByProviderCode(config.getProviderCode());
+        if (keys.isEmpty()) {
+            lastLoadFailureReason = "提供商 " + config.getProviderCode() + " 无可用 API Key，请添加并启用至少一个 Key";
+            log.warn("[连接测试] Provider {} 无可用 API Key，跳过连接测试", config.getProviderCode());
+            return null;
+        }
+        String apiKey = apiKeyEncryptor.decrypt(keys.get(0).getApiKeyIv(), keys.get(0).getApiKeyCiphertext());
         ProviderType providerType = ProviderType.valueOf(config.getProviderType());
         return new TestContext(config.getProviderCode(), providerType, trimTrailingSlash(config.getBaseUrl()), apiKey);
+    }
+
+    /**
+     * 获取最近一次 loadTestContext 返回 null 的原因
+     */
+    public String getLoadFailureReason() {
+        return lastLoadFailureReason;
     }
 
     /**
@@ -353,6 +376,7 @@ public class ProviderConnectionTestService {
     }
 
     private String trimTrailingSlash(String url) {
+        if (url == null) return null;
         return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
     }
 }

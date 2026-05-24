@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Builder;
 import lombok.Data;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -66,11 +67,26 @@ public class RouteResult {
 
     /**
      * thinking 参数兼容模式，从提供商配置透传而来。
-     * <ul>
-     *   <li>"full" — 输出完整官方 thinking 参数</li>
-     *   <li>"simplified" — 仅输出 {"type":"enabled"} 或 {"type":"disabled"}</li>
-     * </ul>
      */
     @JsonIgnore
     private String thinkingCompatMode;
+
+    /**
+     * 该 Provider 所有可用的 API Key 列表（供 Provider 内部 Key 降级重试使用）。
+     */
+    @JsonIgnore
+    private List<ProviderKeyEntry> providerKeyEntries;
+
+    /**
+     * Key 选择策略
+     */
+    @JsonIgnore
+    private KeySelectionStrategy keySelectionStrategy;
+
+    /**
+     * 本次请求选中的 API Key 脱敏标识（前8后4格式），用于日志记录和统计采集。
+     * 序列化时排除，避免泄露到 Redis/日志。
+     */
+    @JsonIgnore
+    private String usedApiKeyPrefix;
 }

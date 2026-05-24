@@ -11,21 +11,36 @@ import com.code.aigateway.sdk.model.UnifiedTool;
 import com.code.aigateway.sdk.model.UnifiedToolChoice;
 import com.code.aigateway.core.router.auto.AutoRouteRequestClassifier;
 import com.code.aigateway.core.router.auto.AutoRouteScorer;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * AutoRouteSelector 单元测试
  */
 class AutoRouteSelectorTest {
 
-    private final AutoRouteSelector selector = new AutoRouteSelector(
-            new AutoRouteRequestClassifier(),
-            new AutoRouteScorer());
+    private ProviderKeySelector providerKeySelector;
+    private AutoRouteSelector selector;
+
+    @BeforeEach
+    void setUp() {
+        providerKeySelector = mock(ProviderKeySelector.class);
+        // 默认 mock 行为：返回一个固定的 ProviderKeyEntry
+        when(providerKeySelector.select(any(), any(), any()))
+                .thenReturn(new ProviderKeyEntry(1L, "sk-test-key", "sk-test****key", 100, 0));
+        selector = new AutoRouteSelector(
+                new AutoRouteRequestClassifier(),
+                new AutoRouteScorer(),
+                providerKeySelector);
+    }
 
     // ==================== isAutoModel ====================
 
@@ -300,10 +315,24 @@ class AutoRouteSelectorTest {
 
     private RoutingConfigSnapshot buildSnapshot(String routeKey, RouteCandidate... candidates) {
         var entry = new RoutingConfigSnapshot.AutoRouteEntry(routeKey, "AUTO", List.of(candidates));
+        // 从候选中构建 providerMap，确保路由时能获取到 ProviderEntry 和 API Key
+        Map<String, RoutingConfigSnapshot.ProviderEntry> providerMap = new java.util.LinkedHashMap<>();
+        for (RouteCandidate c : candidates) {
+            if (!providerMap.containsKey(c.getProviderCode())) {
+                providerMap.put(c.getProviderCode(), new RoutingConfigSnapshot.ProviderEntry(
+                        c.getProviderType(), c.getProviderCode(), true,
+                        "https://api." + c.getProviderCode() + ".com",
+                        List.of(new ProviderKeyEntry(1L, "sk-test-key", "sk-test****key", 100, 0)),
+                        KeySelectionStrategy.ROUND_ROBIN,
+                        60, c.getProviderPriority(),
+                        null, Map.of(), "full"
+                ));
+            }
+        }
         return new RoutingConfigSnapshot(
                 java.util.Collections.emptyMap(),
                 List.of(),
-                java.util.Collections.emptyMap(),
+                providerMap,
                 java.util.Collections.singletonMap(routeKey, entry),
                 1L, "test");
     }

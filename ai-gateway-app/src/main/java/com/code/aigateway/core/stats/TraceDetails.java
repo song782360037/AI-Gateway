@@ -37,6 +37,12 @@ public class TraceDetails {
     /** 熔断跳过次数 */
     private int circuitOpenSkippedCount;
 
+    /** Key 选择策略：ROUND_ROBIN / RANDOM / FALLBACK */
+    private String keySelectionStrategy;
+
+    /** Key 选择原因说明（如：轮询第5次、加权随机权重200/500、降级排序号0） */
+    private String keySelectionReason;
+
     /**
      * 每个候选提供商的尝试记录。
      * <p>

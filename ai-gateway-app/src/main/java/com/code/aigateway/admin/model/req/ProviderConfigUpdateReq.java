@@ -43,12 +43,9 @@ public class ProviderConfigUpdateReq {
     @NotBlank(message = "基础地址不能为空")
     private String baseUrl;
 
-    /**
-     * 提供商 API Key。
-     *
-     * <p>更新场景下该字段可为空，表示保持原有密钥不变。</p>
-     */
-    private String apiKey;
+    /** Key 选择策略：ROUND_ROBIN / RANDOM / FALLBACK */
+    @Pattern(regexp = "ROUND_ROBIN|RANDOM|FALLBACK", message = "Key 选择策略只能为 ROUND_ROBIN、RANDOM 或 FALLBACK")
+    private String keySelectionStrategy;
 
     /** 调用超时时间，单位秒，默认 60 秒 */
     private Integer timeoutSeconds = 60;

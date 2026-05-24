@@ -10,7 +10,7 @@ import java.util.Map;
  * 提供商配置响应对象
  *
  * <p>用于后台返回提供商配置详情或列表数据。</p>
- * <p>出于安全考虑，仅返回掩码后的 API Key。</p>
+ * <p>API Key 已拆分至独立子表管理，此处仅返回 Key 选择策略和可用 Key 数量。</p>
  */
 @Data
 public class ProviderConfigRsp {
@@ -33,8 +33,11 @@ public class ProviderConfigRsp {
     /** 提供商基础地址 */
     private String baseUrl;
 
-    /** 掩码后的 API Key，避免敏感信息明文回显 */
-    private String apiKeyMasked;
+    /** Key 选择策略：ROUND_ROBIN / RANDOM / FALLBACK */
+    private String keySelectionStrategy;
+
+    /** 启用中的 API Key 数量 */
+    private Integer apiKeyCount;
 
     /** 调用超时时间，单位秒 */
     private Integer timeoutSeconds;

@@ -33,9 +33,9 @@ public class ProviderConfigAddReq {
     @NotBlank(message = "基础地址不能为空")
     private String baseUrl;
 
-    /** 提供商 API Key，新增时必须传入 */
-    @NotBlank(message = "API Key 不能为空")
-    private String apiKey;
+    /** Key 选择策略：ROUND_ROBIN / RANDOM / FALLBACK，默认 ROUND_ROBIN */
+    @Pattern(regexp = "ROUND_ROBIN|RANDOM|FALLBACK", message = "Key 选择策略只能为 ROUND_ROBIN、RANDOM 或 FALLBACK")
+    private String keySelectionStrategy = "ROUND_ROBIN";
 
     /** 调用超时时间，单位秒，默认 60 秒 */
     private Integer timeoutSeconds = 60;

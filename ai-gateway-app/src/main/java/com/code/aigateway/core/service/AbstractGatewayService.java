@@ -1,11 +1,13 @@
 package com.code.aigateway.core.service;
 
+import com.code.aigateway.core.GatewayMetadataKeys;
 import com.code.aigateway.core.capability.CapabilityChecker;
 import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.core.protocol.ProtocolAdapter;
 import com.code.aigateway.core.resilience.FailoverStrategy;
 import com.code.aigateway.core.router.ModelRouter;
 import com.code.aigateway.core.router.RouteResult;
+import com.code.aigateway.core.stats.TraceDetails;
 import com.code.aigateway.core.stats.ActiveRequestTracker;
 import com.code.aigateway.core.stats.RequestStatsCollector;
 import com.code.aigateway.core.stats.RequestStatsContext;
@@ -110,7 +112,12 @@ public abstract class AbstractGatewayService {
     protected void applyRouteContext(UnifiedRequest unifiedRequest, RouteResult routeResult,
                                      String correlationId, RequestStatsContext context) {
         applyBasicRouteContext(unifiedRequest, routeResult, correlationId);
-        unifiedRequest.getMetadata().put("statsContext", context);
+        // 传递多 Key 信息到 metadata，供 ProviderClient Key 降级重试使用
+        unifiedRequest.getMetadata().put(GatewayMetadataKeys.PROVIDER_KEY_ENTRIES, routeResult.getProviderKeyEntries());
+        unifiedRequest.getMetadata().put(GatewayMetadataKeys.KEY_SELECTION_STRATEGY, routeResult.getKeySelectionStrategy());
+        unifiedRequest.getMetadata().put(GatewayMetadataKeys.USED_API_KEY_PREFIX, routeResult.getUsedApiKeyPrefix());
+        unifiedRequest.getMetadata().put(GatewayMetadataKeys.THINKING_COMPAT_MODE, routeResult.getThinkingCompatMode());
+        unifiedRequest.getMetadata().put(GatewayMetadataKeys.STATS_CONTEXT, context);
     }
 
     /**
@@ -132,11 +139,43 @@ public abstract class AbstractGatewayService {
         context.setFinalProviderCode(routeResult.getProviderName());
         context.setFinalProviderType(routeResult.getProviderType().name());
         context.setFinalTargetModel(routeResult.getTargetModel());
+        context.setProviderApiKeyMasked(routeResult.getUsedApiKeyPrefix());
+        // 记录 Key 选择策略和原因到 trace details
+        TraceDetails details = getOrCreateTraceDetails(context);
+        details.setKeySelectionStrategy(routeResult.getKeySelectionStrategy() != null
+                ? routeResult.getKeySelectionStrategy().name() : null);
+        details.setKeySelectionReason(buildKeySelectionReason(routeResult));
         activeRequestTracker.updateRoute(
                 context.getCorrelationId(),
                 routeResult.getProviderName(),
                 routeResult.getTargetModel()
         );
+    }
+
+    /**
+     * 获取或创建 trace details 对象，同时同步到 JSON 字段
+     */
+    private TraceDetails getOrCreateTraceDetails(RequestStatsContext context) {
+        TraceDetails details = context.getTraceDetails();
+        if (details == null) {
+            details = new TraceDetails();
+            context.setTraceDetails(details);
+        }
+        return details;
+    }
+
+    /**
+     * 构建 Key 选择原因说明（英文，避免 DB 编码和国际化问题）
+     */
+    private String buildKeySelectionReason(RouteResult routeResult) {
+        if (routeResult.getKeySelectionStrategy() == null || routeResult.getUsedApiKeyPrefix() == null) {
+            return null;
+        }
+        return switch (routeResult.getKeySelectionStrategy()) {
+            case ROUND_ROBIN -> "Round-robin selection";
+            case RANDOM -> "Weighted random selection";
+            case FALLBACK -> "Fallback by sort order";
+        };
     }
 
     protected static UnifiedRequest.ProviderExecutionContext buildExecutionContext(RouteResult routeResult, String correlationId) {

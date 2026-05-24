@@ -76,86 +76,85 @@ public class OpenAiProviderClient extends AbstractProviderClient {
 
     @Override
     public Mono<UnifiedResponse> chat(UnifiedRequest request) {
-        ProviderRuntimeConfig config = resolveRuntimeConfig(request);
         Map<String, Object> requestBody = buildRequestBody(request, false);
+        return withKeyDegradedRetry(request, config -> {
+            Mono<JsonNode> responseMono = buildWebClient(config, extractCorrelationId(request))
+                    .post()
+                    .uri(CHAT_COMPLETIONS_PATH)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .body(BodyInserters.fromValue(requestBody))
+                    .retrieve()
+                    .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
+                    .bodyToMono(JsonNode.class)
+                    .timeout(Duration.ofSeconds(config.timeoutSeconds()));
 
-        Mono<JsonNode> responseMono = buildWebClient(config, extractCorrelationId(request))
-                .post()
-                .uri(CHAT_COMPLETIONS_PATH)
-                .contentType(MediaType.APPLICATION_JSON)
-                .accept(MediaType.APPLICATION_JSON)
-                .body(BodyInserters.fromValue(requestBody))
-                .retrieve()
-                .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
-                .bodyToMono(JsonNode.class)
-                .timeout(Duration.ofSeconds(config.timeoutSeconds()));
+            if (config.maxRetries() > 0) {
+                responseMono = responseMono.retryWhen(buildRetrySpec(config, getStatsContext(request)));
+            }
 
-        if (config.maxRetries() > 0) {
-            responseMono = responseMono.retryWhen(buildRetrySpec(config, getStatsContext(request)));
-        }
-
-        // 熔断器包裹：在 retry 之后、错误映射之前
-        return withCircuitBreaker(config.providerName(), request.getModel(), responseMono)
-                .onErrorMap(this::mapTransportError)
-                .map(this::parseChatResponse);
+            return withCircuitBreaker(config.providerName(), request.getModel(), responseMono)
+                    .onErrorMap(this::mapTransportError)
+                    .map(this::parseChatResponse);
+        });
     }
 
     @Override
     public Flux<UnifiedStreamEvent> streamChat(UnifiedRequest request) {
-        ProviderRuntimeConfig config = resolveRuntimeConfig(request);
         Map<String, Object> requestBody = buildRequestBody(request, true);
         AtomicBoolean firstTokenReceived = new AtomicBoolean(false);
 
-        // 流式状态：捕获 usage-only chunk 中的 usage 数据
-        StreamState state = new StreamState();
+        return withStreamKeyDegradedRetry(request, config -> {
+            // 每次 Key 重试使用全新的状态，避免残留脏数据
+            StreamState state = new StreamState();
+            Flux<ServerSentEvent<String>> sseFlux = buildWebClient(config, extractCorrelationId(request))
+                    .post()
+                    .uri(CHAT_COMPLETIONS_PATH)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.TEXT_EVENT_STREAM)
+                    .body(BodyInserters.fromValue(requestBody))
+                    .retrieve()
+                    .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
+                    .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
+                    .timeout(Duration.ofSeconds(config.timeoutSeconds()));
 
-        Flux<ServerSentEvent<String>> sseFlux = buildWebClient(config, extractCorrelationId(request))
-                .post()
-                .uri(CHAT_COMPLETIONS_PATH)
-                .contentType(MediaType.APPLICATION_JSON)
-                .accept(MediaType.TEXT_EVENT_STREAM)
-                .body(BodyInserters.fromValue(requestBody))
-                .retrieve()
-                .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
-                .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
-                .timeout(Duration.ofSeconds(config.timeoutSeconds()));
+            if (config.maxRetries() > 0) {
+                sseFlux = sseFlux
+                        .doOnNext(event -> firstTokenReceived.set(true))
+                        .retryWhen(buildStreamRetrySpec(config, firstTokenReceived, getStatsContext(request)));
+            }
 
-        if (config.maxRetries() > 0) {
-            sseFlux = sseFlux
-                    .doOnNext(event -> firstTokenReceived.set(true))
-                    .retryWhen(buildStreamRetrySpec(config, firstTokenReceived, getStatsContext(request)));
-        }
-
-        return withCircuitBreakerFlux(config.providerName(), request.getModel(), sseFlux)
-                .onErrorMap(this::mapTransportError)
-                .flatMap(event -> parseStreamEvent(event, state));
+            return withCircuitBreakerFlux(config.providerName(), request.getModel(), sseFlux)
+                    .onErrorMap(this::mapTransportError)
+                    .flatMap(event -> parseStreamEvent(event, state));
+        }, firstTokenReceived);
     }
 
     // ==================== Embedding ====================
 
     @Override
     public Mono<UnifiedResponse> embedding(UnifiedRequest request) {
-        ProviderRuntimeConfig config = resolveRuntimeConfig(request);
         Map<String, Object> requestBody = buildEmbeddingRequestBody(request);
+        return withKeyDegradedRetry(request, config -> {
+            Mono<JsonNode> responseMono = buildWebClient(config, extractCorrelationId(request))
+                    .post()
+                    .uri(EMBEDDINGS_PATH)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .body(BodyInserters.fromValue(requestBody))
+                    .retrieve()
+                    .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
+                    .bodyToMono(JsonNode.class)
+                    .timeout(Duration.ofSeconds(config.timeoutSeconds()));
 
-        Mono<JsonNode> responseMono = buildWebClient(config, extractCorrelationId(request))
-                .post()
-                .uri(EMBEDDINGS_PATH)
-                .contentType(MediaType.APPLICATION_JSON)
-                .accept(MediaType.APPLICATION_JSON)
-                .body(BodyInserters.fromValue(requestBody))
-                .retrieve()
-                .onStatus(status -> status.isError(), response -> mapErrorResponse(response, config))
-                .bodyToMono(JsonNode.class)
-                .timeout(Duration.ofSeconds(config.timeoutSeconds()));
+            if (config.maxRetries() > 0) {
+                responseMono = responseMono.retryWhen(buildRetrySpec(config, getStatsContext(request)));
+            }
 
-        if (config.maxRetries() > 0) {
-            responseMono = responseMono.retryWhen(buildRetrySpec(config, getStatsContext(request)));
-        }
-
-        return withCircuitBreaker(config.providerName(), request.getModel(), responseMono)
-                .onErrorMap(this::mapTransportError)
-                .map(this::parseEmbeddingResponse);
+            return withCircuitBreaker(config.providerName(), request.getModel(), responseMono)
+                    .onErrorMap(this::mapTransportError)
+                    .map(this::parseEmbeddingResponse);
+        });
     }
 
     private Map<String, Object> buildEmbeddingRequestBody(UnifiedRequest request) {

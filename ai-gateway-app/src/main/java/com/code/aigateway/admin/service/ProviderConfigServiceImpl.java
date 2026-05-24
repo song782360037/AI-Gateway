@@ -1,8 +1,10 @@
 package com.code.aigateway.admin.service;
 
 import com.code.aigateway.admin.mapper.AutoRouteCandidateMapper;
+import com.code.aigateway.admin.mapper.ProviderApiKeyMapper;
 import com.code.aigateway.admin.mapper.ProviderConfigMapper;
 import com.code.aigateway.admin.model.dataobject.ProviderConfigDO;
+import com.code.aigateway.admin.model.dto.ProviderApiKeyCountDTO;
 import com.code.aigateway.admin.model.req.ProviderConfigAddReq;
 import com.code.aigateway.admin.model.req.ProviderConfigQueryReq;
 import com.code.aigateway.admin.model.req.ProviderConfigUpdateReq;
@@ -11,7 +13,6 @@ import com.code.aigateway.common.exception.BizException;
 import com.code.aigateway.common.result.PageResult;
 import com.code.aigateway.common.util.CustomHeaderUtils;
 import com.code.aigateway.sdk.model.ProtocolType;
-import com.code.aigateway.infra.crypto.ApiKeyEncryptor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,6 +20,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -35,8 +37,8 @@ import java.util.stream.Collectors;
 public class ProviderConfigServiceImpl implements IProviderConfigService {
 
     private final ProviderConfigMapper providerConfigMapper;
+    private final ProviderApiKeyMapper providerApiKeyMapper;
     private final AutoRouteCandidateMapper autoRouteCandidateMapper;
-    private final ApiKeyEncryptor apiKeyEncryptor;
     private final RuntimeConfigRefreshService runtimeConfigRefreshService;
     private final TransactionTemplate transactionTemplate;
 
@@ -47,9 +49,7 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
             throw new BizException("CONFIG_CONFLICT", "提供商编码已存在: " + req.getProviderCode());
         }
 
-        // 加密 API Key，明文不入库
-        ApiKeyEncryptor.EncryptResult encryptResult = apiKeyEncryptor.encrypt(req.getApiKey());
-        ProviderConfigDO record = buildInsertRecord(req, encryptResult);
+        ProviderConfigDO record = buildInsertRecord(req);
         record.setVersionNo(0L);
 
         transactionTemplate.executeWithoutResult(status -> {
@@ -60,32 +60,29 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
             log.info("[提供商配置] 新增成功，id: {}，providerCode: {}", record.getId(), req.getProviderCode());
         });
 
-        // 数据库写入成功后必须刷新运行时配置；刷新失败时直接抛错，避免接口返回成功但路由仍使用旧快照。
+        // 数据库写入成功后必须刷新运行时配置
         ensureRuntimeConfigReloaded("admin-add-provider");
+
+        // 提醒用户尽快添加 Key，否则路由无可用 Key 将跳过该 Provider
+        if (providerApiKeyMapper.countEnabledByProviderCode(req.getProviderCode()) == 0) {
+            log.warn("[提供商配置] Provider {} 创建成功但尚未添加 API Key，路由将跳过该 Provider，请尽快添加",
+                    req.getProviderCode());
+        }
+
         return record.getId();
     }
 
     @Override
     public void update(ProviderConfigUpdateReq req) {
-        // 先查出当前记录，用于获取已有密文（更新时可选择不修改 API Key）
+        // 先查出当前记录
         ProviderConfigDO existing = providerConfigMapper.selectById(req.getId());
         if (existing == null) {
             throw new BizException("CONFIG_NOT_FOUND", "提供商配置不存在，id: " + req.getId());
         }
 
-        ProviderConfigDO record = buildUpdateRecord(req);
+        ProviderConfigDO record = buildUpdateRecord(req, existing);
 
-        // 如果传入了新的 API Key，则重新加密；否则沿用已有的密文和 IV
-        if (req.getApiKey() != null && !req.getApiKey().isBlank()) {
-            ApiKeyEncryptor.EncryptResult encryptResult = apiKeyEncryptor.encrypt(req.getApiKey());
-            record.setApiKeyCiphertext(encryptResult.ciphertext());
-            record.setApiKeyIv(encryptResult.iv());
-        } else {
-            record.setApiKeyCiphertext(existing.getApiKeyCiphertext());
-            record.setApiKeyIv(existing.getApiKeyIv());
-        }
-
-        // 编码变更时检查目标编码是否已被占用，并保护仍被 Auto 路由候选引用的旧编码
+        // 编码变更时检查目标编码是否已被占用
         if (!existing.getProviderCode().equals(req.getProviderCode())) {
             if (providerConfigMapper.existsByProviderCode(req.getProviderCode()) > 0) {
                 throw new BizException("CONFIG_CONFLICT", "提供商编码已存在: " + req.getProviderCode());
@@ -105,7 +102,6 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
             log.info("[提供商配置] 更新成功，id: {}，providerCode: {}", req.getId(), req.getProviderCode());
         });
 
-        // 更新成功后必须同步刷新运行时快照，避免新配置无法立即生效。
         ensureRuntimeConfigReloaded("admin-update-provider");
     }
 
@@ -185,7 +181,12 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         long total = providerConfigMapper.countList(
                 req.getProviderCode(), req.getProviderType(), req.getEnabled());
 
-        List<ProviderConfigRsp> rspList = records.stream().map(this::toRsp).toList();
+        // 批量查询 Key 数量，避免 N+1
+        Map<String, Integer> keyCountMap = batchCountEnabledKeys(records);
+
+        List<ProviderConfigRsp> rspList = records.stream()
+                .map(record -> toRsp(record, keyCountMap.getOrDefault(record.getProviderCode(), 0)))
+                .toList();
         return PageResult.of(rspList, total, req.getPage(), req.getPageSize());
     }
 
@@ -241,15 +242,14 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
                 "当前提供商仍被 " + autoCandidateCount + " 条启用中的 Auto 路由候选引用，请先停用或删除关联候选");
     }
 
-    private ProviderConfigDO buildInsertRecord(ProviderConfigAddReq req, ApiKeyEncryptor.EncryptResult encryptResult) {
+    private ProviderConfigDO buildInsertRecord(ProviderConfigAddReq req) {
         ProviderConfigDO record = new ProviderConfigDO();
         record.setProviderCode(req.getProviderCode());
         record.setProviderType(req.getProviderType());
         record.setDisplayName(req.getDisplayName());
         record.setEnabled(req.getEnabled());
         record.setBaseUrl(req.getBaseUrl());
-        record.setApiKeyCiphertext(encryptResult.ciphertext());
-        record.setApiKeyIv(encryptResult.iv());
+        record.setKeySelectionStrategy(req.getKeySelectionStrategy() != null ? req.getKeySelectionStrategy() : "ROUND_ROBIN");
         record.setTimeoutSeconds(req.getTimeoutSeconds());
         record.setPriority(req.getPriority());
         record.setSupportedProtocols(toCommaSeparated(req.getSupportedProtocols()));
@@ -261,7 +261,7 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         return record;
     }
 
-    private ProviderConfigDO buildUpdateRecord(ProviderConfigUpdateReq req) {
+    private ProviderConfigDO buildUpdateRecord(ProviderConfigUpdateReq req, ProviderConfigDO existing) {
         ProviderConfigDO record = new ProviderConfigDO();
         record.setId(req.getId());
         record.setVersionNo(req.getVersionNo());
@@ -270,23 +270,32 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         record.setDisplayName(req.getDisplayName());
         record.setEnabled(req.getEnabled());
         record.setBaseUrl(req.getBaseUrl());
+        // keySelectionStrategy 为 null 时沿用已有值，避免覆盖
+        record.setKeySelectionStrategy(req.getKeySelectionStrategy() != null
+                ? req.getKeySelectionStrategy() : existing.getKeySelectionStrategy());
         record.setTimeoutSeconds(req.getTimeoutSeconds());
         record.setPriority(req.getPriority());
         record.setSupportedProtocols(toCommaSeparated(req.getSupportedProtocols()));
         record.setCustomHeaders(serializeCustomHeaders(req.getCustomHeaders()));
-        if (req.getThinkingCompatMode() != null) {
-            record.setThinkingCompatMode(ProviderConfigDO.normalizeThinkingCompatMode(req.getThinkingCompatMode()));
-        }
+        // thinkingCompatMode 为 null 时沿用已有值，避免覆盖
+        record.setThinkingCompatMode(ProviderConfigDO.normalizeThinkingCompatMode(
+                req.getThinkingCompatMode() != null ? req.getThinkingCompatMode() : existing.getThinkingCompatMode()));
         record.setUpdateTime(LocalDateTime.now());
         return record;
     }
 
     /**
-     * 将数据库记录转换为脱敏后的响应对象。
-     *
-     * <p>API Key 通过解密后做掩码处理，避免敏感信息明文回显。</p>
+     * 将数据库记录转换为响应对象（单条查询场景）。
      */
     private ProviderConfigRsp toRsp(ProviderConfigDO record) {
+        int count = providerApiKeyMapper.countEnabledByProviderCode(record.getProviderCode());
+        return toRsp(record, count);
+    }
+
+    /**
+     * 将数据库记录转换为响应对象，使用预查询的 Key 计数。
+     */
+    private ProviderConfigRsp toRsp(ProviderConfigDO record, int apiKeyCount) {
         ProviderConfigRsp rsp = new ProviderConfigRsp();
         rsp.setId(record.getId());
         rsp.setProviderCode(record.getProviderCode());
@@ -294,6 +303,7 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         rsp.setDisplayName(record.getDisplayName());
         rsp.setEnabled(record.getEnabled());
         rsp.setBaseUrl(record.getBaseUrl());
+        rsp.setKeySelectionStrategy(record.getKeySelectionStrategy());
         rsp.setTimeoutSeconds(record.getTimeoutSeconds());
         rsp.setPriority(record.getPriority());
         rsp.setSupportedProtocols(toProtocolList(record.getSupportedProtocols()));
@@ -302,16 +312,26 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
         rsp.setVersionNo(record.getVersionNo());
         rsp.setCreateTime(record.getCreateTime());
         rsp.setUpdateTime(record.getUpdateTime());
-
-        // 尝试解密 API Key 做掩码展示；若解密失败则返回统一掩码值
-        try {
-            String plainKey = apiKeyEncryptor.decrypt(record.getApiKeyIv(), record.getApiKeyCiphertext());
-            rsp.setApiKeyMasked(apiKeyEncryptor.mask(plainKey));
-        } catch (Exception ex) {
-            log.warn("[提供商配置] API Key 解密失败，id: {}，返回掩码值", record.getId());
-            rsp.setApiKeyMasked("****");
-        }
+        rsp.setApiKeyCount(apiKeyCount);
         return rsp;
+    }
+
+    /**
+     * 批量查询 Provider 列表中每个 Provider 启用的 Key 数量
+     */
+    private Map<String, Integer> batchCountEnabledKeys(List<ProviderConfigDO> records) {
+        if (records == null || records.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<String> providerCodes = records.stream()
+                .map(ProviderConfigDO::getProviderCode)
+                .toList();
+        return providerApiKeyMapper.countEnabledGroupedByProviderCodes(providerCodes)
+                .stream()
+                .collect(Collectors.toMap(
+                        ProviderApiKeyCountDTO::getProviderCode,
+                        ProviderApiKeyCountDTO::getCnt
+                ));
     }
 
     /**

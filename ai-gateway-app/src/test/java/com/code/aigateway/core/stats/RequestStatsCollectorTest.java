@@ -9,11 +9,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.lang.reflect.Method;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.Mockito.mock;
 
 class RequestStatsCollectorTest {
 
@@ -25,7 +28,13 @@ class RequestStatsCollectorTest {
     void setUp() {
         requestLogMapper = Mockito.mock(RequestLogMapper.class);
         requestStatHourlyMapper = Mockito.mock(RequestStatHourlyMapper.class);
-        collector = new RequestStatsCollector(requestLogMapper, requestStatHourlyMapper);
+        // 构造无事务行为的 TransactionTemplate，让 callback 直接执行
+        PlatformTransactionManager txManager = mock(PlatformTransactionManager.class);
+        Mockito.when(txManager.getTransaction(Mockito.any())).thenReturn(Mockito.mock(org.springframework.transaction.TransactionStatus.class));
+        Mockito.doNothing().when(txManager).commit(Mockito.any());
+        Mockito.doNothing().when(txManager).rollback(Mockito.any());
+        TransactionTemplate transactionTemplate = new TransactionTemplate(txManager);
+        collector = new RequestStatsCollector(requestLogMapper, requestStatHourlyMapper, transactionTemplate);
     }
 
     @Test

@@ -5,6 +5,8 @@ import com.code.aigateway.core.error.GatewayException;
 import com.code.aigateway.sdk.model.UnifiedRequest;
 import com.code.aigateway.core.runtime.RoutingSnapshotHolder;
 import com.code.aigateway.provider.ProviderType;
+import com.code.aigateway.core.router.ProviderKeyEntry;
+import com.code.aigateway.core.router.ProviderKeySelector;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -21,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -42,11 +45,20 @@ class PersistentModelRouterTest {
     @Mock
     private AutoRouteSelector autoRouteSelector;
 
+    @Mock
+    private ProviderKeySelector providerKeySelector;
+
     private PersistentModelRouter router;
 
     @BeforeEach
     void setUp() {
-        router = new PersistentModelRouter(routingSnapshotHolder, fallbackRouter, autoRouteSelector);
+        router = new PersistentModelRouter(routingSnapshotHolder, fallbackRouter, autoRouteSelector, providerKeySelector);
+        // 默认 mock：select 返回 Key 列表中的第一个元素（lenient 因为部分测试不需要 Key 选择）
+        lenient().when(providerKeySelector.select(any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    List<ProviderKeyEntry> keys = invocation.getArgument(1);
+                    return keys.isEmpty() ? null : keys.get(0);
+                });
     }
 
     // ==================== 辅助方法 ====================
@@ -75,15 +87,43 @@ class PersistentModelRouterTest {
                 .build();
     }
 
-    /** 构建包含精确匹配的快照 */
+    /** 从候选列表中提取 ProviderEntry 映射 */
+    private Map<String, RoutingConfigSnapshot.ProviderEntry> extractProviderMap(List<RouteCandidate> candidates) {
+        Map<String, RoutingConfigSnapshot.ProviderEntry> providerMap = new java.util.LinkedHashMap<>();
+        for (RouteCandidate c : candidates) {
+            if (!providerMap.containsKey(c.getProviderCode())) {
+                providerMap.put(c.getProviderCode(), new RoutingConfigSnapshot.ProviderEntry(
+                        c.getProviderType(), c.getProviderCode(), true,
+                        c.getProviderBaseUrl(),
+                        List.of(new ProviderKeyEntry(1L, "sk-test-key", "sk-test****key", 100, 0)),
+                        KeySelectionStrategy.ROUND_ROBIN,
+                        c.getProviderTimeoutSeconds(), c.getProviderPriority(),
+                        c.getSupportedProtocols(), Map.of(), "full"
+                ));
+            }
+        }
+        return providerMap;
+    }
+
+    /** 构建包含精确匹配的快照（自动从候选中提取 ProviderEntry） */
     private RoutingConfigSnapshot buildSnapshotWithExactMatch(
             String aliasName, List<RouteCandidate> candidates) {
         return buildSnapshot(
                 Map.of(aliasName, candidates),
                 List.of(),
-                Map.of(),
+                extractProviderMap(candidates),
                 Map.of()
         );
+    }
+
+    /** 构建包含模式路由的快照（自动从候选中提取 ProviderEntry） */
+    private RoutingConfigSnapshot buildSnapshotWithPatternRoutes(
+            List<RoutingConfigSnapshot.PatternRoute> patternRoutes) {
+        // 从所有模式路由的候选中提取 ProviderEntry
+        List<RouteCandidate> allCandidates = patternRoutes.stream()
+                .flatMap(pr -> pr.candidates().stream())
+                .toList();
+        return buildSnapshot(Map.of(), patternRoutes, extractProviderMap(allCandidates), Map.of());
     }
 
     /** 构建完整快照 */
@@ -250,8 +290,7 @@ class PersistentModelRouterTest {
             RouteCandidate candidate = buildCandidate("openai", "openai-main", "gpt-4-turbo", 10, List.of("OPENAI_CHAT"));
             RoutingConfigSnapshot.PatternRoute patternRoute = new RoutingConfigSnapshot.PatternRoute(
                     MatchType.GLOB, GlobPatternUtil.globToRegex("gpt-4*"), "gpt-4*", List.of(candidate));
-            RoutingConfigSnapshot snapshot = buildSnapshot(
-                    Map.of(), List.of(patternRoute), Map.of(), Map.of());
+            RoutingConfigSnapshot snapshot = buildSnapshotWithPatternRoutes(List.of(patternRoute));
             when(routingSnapshotHolder.get()).thenReturn(snapshot);
 
             RouteResult result = router.route(buildRequest("gpt-4o-mini", "openai-chat"));
@@ -265,8 +304,7 @@ class PersistentModelRouterTest {
             RouteCandidate candidate = buildCandidate("openai", "openai-main", "gpt-base", 10, List.of("OPENAI_CHAT"));
             RoutingConfigSnapshot.PatternRoute patternRoute = new RoutingConfigSnapshot.PatternRoute(
                     MatchType.REGEX, "^gpt-\\d+$", "gpt-\\d+", List.of(candidate));
-            RoutingConfigSnapshot snapshot = buildSnapshot(
-                    Map.of(), List.of(patternRoute), Map.of(), Map.of());
+            RoutingConfigSnapshot snapshot = buildSnapshotWithPatternRoutes(List.of(patternRoute));
             when(routingSnapshotHolder.get()).thenReturn(snapshot);
 
             RouteResult result = router.route(buildRequest("gpt-4", "openai-chat"));
@@ -286,8 +324,7 @@ class PersistentModelRouterTest {
             RoutingConfigSnapshot.PatternRoute globRoute = new RoutingConfigSnapshot.PatternRoute(
                     MatchType.GLOB, GlobPatternUtil.globToRegex("gpt-4*"), "gpt-4*", List.of(globCandidate));
 
-            RoutingConfigSnapshot snapshot = buildSnapshot(
-                    Map.of(), List.of(regexRoute, globRoute), Map.of(), Map.of());
+            RoutingConfigSnapshot snapshot = buildSnapshotWithPatternRoutes(List.of(regexRoute, globRoute));
             when(routingSnapshotHolder.get()).thenReturn(snapshot);
 
             RouteResult result = router.route(buildRequest("gpt-4o", "openai-chat"));
@@ -397,7 +434,9 @@ class PersistentModelRouterTest {
         @DisplayName("YAML 路由抛出 MODEL_NOT_FOUND 时，走透传分支")
         void shouldPassthroughWhenYamlThrowsModelNotFound() {
             RoutingConfigSnapshot.ProviderEntry provider = new RoutingConfigSnapshot.ProviderEntry(
-                    "openai", "openai-main", true, "https://api.openai.com", "sk-key", 60, 10, List.of("OPENAI_CHAT"), Map.of(), "full");
+                    "openai", "openai-main", true, "https://api.openai.com",
+                    List.of(new ProviderKeyEntry(1L, "sk-key", "sk-key****-key", 100, 0)),
+                    KeySelectionStrategy.ROUND_ROBIN, 60, 10, List.of("OPENAI_CHAT"), Map.of(), "full");
             RoutingConfigSnapshot snapshot = buildEmptySnapshotWithProviders(provider);
             when(routingSnapshotHolder.get()).thenReturn(snapshot);
             when(autoRouteSelector.isAutoModel("unknown-model")).thenReturn(false);
@@ -417,7 +456,9 @@ class PersistentModelRouterTest {
         void shouldFilterProviderByProtocolInPassthrough() {
             // Provider 只支持 ANTHROPIC
             RoutingConfigSnapshot.ProviderEntry provider = new RoutingConfigSnapshot.ProviderEntry(
-                    "anthropic", "claude-main", true, "https://api.anthropic.com", "sk-key", 60, 10, List.of("ANTHROPIC"), Map.of(), "full");
+                    "anthropic", "claude-main", true, "https://api.anthropic.com",
+                    List.of(new ProviderKeyEntry(1L, "sk-key", "sk-key****-key", 100, 0)),
+                    KeySelectionStrategy.ROUND_ROBIN, 60, 10, List.of("ANTHROPIC"), Map.of(), "full");
             RoutingConfigSnapshot snapshot = buildEmptySnapshotWithProviders(provider);
             when(routingSnapshotHolder.get()).thenReturn(snapshot);
             when(autoRouteSelector.isAutoModel("unknown-model")).thenReturn(false);
@@ -448,7 +489,9 @@ class PersistentModelRouterTest {
         @DisplayName("透传时 Provider supportedProtocols 为空表示支持所有协议")
         void shouldTreatEmptyProtocolsAsAllSupportedInPassthrough() {
             RoutingConfigSnapshot.ProviderEntry provider = new RoutingConfigSnapshot.ProviderEntry(
-                    "openai", "openai-main", true, "https://api.openai.com", "sk-key", 60, 10, List.of(), Map.of(), "full");
+                    "openai", "openai-main", true, "https://api.openai.com",
+                    List.of(new ProviderKeyEntry(1L, "sk-key", "sk-key****-key", 100, 0)),
+                    KeySelectionStrategy.ROUND_ROBIN, 60, 10, List.of(), Map.of(), "full");
             RoutingConfigSnapshot snapshot = buildEmptySnapshotWithProviders(provider);
             when(routingSnapshotHolder.get()).thenReturn(snapshot);
             when(autoRouteSelector.isAutoModel("unknown-model")).thenReturn(false);
@@ -464,7 +507,9 @@ class PersistentModelRouterTest {
         @DisplayName("透传时请求协议为 null 表示不限制协议")
         void shouldNotFilterWhenRequestProtocolNullInPassthrough() {
             RoutingConfigSnapshot.ProviderEntry provider = new RoutingConfigSnapshot.ProviderEntry(
-                    "openai", "openai-main", true, "https://api.openai.com", "sk-key", 60, 10, List.of("OPENAI_CHAT"), Map.of(), "full");
+                    "openai", "openai-main", true, "https://api.openai.com",
+                    List.of(new ProviderKeyEntry(1L, "sk-key", "sk-key****-key", 100, 0)),
+                    KeySelectionStrategy.ROUND_ROBIN, 60, 10, List.of("OPENAI_CHAT"), Map.of(), "full");
             RoutingConfigSnapshot snapshot = buildEmptySnapshotWithProviders(provider);
             when(routingSnapshotHolder.get()).thenReturn(snapshot);
             when(autoRouteSelector.isAutoModel("unknown-model")).thenReturn(false);
@@ -544,8 +589,22 @@ class PersistentModelRouterTest {
             RouteCandidate candidate2 = buildCandidate("anthropic", "claude-main", "gpt-base", 10, List.of("OPENAI_CHAT"));
             RoutingConfigSnapshot.PatternRoute patternRoute = new RoutingConfigSnapshot.PatternRoute(
                     MatchType.GLOB, GlobPatternUtil.globToRegex("gpt-*"), "gpt-*", List.of(candidate1, candidate2));
+            // 为每个候选构建 ProviderEntry，供 Key 选择使用
+            Map<String, RoutingConfigSnapshot.ProviderEntry> providerMap = new java.util.LinkedHashMap<>();
+            for (RouteCandidate c : List.of(candidate1, candidate2)) {
+                if (!providerMap.containsKey(c.getProviderCode())) {
+                    providerMap.put(c.getProviderCode(), new RoutingConfigSnapshot.ProviderEntry(
+                            c.getProviderType(), c.getProviderCode(), true,
+                            c.getProviderBaseUrl(),
+                            List.of(new ProviderKeyEntry(1L, "sk-test-key", "sk-test****key", 100, 0)),
+                            KeySelectionStrategy.ROUND_ROBIN,
+                            c.getProviderTimeoutSeconds(), c.getProviderPriority(),
+                            c.getSupportedProtocols(), Map.of(), "full"
+                    ));
+                }
+            }
             RoutingConfigSnapshot snapshot = buildSnapshot(
-                    Map.of(), List.of(patternRoute), Map.of(), Map.of());
+                    Map.of(), List.of(patternRoute), providerMap, Map.of());
             when(routingSnapshotHolder.get()).thenReturn(snapshot);
 
             List<RouteResult> results = router.routeAll(buildRequest("gpt-4o", "openai-chat"));
@@ -603,9 +662,13 @@ class PersistentModelRouterTest {
         @DisplayName("routeAll YAML 未命中时走透传，返回所有支持协议的 Provider")
         void shouldReturnAllPassthroughCandidatesInRouteAll() {
             RoutingConfigSnapshot.ProviderEntry provider1 = new RoutingConfigSnapshot.ProviderEntry(
-                    "openai", "openai-main", true, "https://api.openai.com", "sk-key1", 60, 20, List.of("OPENAI_CHAT"), Map.of(), "full");
+                    "openai", "openai-main", true, "https://api.openai.com",
+                    List.of(new ProviderKeyEntry(1L, "sk-key1", "sk-key1****key1", 100, 0)),
+                    KeySelectionStrategy.ROUND_ROBIN, 60, 20, List.of("OPENAI_CHAT"), Map.of(), "full");
             RoutingConfigSnapshot.ProviderEntry provider2 = new RoutingConfigSnapshot.ProviderEntry(
-                    "anthropic", "claude-main", true, "https://api.anthropic.com", "sk-key2", 60, 10, List.of("OPENAI_CHAT"), Map.of(), "full");
+                    "anthropic", "claude-main", true, "https://api.anthropic.com",
+                    List.of(new ProviderKeyEntry(2L, "sk-key2", "sk-key2****key2", 100, 0)),
+                    KeySelectionStrategy.ROUND_ROBIN, 60, 10, List.of("OPENAI_CHAT"), Map.of(), "full");
             RoutingConfigSnapshot snapshot = buildEmptySnapshotWithProviders(provider1, provider2);
             when(routingSnapshotHolder.get()).thenReturn(snapshot);
             when(autoRouteSelector.isAutoModel("unknown")).thenReturn(false);
@@ -670,10 +733,12 @@ class PersistentModelRouterTest {
                     MatchType.GLOB, GlobPatternUtil.globToRegex("gpt-*"), "gpt-*", List.of(patternCandidate));
 
             // gpt-4o 同时存在于精确匹配和模式匹配中
+            Map<String, RoutingConfigSnapshot.ProviderEntry> providerMap = extractProviderMap(
+                    List.of(exactCandidate, patternCandidate));
             RoutingConfigSnapshot snapshot = buildSnapshot(
                     Map.of("gpt-4o", List.of(exactCandidate)),
                     List.of(patternRoute),
-                    Map.of(), Map.of());
+                    providerMap, Map.of());
             when(routingSnapshotHolder.get()).thenReturn(snapshot);
 
             RouteResult result = router.route(buildRequest("gpt-4o", "openai-chat"));
@@ -689,8 +754,7 @@ class PersistentModelRouterTest {
             RoutingConfigSnapshot.PatternRoute patternRoute = new RoutingConfigSnapshot.PatternRoute(
                     MatchType.GLOB, GlobPatternUtil.globToRegex("auto*"), "auto*", List.of(patternCandidate));
 
-            RoutingConfigSnapshot snapshot = buildSnapshot(
-                    Map.of(), List.of(patternRoute), Map.of(), Map.of());
+            RoutingConfigSnapshot snapshot = buildSnapshotWithPatternRoutes(List.of(patternRoute));
             when(routingSnapshotHolder.get()).thenReturn(snapshot);
 
             // "auto-model" 既是 auto 模型名又能匹配 GLOB 模式

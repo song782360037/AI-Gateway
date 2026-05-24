@@ -47,20 +47,22 @@
         </div>
       </section>
 
-      <!-- 密钥与调度 -->
+      <!-- 调度配置 -->
       <section class="dialog-section">
         <div class="dialog-section__head">
-          <h4>密钥与调度</h4>
-          <p>配置 API 密钥、请求超时和优先级，决定实际调用行为。</p>
+          <h4>调度配置</h4>
+          <p>配置 Key 选择策略、请求超时和优先级，决定实际调用行为。API Key 在创建后通过 Key 管理面板添加。</p>
         </div>
         <div class="form-grid">
-          <el-form-item :label="isEdit ? 'API 密钥（留空表示不修改）' : 'API 密钥'" prop="apiKey">
-            <el-input
-              v-model="form.apiKey"
-              type="password"
-              show-password
-              placeholder="新增必填，编辑留空不修改"
-            />
+          <el-form-item label="Key 选择策略" prop="keySelectionStrategy">
+            <el-select v-model="form.keySelectionStrategy" style="width: 100%">
+              <el-option
+                v-for="item in keySelectionStrategyOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
           </el-form-item>
           <div class="form-grid__inline">
             <el-form-item label="超时（秒）" prop="timeoutSeconds">
@@ -157,7 +159,108 @@
           </el-select>
         </el-form-item>
       </section>
+
+      <!-- API Key 管理（仅编辑模式） -->
+      <section v-if="isEdit" class="dialog-section">
+        <div class="dialog-section__head">
+          <div style="display: flex; justify-content: space-between; align-items: center">
+            <div>
+              <h4>API Key 管理</h4>
+              <p>为此提供商管理 API Key，至少保留一个启用的 Key。</p>
+            </div>
+            <el-button type="primary" size="small" @click="openAddKeyDialog">
+              <el-icon style="margin-right: 4px"><Plus /></el-icon>添加 Key
+            </el-button>
+          </div>
+        </div>
+        <el-table
+          :data="apiKeys"
+          v-loading="apiKeyLoading"
+          size="small"
+          style="width: 100%"
+          empty-text="暂无 API Key，请点击上方按钮添加"
+        >
+          <el-table-column prop="apiKeyMasked" label="API Key" min-width="160" />
+          <el-table-column prop="remark" label="备注" min-width="120">
+            <template #default="{ row }">
+              {{ row.remark || '—' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="80" align="center">
+            <template #default="{ row }">
+              <el-tag size="small" :type="row.enabled ? 'success' : 'info'">
+                {{ row.enabled ? '启用' : '禁用' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="weight" label="权重" width="70" align="center" />
+          <el-table-column prop="sortOrder" label="排序" width="70" align="center" />
+          <el-table-column label="操作" width="200" align="center">
+            <template #default="{ row }">
+              <el-button link type="primary" size="small" @click="openEditKeyDialog(row)"
+                >编辑</el-button
+              >
+              <el-button
+                link
+                :type="row.enabled ? 'warning' : 'success'"
+                size="small"
+                @click="handleToggleKey(row)"
+              >
+                {{ row.enabled ? '禁用' : '启用' }}
+              </el-button>
+              <el-button link type="danger" size="small" @click="handleDeleteKey(row)"
+                >删除</el-button
+              >
+            </template>
+          </el-table-column>
+        </el-table>
+      </section>
     </el-form>
+
+    <!-- Key 添加/编辑弹窗（嵌套在 Provider 编辑弹窗内） -->
+    <el-dialog
+      v-model="keyDialogVisible"
+      :title="editingKey ? '编辑 Key' : '添加 Key'"
+      width="480px"
+      destroy-on-close
+      append-to-body
+      class="admin-dialog"
+      modal-class="admin-dialog-overlay"
+    >
+      <el-form :model="keyForm" :rules="keyRules" ref="keyFormRef" label-position="top">
+        <el-form-item v-if="!editingKey" label="API Key" prop="apiKey">
+          <el-input
+            v-model="keyForm.apiKey"
+            type="password"
+            show-password
+            placeholder="输入 API Key 明文"
+          />
+        </el-form-item>
+        <el-form-item label="备注" prop="remark">
+          <el-input v-model="keyForm.remark" placeholder="如：生产主 Key、备用 Key" />
+        </el-form-item>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px">
+          <el-form-item label="权重" prop="weight">
+            <el-input-number v-model="keyForm.weight" :min="1" :step="10" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="排序号" prop="sortOrder">
+            <el-input-number v-model="keyForm.sortOrder" :min="0" :step="1" style="width: 100%" />
+          </el-form-item>
+        </div>
+        <el-form-item v-if="editingKey" label="启用状态">
+          <el-switch
+            v-model="keyForm.enabled"
+            inline-prompt
+            active-text="启用"
+            inactive-text="禁用"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="keyDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitKeyForm">保存</el-button>
+      </template>
+    </el-dialog>
 
     <template #footer>
       <div class="dialog-footer">
@@ -170,11 +273,28 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
-import { ElMessage } from 'element-plus'
-import type { ProviderConfigAddReq, ProviderConfigRsp, ProviderConfigUpdateReq, ThinkingCompatMode } from '../../types/provider'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus } from '@element-plus/icons-vue'
+import type {
+  ProviderConfigAddReq,
+  ProviderConfigRsp,
+  ProviderConfigUpdateReq,
+  ThinkingCompatMode,
+  KeySelectionStrategy,
+  ProviderApiKeyRsp,
+  ProviderApiKeyAddReq,
+  ProviderApiKeyUpdateReq,
+} from '../../types/provider'
 import { PROTECTED_HEADERS, VALID_HEADER_NAME_REGEX, hasCrlf } from '../../constants/customHeaders'
+import {
+  fetchApiKeys,
+  addApiKey,
+  updateApiKey,
+  deleteApiKey,
+  toggleApiKey,
+} from '../../api/provider-api-key'
 
 /** 自定义请求头列表项 */
 interface HeaderItem {
@@ -190,7 +310,7 @@ interface ProviderFormModel {
   displayName: string
   enabled: boolean
   baseUrl: string
-  apiKey: string
+  keySelectionStrategy: KeySelectionStrategy
   timeoutSeconds: number
   priority: number
   supportedProtocols: string[]
@@ -221,6 +341,13 @@ const thinkingCompatOptions = [
   { value: 'simplified', label: '简化模式 — 仅输出 type 字段（适用于 MiMo 等第三方兼容 API）' },
 ] as const
 
+/** Key 选择策略选项 */
+const keySelectionStrategyOptions = [
+  { value: 'ROUND_ROBIN', label: '轮询 — 依次选择' },
+  { value: 'RANDOM', label: '加权随机 — 按权重随机选择' },
+  { value: 'FALLBACK', label: '降级 — 按排序号优先，失败后切换下一个' },
+] as const
+
 const props = defineProps<{
   visible: boolean
   modelValue?: ProviderConfigRsp | null
@@ -240,7 +367,6 @@ const rules: FormRules<ProviderFormModel> = {
   providerCode: [{ required: true, message: '请输入提供商唯一标识', trigger: 'blur' }],
   providerType: [{ required: true, message: '请选择提供商类型', trigger: 'change' }],
   baseUrl: [{ required: true, message: '请输入接口地址', trigger: 'blur' }],
-  apiKey: [{ validator: validateApiKey, trigger: 'blur' }],
   thinkingCompatMode: [{ required: true, message: '请选择 Thinking 兼容模式', trigger: 'change' }],
 }
 
@@ -268,7 +394,7 @@ function buildFormState(value?: ProviderConfigRsp | null): ProviderFormModel {
     displayName: value.displayName || '',
     enabled: value.enabled,
     baseUrl: value.baseUrl,
-    apiKey: '',
+    keySelectionStrategy: (value.keySelectionStrategy as KeySelectionStrategy) || 'ROUND_ROBIN',
     timeoutSeconds: value.timeoutSeconds,
     priority: value.priority,
     supportedProtocols: value.supportedProtocols ?? [],
@@ -284,7 +410,7 @@ function createEmptyForm(): ProviderFormModel {
     displayName: '',
     enabled: true,
     baseUrl: '',
-    apiKey: '',
+    keySelectionStrategy: 'ROUND_ROBIN',
     timeoutSeconds: 60,
     priority: 0,
     supportedProtocols: [],
@@ -310,15 +436,6 @@ function headersListToMap(list: HeaderItem[]): Record<string, string> {
   return result
 }
 
-function validateApiKey(_rule: unknown, value: string, callback: (error?: Error) => void) {
-  // 新增时必须填写 apiKey；编辑时允许留空表示不修改
-  if (!isEdit.value && !value) {
-    callback(new Error('新增时必须填写 API 密钥'))
-    return
-  }
-  callback()
-}
-
 /** 校验请求头键名合法性及值中是否包含换行符 */
 function validateHeaderKey(index: number) {
   const item = form.customHeadersList[index]
@@ -334,13 +451,11 @@ function validateHeaderKey(index: number) {
   const trimmed = item.key.trim()
   if (!trimmed) return
   if (!VALID_HEADER_NAME_REGEX.test(trimmed)) {
-    ElMessage.warning(`请求头名称包含非法字符: ${item.key}`)
-    item.key = ''
+    ElMessage.warning(`请求头名称包含非法字符: ${item.key}，请修改`)
     return
   }
   if (PROTECTED_HEADERS.has(trimmed.toLowerCase())) {
-    ElMessage.warning(`不允许设置认证相关头: ${trimmed}`)
-    item.key = ''
+    ElMessage.warning(`不允许设置认证相关头: ${trimmed}，请修改`)
   }
 }
 
@@ -387,7 +502,7 @@ async function submit() {
     displayName: form.displayName,
     enabled: form.enabled,
     baseUrl: form.baseUrl,
-    apiKey: form.apiKey,
+    keySelectionStrategy: form.keySelectionStrategy,
     timeoutSeconds: form.timeoutSeconds,
     priority: form.priority,
     supportedProtocols: form.supportedProtocols,
@@ -399,6 +514,131 @@ async function submit() {
     'submit',
     isEdit.value ? { ...basePayload, id: form.id, versionNo: form.versionNo } : basePayload,
   )
+}
+
+/* ==================== API Key 管理（仅编辑模式） ==================== */
+
+const apiKeys = ref<ProviderApiKeyRsp[]>([])
+const apiKeyLoading = ref(false)
+const keyDialogVisible = ref(false)
+const editingKey = ref<ProviderApiKeyRsp | null>(null)
+const keyFormRef = ref<FormInstance>()
+const keyForm = reactive({
+  apiKey: '',
+  remark: '',
+  enabled: true,
+  weight: 100,
+  sortOrder: 0,
+})
+// 编辑模式下 apiKey 字段隐藏，不需要 required 校验
+const keyRules = computed<FormRules>(() => ({
+  apiKey: editingKey.value
+    ? []
+    : [{ required: true, message: '请输入 API Key', trigger: 'blur' }],
+}))
+
+// 编辑模式下加载 Key 列表
+watch(
+  () => props.modelValue,
+  (value) => {
+    if (value?.providerCode) {
+      loadApiKeys(value.providerCode)
+    } else {
+      apiKeys.value = []
+    }
+  },
+  { immediate: true },
+)
+
+async function loadApiKeys(providerCode: string) {
+  apiKeyLoading.value = true
+  try {
+    apiKeys.value = await fetchApiKeys(providerCode)
+  } catch {
+    ElMessage.error('加载 API Key 列表失败')
+  } finally {
+    apiKeyLoading.value = false
+  }
+}
+
+function openAddKeyDialog() {
+  editingKey.value = null
+  keyForm.apiKey = ''
+  keyForm.remark = ''
+  keyForm.enabled = true
+  keyForm.weight = 100
+  keyForm.sortOrder = 0
+  keyDialogVisible.value = true
+}
+
+function openEditKeyDialog(row: ProviderApiKeyRsp) {
+  editingKey.value = row
+  keyForm.apiKey = ''
+  keyForm.remark = row.remark || ''
+  keyForm.enabled = row.enabled
+  keyForm.weight = row.weight
+  keyForm.sortOrder = row.sortOrder
+  keyDialogVisible.value = true
+}
+
+async function submitKeyForm() {
+  const valid = await keyFormRef.value?.validate().catch(() => false)
+  if (!valid) return
+
+  try {
+    if (editingKey.value) {
+      const req: ProviderApiKeyUpdateReq = {
+        id: editingKey.value.id,
+        versionNo: editingKey.value.versionNo,
+        remark: keyForm.remark,
+        enabled: keyForm.enabled,
+        weight: keyForm.weight,
+        sortOrder: keyForm.sortOrder,
+      }
+      await updateApiKey(req)
+      ElMessage.success('Key 更新成功')
+    } else {
+      const req: ProviderApiKeyAddReq = {
+        providerCode: form.providerCode,
+        apiKey: keyForm.apiKey,
+        remark: keyForm.remark,
+        enabled: true,
+        weight: keyForm.weight,
+        sortOrder: keyForm.sortOrder,
+      }
+      await addApiKey(req)
+      ElMessage.success('Key 添加成功')
+    }
+    keyDialogVisible.value = false
+    await loadApiKeys(form.providerCode)
+  } catch (e: any) {
+    ElMessage.error(e?.message || '操作失败')
+  }
+}
+
+async function handleToggleKey(row: ProviderApiKeyRsp) {
+  try {
+    await toggleApiKey(row.id, row.versionNo, !row.enabled)
+    ElMessage.success(row.enabled ? '已禁用' : '已启用')
+    await loadApiKeys(form.providerCode)
+  } catch (e: any) {
+    ElMessage.error(e?.message || '操作失败')
+  }
+}
+
+async function handleDeleteKey(row: ProviderApiKeyRsp) {
+  try {
+    await ElMessageBox.confirm('确定删除此 API Key？删除后不可恢复。', '确认删除', {
+      type: 'warning',
+    })
+    await deleteApiKey(row.id)
+    ElMessage.success('已删除')
+    await loadApiKeys(form.providerCode)
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      ElMessage.error(e?.message || '删除失败')
+    }
+  }
 }
 </script>
 
