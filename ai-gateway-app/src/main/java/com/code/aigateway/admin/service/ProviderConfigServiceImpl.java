@@ -3,8 +3,10 @@ package com.code.aigateway.admin.service;
 import com.code.aigateway.admin.mapper.AutoRouteCandidateMapper;
 import com.code.aigateway.admin.mapper.ProviderApiKeyMapper;
 import com.code.aigateway.admin.mapper.ProviderConfigMapper;
+import com.code.aigateway.admin.model.dataobject.ProviderApiKeyDO;
 import com.code.aigateway.admin.model.dataobject.ProviderConfigDO;
 import com.code.aigateway.admin.model.dto.ProviderApiKeyCountDTO;
+import com.code.aigateway.admin.model.req.ProviderApiKeyAddReq;
 import com.code.aigateway.admin.model.req.ProviderConfigAddReq;
 import com.code.aigateway.admin.model.req.ProviderConfigQueryReq;
 import com.code.aigateway.admin.model.req.ProviderConfigUpdateReq;
@@ -12,6 +14,7 @@ import com.code.aigateway.admin.model.rsp.ProviderConfigRsp;
 import com.code.aigateway.common.exception.BizException;
 import com.code.aigateway.common.result.PageResult;
 import com.code.aigateway.common.util.CustomHeaderUtils;
+import com.code.aigateway.infra.crypto.ApiKeyEncryptor;
 import com.code.aigateway.sdk.model.ProtocolType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +44,7 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
     private final AutoRouteCandidateMapper autoRouteCandidateMapper;
     private final RuntimeConfigRefreshService runtimeConfigRefreshService;
     private final TransactionTemplate transactionTemplate;
+    private final ApiKeyEncryptor apiKeyEncryptor;
 
     @Override
     public Long add(ProviderConfigAddReq req) {
@@ -57,6 +61,14 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
             if (rows <= 0) {
                 throw new BizException("DB_ERROR", "新增提供商配置失败");
             }
+
+            // 新增时一并插入 API Key（在同一事务内保证原子性）
+            if (req.getApiKeys() != null && !req.getApiKeys().isEmpty()) {
+                for (ProviderApiKeyAddReq keyReq : req.getApiKeys()) {
+                    insertApiKey(req.getProviderCode(), keyReq);
+                }
+            }
+
             log.info("[提供商配置] 新增成功，id: {}，providerCode: {}", record.getId(), req.getProviderCode());
         });
 
@@ -387,5 +399,43 @@ public class ProviderConfigServiceImpl implements IProviderConfigService {
             return Map.of();
         }
         return CustomHeaderUtils.parseHeadersJson(json);
+    }
+
+    /**
+     * 插入单个 API Key（在 Provider 新增事务内调用）。
+     *
+     * <p>逻辑与 {@link com.code.aigateway.admin.service.impl.ProviderApiKeyServiceImpl#add(ProviderApiKeyAddReq)} 保持一致，
+     * 但省略 provider 存在性检查（外层正在创建）和独立事务/运行时刷新（由外层 add 统一处理）。
+     * 如需修改加密、查重或字段默认值，务必同步两处。</p>
+     */
+    private void insertApiKey(String providerCode, ProviderApiKeyAddReq req) {
+        ApiKeyEncryptor.EncryptResult encryptResult = apiKeyEncryptor.encrypt(req.getApiKey());
+        String apiKeyPrefix = apiKeyEncryptor.mask(req.getApiKey());
+
+        // 通过脱敏前缀检测重复 Key（AES-GCM 随机 IV 导致相同明文密文不同，故无法按密文查重）
+        int duplicateCount = providerApiKeyMapper.countByProviderCodeAndPrefix(providerCode, apiKeyPrefix);
+        if (duplicateCount > 0) {
+            throw new BizException("BAD_REQUEST",
+                    "该 Provider 下已存在相同前缀的 API Key（" + apiKeyPrefix + "），请确认是否重复添加");
+        }
+
+        ProviderApiKeyDO record = new ProviderApiKeyDO();
+        record.setProviderCode(providerCode);
+        record.setApiKeyCiphertext(encryptResult.ciphertext());
+        record.setApiKeyIv(encryptResult.iv());
+        record.setApiKeyPrefix(apiKeyPrefix);
+        record.setRemark(req.getRemark());
+        record.setEnabled(req.getEnabled() != null ? req.getEnabled() : true);
+        record.setWeight(req.getWeight() != null ? req.getWeight() : 100);
+        record.setSortOrder(req.getSortOrder() != null ? req.getSortOrder() : 0);
+        record.setVersionNo(0L);
+        record.setCreator("system");
+        record.setCreateTime(LocalDateTime.now());
+        record.setUpdater("system");
+        record.setUpdateTime(LocalDateTime.now());
+        record.setDeleted(false);
+
+        providerApiKeyMapper.insert(record);
+        log.info("[API Key管理] 新增成功（随 Provider 创建）, providerCode: {}, keyPrefix: {}", providerCode, apiKeyPrefix);
     }
 }

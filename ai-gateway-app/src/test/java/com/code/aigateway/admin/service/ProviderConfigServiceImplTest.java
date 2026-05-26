@@ -7,6 +7,7 @@ import com.code.aigateway.admin.model.dataobject.ProviderConfigDO;
 import com.code.aigateway.admin.model.req.ProviderConfigAddReq;
 import com.code.aigateway.admin.model.req.ProviderConfigUpdateReq;
 import com.code.aigateway.common.exception.BizException;
+import com.code.aigateway.infra.crypto.ApiKeyEncryptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -57,7 +58,7 @@ class ProviderConfigServiceImplTest {
 
         service = new ProviderConfigServiceImpl(
                 providerConfigMapper, providerApiKeyMapper, autoRouteCandidateMapper,
-                runtimeConfigRefreshService, transactionTemplate);
+                runtimeConfigRefreshService, transactionTemplate, Mockito.mock(ApiKeyEncryptor.class));
     }
 
     // ==================== 新增 Provider 成功场景 ====================

@@ -2,8 +2,7 @@
   <el-dialog
     :model-value="visible"
     :title="isEdit ? '编辑提供商' : '新增提供商'"
-    width="780px"
-    destroy-on-close
+    width="860px"
     class="admin-dialog"
     modal-class="admin-dialog-overlay"
     @close="emit('close')"
@@ -64,27 +63,20 @@
               />
             </el-select>
           </el-form-item>
-          <div class="form-grid__inline">
-            <el-form-item label="超时（秒）" prop="timeoutSeconds">
-              <el-input-number
-                v-model="form.timeoutSeconds"
-                :min="1"
-                :step="10"
-                style="width: 100%"
-              />
-            </el-form-item>
-            <el-form-item label="优先级" prop="priority">
-              <el-input-number v-model="form.priority" :step="1" style="width: 100%" />
-            </el-form-item>
-          </div>
-        </div>
-
-        <div class="dialog-switch-row">
-          <div>
-            <p class="dialog-switch-row__title">启用状态</p>
-            <p class="dialog-switch-row__desc">关闭后该提供商不会继续参与运行时路由。</p>
-          </div>
-          <el-switch v-model="form.enabled" inline-prompt active-text="开" inactive-text="关" />
+          <el-form-item label="超时（秒）" prop="timeoutSeconds">
+            <el-input-number
+              v-model="form.timeoutSeconds"
+              :min="1"
+              :step="10"
+              style="width: 100%"
+            />
+          </el-form-item>
+          <el-form-item label="优先级" prop="priority">
+            <el-input-number v-model="form.priority" :step="1" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="启用状态">
+            <el-switch v-model="form.enabled" inline-prompt active-text="开" inactive-text="关" />
+          </el-form-item>
         </div>
       </section>
 
@@ -94,14 +86,31 @@
           <h4>支持协议</h4>
           <p>选择该提供商支持的下游请求协议。不勾选表示支持所有协议。</p>
         </div>
-        <el-checkbox-group v-model="form.supportedProtocols">
-          <el-checkbox
+        <div class="protocol-card-grid">
+          <div
             v-for="item in protocolOptions"
             :key="item.value"
-            :value="item.value"
-            :label="item.label"
-          />
-        </el-checkbox-group>
+            class="protocol-card"
+            :class="{ 'protocol-card--active': form.supportedProtocols.includes(item.value) }"
+            tabindex="0"
+            role="checkbox"
+            :aria-checked="form.supportedProtocols.includes(item.value)"
+            @click="toggleProtocol(item.value)"
+            @keyup.enter="toggleProtocol(item.value)"
+            @keyup.space.prevent="toggleProtocol(item.value)"
+          >
+            <div class="protocol-card__check">
+              <el-icon v-if="form.supportedProtocols.includes(item.value)" :size="16" color="var(--color-primary)">
+                <Check />
+              </el-icon>
+              <div v-else class="protocol-unchecked-box" />
+            </div>
+            <div class="protocol-card__body">
+              <span class="protocol-card__label">{{ item.label }}</span>
+              <span class="protocol-card__desc">{{ item.desc }}</span>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- 自定义请求头 -->
@@ -113,30 +122,38 @@
             不允许设置认证相关头（Authorization、x-api-key、x-goog-api-key、anthropic-version）。
           </p>
         </div>
-        <div v-for="(item, index) in form.customHeadersList" :key="index" class="custom-header-row">
-          <el-input
-            v-model="item.key"
-            placeholder="Header 名称"
-            class="custom-header-input"
-            @change="validateHeaderKey(index)"
-          />
-          <el-input
-            v-model="item.value"
-            placeholder="Header 值"
-            class="custom-header-input"
-            @blur="validateHeaderKey(index)"
-          />
-          <el-button
-            type="danger"
-            plain
-            size="small"
-            @click="removeHeader(index)"
-          >
-            删除
-          </el-button>
+        <div v-if="form.customHeadersList.length === 0" class="custom-header-empty">
+          <el-icon :size="32" color="var(--el-text-color-placeholder)">
+            <Link />
+          </el-icon>
+          <p>暂无自定义请求头，点击下方按钮添加</p>
         </div>
-        <el-button type="primary" plain size="small" @click="addHeader">
-          + 添加请求头
+        <div
+          v-for="(item, index) in form.customHeadersList"
+          :key="index"
+          class="custom-header-row"
+        >
+          <div class="custom-header-card">
+            <el-input
+              v-model="item.key"
+              placeholder="Header 名称"
+              class="custom-header-input"
+              @change="validateHeaderKey(index)"
+            />
+            <span class="custom-header-divider">:</span>
+            <el-input
+              v-model="item.value"
+              placeholder="Header 值"
+              class="custom-header-input"
+              @blur="validateHeaderKey(index)"
+            />
+            <el-tooltip content="删除此行">
+              <el-button type="danger" link :icon="Delete" @click="removeHeader(index)" />
+            </el-tooltip>
+          </div>
+        </div>
+        <el-button type="primary" plain size="small" :icon="Plus" @click="addHeader">
+          添加请求头
         </el-button>
       </section>
 
@@ -148,20 +165,34 @@
             控制发送给上游的 thinking 参数格式。第三方 API（如 MiMo）不支持扩展字段，需选择「简化模式」避免 400 错误。
           </p>
         </div>
-        <el-form-item label="兼容模式" prop="thinkingCompatMode">
-          <el-select v-model="form.thinkingCompatMode" style="width: 100%">
-            <el-option
-              v-for="item in thinkingCompatOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-        </el-form-item>
+        <div class="thinking-card-grid">
+          <div
+            v-for="item in thinkingCompatOptions"
+            :key="item.value"
+            class="thinking-card"
+            :class="{ 'thinking-card--active': form.thinkingCompatMode === item.value }"
+            tabindex="0"
+            role="radio"
+            :aria-checked="form.thinkingCompatMode === item.value"
+            @click="form.thinkingCompatMode = item.value"
+            @keyup.enter="form.thinkingCompatMode = item.value"
+            @keyup.space.prevent="form.thinkingCompatMode = item.value"
+          >
+            <div class="thinking-card__check">
+              <div class="thinking-check-circle">
+                <div v-if="form.thinkingCompatMode === item.value" class="thinking-check-dot" />
+              </div>
+            </div>
+            <div class="thinking-card__body">
+              <strong>{{ item.label.split(' — ')[0] }}</strong>
+              <p>{{ item.label.split(' — ')[1] }}</p>
+            </div>
+          </div>
+        </div>
       </section>
 
-      <!-- API Key 管理（仅编辑模式） -->
-      <section v-if="isEdit" class="dialog-section">
+      <!-- API Key 管理 -->
+      <section class="dialog-section">
         <div class="dialog-section__head">
           <div style="display: flex; justify-content: space-between; align-items: center">
             <div>
@@ -174,7 +205,7 @@
           </div>
         </div>
         <el-table
-          :data="apiKeys"
+          :data="displayApiKeys"
           v-loading="apiKeyLoading"
           size="small"
           style="width: 100%"
@@ -186,31 +217,31 @@
               {{ row.remark || '—' }}
             </template>
           </el-table-column>
-          <el-table-column label="状态" width="80" align="center">
+          <el-table-column label="状态" width="70" align="center">
             <template #default="{ row }">
               <el-tag size="small" :type="row.enabled ? 'success' : 'info'">
                 {{ row.enabled ? '启用' : '禁用' }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="weight" label="权重" width="70" align="center" />
-          <el-table-column prop="sortOrder" label="排序" width="70" align="center" />
-          <el-table-column label="操作" width="200" align="center">
+          <el-table-column prop="weight" label="权重" width="60" align="center" />
+          <el-table-column prop="sortOrder" label="排序" width="60" align="center" />
+          <el-table-column label="操作" width="120" align="center">
             <template #default="{ row }">
-              <el-button link type="primary" size="small" @click="openEditKeyDialog(row)"
-                >编辑</el-button
-              >
-              <el-button
-                link
-                :type="row.enabled ? 'warning' : 'success'"
-                size="small"
-                @click="handleToggleKey(row)"
-              >
-                {{ row.enabled ? '禁用' : '启用' }}
-              </el-button>
-              <el-button link type="danger" size="small" @click="handleDeleteKey(row)"
-                >删除</el-button
-              >
+              <el-tooltip content="编辑">
+                <el-button link type="primary" :icon="Edit" @click="openEditKeyDialog(row)" />
+              </el-tooltip>
+              <el-tooltip :content="row.enabled ? '禁用' : '启用'">
+                <el-button
+                  link
+                  :type="row.enabled ? 'warning' : 'success'"
+                  :icon="row.enabled ? Remove : CirclePlus"
+                  @click="handleToggleKey(row)"
+                />
+              </el-tooltip>
+              <el-tooltip content="删除">
+                <el-button link type="danger" :icon="Delete" @click="handleDeleteKey(row)" />
+              </el-tooltip>
             </template>
           </el-table-column>
         </el-table>
@@ -273,10 +304,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, Delete, Edit, Remove, CirclePlus, Check, Link } from '@element-plus/icons-vue'
 import type {
   ProviderConfigAddReq,
   ProviderConfigRsp,
@@ -300,6 +331,16 @@ import {
 interface HeaderItem {
   key: string
   value: string
+}
+
+/** 新增模式下本地维护的 API Key 项 */
+interface LocalApiKey {
+  _tempId: number
+  apiKey: string
+  remark: string
+  enabled: boolean
+  weight: number
+  sortOrder: number
 }
 
 interface ProviderFormModel {
@@ -327,12 +368,12 @@ const providerTypeOptions = [
 
 /** 下游协议选项 */
 const protocolOptions = [
-  { value: 'OPENAI_CHAT', label: 'OpenAI Chat' },
-  { value: 'OPENAI_RESPONSES', label: 'OpenAI Responses' },
-  { value: 'ANTHROPIC', label: 'Anthropic' },
-  { value: 'GEMINI', label: 'Gemini' },
-  { value: 'OPENAI_EMBEDDING', label: 'OpenAI Embedding' },
-  { value: 'RERANK', label: 'Rerank' },
+  { value: 'OPENAI_CHAT', label: 'OpenAI Chat', desc: '/v1/chat/completions' },
+  { value: 'OPENAI_RESPONSES', label: 'OpenAI Responses', desc: '/v1/responses' },
+  { value: 'ANTHROPIC', label: 'Anthropic', desc: '/v1/messages' },
+  { value: 'GEMINI', label: 'Gemini', desc: '/v1beta/models/:generateContent' },
+  { value: 'OPENAI_EMBEDDING', label: 'OpenAI Embedding', desc: '/v1/embeddings' },
+  { value: 'RERANK', label: 'Rerank', desc: '/v1/rerank' },
 ] as const
 
 /** thinking 兼容模式选项 */
@@ -370,18 +411,29 @@ const rules: FormRules<ProviderFormModel> = {
   thinkingCompatMode: [{ required: true, message: '请选择 Thinking 兼容模式', trigger: 'change' }],
 }
 
-watch(
-  () => props.modelValue,
-  (value) => {
-    isEdit.value = !!value
-    const nextForm = buildFormState(value)
+function syncFormState(value?: ProviderConfigRsp | null) {
+  isEdit.value = !!value
+  const nextForm = buildFormState(value)
 
-    // 保留一份初始快照，编辑态点击"重置"时可以回到原始值
-    initialSnapshot.value = nextForm
-    Object.assign(form, nextForm)
-  },
-  { immediate: true },
-)
+  // 保留一份初始快照，编辑态点击"重置"时可以回到原始值
+  initialSnapshot.value = nextForm
+  Object.assign(form, nextForm)
+
+  // 切换模式时清空本地 Key 列表
+  if (!value) {
+    localApiKeys.value = []
+  }
+
+  if (value?.providerCode) {
+    loadApiKeys(value.providerCode)
+  } else {
+    apiKeys.value = []
+  }
+}
+
+onMounted(() => syncFormState(props.modelValue))
+
+watch(() => props.modelValue, syncFormState)
 
 function buildFormState(value?: ProviderConfigRsp | null): ProviderFormModel {
   if (!value) return createEmptyForm()
@@ -434,6 +486,16 @@ function headersListToMap(list: HeaderItem[]): Record<string, string> {
     }
   }
   return result
+}
+
+/** 切换支持协议的选中状态 */
+function toggleProtocol(value: string) {
+  const idx = form.supportedProtocols.indexOf(value)
+  if (idx > -1) {
+    form.supportedProtocols.splice(idx, 1)
+  } else {
+    form.supportedProtocols.push(value)
+  }
 }
 
 /** 校验请求头键名合法性及值中是否包含换行符 */
@@ -510,13 +572,22 @@ async function submit() {
     thinkingCompatMode: form.thinkingCompatMode,
   }
 
-  emit(
-    'submit',
-    isEdit.value ? { ...basePayload, id: form.id, versionNo: form.versionNo } : basePayload,
-  )
+  if (isEdit.value) {
+    emit('submit', { ...basePayload, id: form.id, versionNo: form.versionNo })
+  } else {
+    const apiKeysPayload = localApiKeys.value.map((k) => ({
+      providerCode: form.providerCode,
+      apiKey: k.apiKey,
+      remark: k.remark,
+      enabled: k.enabled,
+      weight: k.weight,
+      sortOrder: k.sortOrder,
+    }))
+    emit('submit', { ...basePayload, apiKeys: apiKeysPayload })
+  }
 }
 
-/* ==================== API Key 管理（仅编辑模式） ==================== */
+/* ==================== API Key 管理 ==================== */
 
 const apiKeys = ref<ProviderApiKeyRsp[]>([])
 const apiKeyLoading = ref(false)
@@ -537,18 +608,30 @@ const keyRules = computed<FormRules>(() => ({
     : [{ required: true, message: '请输入 API Key', trigger: 'blur' }],
 }))
 
-// 编辑模式下加载 Key 列表
-watch(
-  () => props.modelValue,
-  (value) => {
-    if (value?.providerCode) {
-      loadApiKeys(value.providerCode)
-    } else {
-      apiKeys.value = []
-    }
-  },
-  { immediate: true },
-)
+/** 新增模式下本地维护的 API Key 列表 */
+const localApiKeys = ref<LocalApiKey[]>([])
+let localTempIdCounter = 0
+
+/** 对 API Key 进行简易脱敏显示（前4位 + **** + 后4位） */
+function maskApiKey(key: string): string {
+  if (key.length <= 8) return '****' + key.slice(-4)
+  return key.slice(0, 4) + '****' + key.slice(-4)
+}
+
+/** 表格展示用的统一数据源 */
+const displayApiKeys = computed<ProviderApiKeyRsp[]>(() => {
+  if (isEdit.value) return apiKeys.value
+  return localApiKeys.value.map((k) => ({
+    id: k._tempId,
+    providerCode: form.providerCode,
+    apiKeyMasked: maskApiKey(k.apiKey),
+    remark: k.remark,
+    enabled: k.enabled,
+    weight: k.weight,
+    sortOrder: k.sortOrder,
+    versionNo: 0,
+  }))
+})
 
 async function loadApiKeys(providerCode: string) {
   apiKeyLoading.value = true
@@ -585,80 +668,301 @@ async function submitKeyForm() {
   const valid = await keyFormRef.value?.validate().catch(() => false)
   if (!valid) return
 
-  try {
-    if (editingKey.value) {
-      const req: ProviderApiKeyUpdateReq = {
-        id: editingKey.value.id,
-        versionNo: editingKey.value.versionNo,
-        remark: keyForm.remark,
-        enabled: keyForm.enabled,
-        weight: keyForm.weight,
-        sortOrder: keyForm.sortOrder,
+  if (isEdit.value) {
+    // 编辑模式：调后端 API
+    try {
+      if (editingKey.value) {
+        const req: ProviderApiKeyUpdateReq = {
+          id: editingKey.value.id,
+          versionNo: editingKey.value.versionNo,
+          remark: keyForm.remark,
+          enabled: keyForm.enabled,
+          weight: keyForm.weight,
+          sortOrder: keyForm.sortOrder,
+        }
+        await updateApiKey(req)
+        ElMessage.success('Key 更新成功')
+      } else {
+        const req: ProviderApiKeyAddReq = {
+          providerCode: form.providerCode,
+          apiKey: keyForm.apiKey,
+          remark: keyForm.remark,
+          enabled: true,
+          weight: keyForm.weight,
+          sortOrder: keyForm.sortOrder,
+        }
+        await addApiKey(req)
+        ElMessage.success('Key 添加成功')
       }
-      await updateApiKey(req)
+      keyDialogVisible.value = false
+      await loadApiKeys(form.providerCode)
+    } catch (e: any) {
+      ElMessage.error(e?.message || '操作失败')
+    }
+  } else {
+    // 新增模式：只操作本地列表
+    if (editingKey.value) {
+      const localKey = localApiKeys.value.find((k) => k._tempId === editingKey.value!.id)
+      if (localKey) {
+        localKey.remark = keyForm.remark
+        localKey.enabled = keyForm.enabled
+        localKey.weight = keyForm.weight
+        localKey.sortOrder = keyForm.sortOrder
+      }
       ElMessage.success('Key 更新成功')
     } else {
-      const req: ProviderApiKeyAddReq = {
-        providerCode: form.providerCode,
+      localApiKeys.value.push({
+        _tempId: ++localTempIdCounter,
         apiKey: keyForm.apiKey,
         remark: keyForm.remark,
         enabled: true,
         weight: keyForm.weight,
         sortOrder: keyForm.sortOrder,
-      }
-      await addApiKey(req)
+      })
       ElMessage.success('Key 添加成功')
     }
     keyDialogVisible.value = false
-    await loadApiKeys(form.providerCode)
-  } catch (e: any) {
-    ElMessage.error(e?.message || '操作失败')
   }
 }
 
 async function handleToggleKey(row: ProviderApiKeyRsp) {
-  try {
-    await toggleApiKey(row.id, row.versionNo, !row.enabled)
-    ElMessage.success(row.enabled ? '已禁用' : '已启用')
-    await loadApiKeys(form.providerCode)
-  } catch (e: any) {
-    ElMessage.error(e?.message || '操作失败')
+  if (isEdit.value) {
+    try {
+      await toggleApiKey(row.id, row.versionNo, !row.enabled)
+      ElMessage.success(row.enabled ? '已禁用' : '已启用')
+      await loadApiKeys(form.providerCode)
+    } catch (e: any) {
+      ElMessage.error(e?.message || '操作失败')
+    }
+  } else {
+    const localKey = localApiKeys.value.find((k) => k._tempId === row.id)
+    if (localKey) {
+      localKey.enabled = !localKey.enabled
+      ElMessage.success(localKey.enabled ? '已启用' : '已禁用')
+    }
   }
 }
 
 async function handleDeleteKey(row: ProviderApiKeyRsp) {
-  try {
-    await ElMessageBox.confirm('确定删除此 API Key？删除后不可恢复。', '确认删除', {
-      type: 'warning',
-    })
-    await deleteApiKey(row.id)
-    ElMessage.success('已删除')
-    await loadApiKeys(form.providerCode)
-  } catch (e: any) {
-    if (e !== 'cancel') {
-      ElMessage.error(e?.message || '删除失败')
+  if (isEdit.value) {
+    try {
+      await ElMessageBox.confirm('确定删除此 API Key？删除后不可恢复。', '确认删除', {
+        type: 'warning',
+      })
+      await deleteApiKey(row.id)
+      ElMessage.success('已删除')
+      await loadApiKeys(form.providerCode)
+    } catch (e: any) {
+      if (e !== 'cancel') {
+        ElMessage.error(e?.message || '删除失败')
+      }
     }
+  } else {
+    localApiKeys.value = localApiKeys.value.filter((k) => k._tempId !== row.id)
+    ElMessage.success('已删除')
   }
 }
 </script>
 
 <style scoped>
-/* 超时和优先级在同一行并排显示 */
-.form-grid__inline {
+/* 支持协议卡片网格 */
+.protocol-card-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
 }
 
-/* 自定义请求头行布局 */
+.protocol-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.protocol-card:hover {
+  border-color: var(--color-primary);
+  background: rgba(var(--color-primary-rgb), 0.02);
+}
+
+.protocol-card--active {
+  border-color: var(--color-primary);
+  background: rgba(var(--color-primary-rgb), 0.04);
+}
+
+.protocol-card__check {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.protocol-unchecked-box {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--border-color);
+  border-radius: 3px;
+  transition: all 0.2s ease;
+}
+
+.protocol-card:hover .protocol-unchecked-box {
+  border-color: var(--color-primary);
+}
+
+.protocol-card--active .protocol-unchecked-box {
+  display: none;
+}
+
+.protocol-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.protocol-card__label {
+  font-size: 13px;
+  color: var(--text-primary);
+  user-select: none;
+  line-height: 1.4;
+}
+
+.protocol-card__desc {
+  font-size: 11px;
+  color: var(--text-tertiary, var(--text-secondary));
+  user-select: none;
+  line-height: 1.4;
+  font-family: var(--font-mono, monospace);
+}
+
+/* 自定义请求头空状态 */
+.custom-header-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px;
+  margin-bottom: 12px;
+  border: 1px dashed var(--border-light);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+/* 自定义请求头卡片行 */
 .custom-header-row {
+  margin-bottom: 8px;
+}
+
+.custom-header-card {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  transition: border-color 0.2s;
+}
+
+.custom-header-card:hover {
+  border-color: var(--border-base);
 }
 
 .custom-header-input {
   flex: 1;
+}
+
+:deep(.custom-header-input .el-input__wrapper) {
+  box-shadow: none !important;
+  background: transparent;
+  padding: 0;
+}
+
+.custom-header-divider {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+/* Thinking 兼容模式卡片 */
+.thinking-card-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.thinking-card {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.thinking-card:hover {
+  border-color: var(--color-primary);
+  background: rgba(var(--color-primary-rgb), 0.02);
+}
+
+.thinking-card--active {
+  border-color: var(--color-primary);
+  background: rgba(var(--color-primary-rgb), 0.04);
+}
+
+.thinking-card__check {
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.thinking-check-circle {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--border-color);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.thinking-card:hover .thinking-check-circle {
+  border-color: var(--color-primary);
+}
+
+.thinking-card--active .thinking-check-circle {
+  border-color: var(--color-primary);
+}
+
+.thinking-check-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-primary);
+}
+
+.thinking-card__body strong {
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.thinking-card__body p {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  line-height: 1.5;
 }
 </style>

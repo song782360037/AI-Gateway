@@ -24,6 +24,8 @@ export interface ProviderConfigAddReq {
   supportedProtocols?: string[]
   customHeaders?: Record<string, string>
   thinkingCompatMode?: ThinkingCompatMode
+  /** 新增时一并添加的 API Key 列表 */
+  apiKeys?: ProviderApiKeyAddReq[]
 }
 
 export interface ProviderConfigUpdateReq {
