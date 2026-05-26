@@ -233,6 +233,7 @@ public class RequestStatsCollector {
         logDO.setHttpMethod(context.getHttpMethod());
         logDO.setApiKeyPrefix(context.getApiKeyPrefix());
         logDO.setProviderApiKeyMasked(context.getProviderApiKeyMasked());
+        logDO.setProviderKeyId(context.getProviderKeyId());
         logDO.setCandidateCount(context.getCandidateCount());
         logDO.setAttemptCount(context.getAttemptCount());
         logDO.setFailoverCount(context.getFailoverCount());

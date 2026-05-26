@@ -102,6 +102,7 @@ public class AutoRouteSelector {
                 .providerKeyEntries(providerEntry.apiKeys())
                 .keySelectionStrategy(providerEntry.keySelectionStrategy())
                 .usedApiKeyPrefix(selectedKey.apiKeyPrefix())
+                .providerKeyId(selectedKey.id())
                 .build();
     }
 

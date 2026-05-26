@@ -82,6 +82,8 @@ export interface RequestLogRsp {
   apiKeyPrefix: string | null
   /** 提供商 API Key 脱敏标识（前8后4） */
   providerApiKeyMasked: string | null
+  /** 提供商 API Key 备注（查询时 JOIN 获取） */
+  providerApiKeyRemark: string | null
   candidateCount: number | null
   attemptCount: number | null
   failoverCount: number | null

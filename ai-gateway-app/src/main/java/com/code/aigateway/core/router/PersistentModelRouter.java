@@ -152,6 +152,7 @@ public class PersistentModelRouter implements ModelRouter {
                     .providerKeyEntries(providerEntry.apiKeys())
                     .keySelectionStrategy(providerEntry.keySelectionStrategy())
                     .usedApiKeyPrefix(selectedKey.apiKeyPrefix())
+                    .providerKeyId(selectedKey.id())
                     .build();
         }
 
@@ -188,6 +189,7 @@ public class PersistentModelRouter implements ModelRouter {
                             .providerKeyEntries(providerEntry.apiKeys())
                             .keySelectionStrategy(providerEntry.keySelectionStrategy())
                             .usedApiKeyPrefix(selectedKey.apiKeyPrefix())
+                            .providerKeyId(selectedKey.id())
                             .build();
                 })
                 .filter(java.util.Objects::nonNull)
@@ -288,6 +290,7 @@ public class PersistentModelRouter implements ModelRouter {
                             .providerKeyEntries(entry.apiKeys())
                             .keySelectionStrategy(entry.keySelectionStrategy())
                             .usedApiKeyPrefix(selectedKey.apiKeyPrefix())
+                            .providerKeyId(selectedKey.id())
                             .build();
                 })
                 .filter(java.util.Objects::nonNull)

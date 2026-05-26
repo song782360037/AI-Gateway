@@ -117,7 +117,7 @@
                 <InfoItem label="请求别名" :value="data.aliasModel" />
                 <InfoItem label="最终路由" :value="data.targetModel" />
                 <InfoItem label="提供商类型" :value="providerLabel(data.providerType)" />
-                <InfoItem label="Provider Key" :value="data.providerApiKeyMasked" />
+                <InfoItem label="Provider Key" :value="data.providerApiKeyRemark || data.providerApiKeyMasked" />
                 <InfoItem label="Key 选择策略" :value="keySelectionStrategyLabel(parsedTraceDetails?.keySelectionStrategy)" />
                 <InfoItem label="选择原因" :value="parsedTraceDetails?.keySelectionReason" />
               </div>

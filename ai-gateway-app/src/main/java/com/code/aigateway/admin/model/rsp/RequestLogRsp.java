@@ -39,6 +39,12 @@ public class RequestLogRsp {
     /** API Key 前缀 */
     private String apiKeyPrefix;
 
+    /** 本次请求使用的提供商 API Key（脱敏，前8后4） */
+    private String providerApiKeyMasked;
+
+    /** 提供商 API Key 备注（查询时 JOIN 获取，非存储字段） */
+    private String providerApiKeyRemark;
+
     /** 候选路由数 */
     private Integer candidateCount;
 

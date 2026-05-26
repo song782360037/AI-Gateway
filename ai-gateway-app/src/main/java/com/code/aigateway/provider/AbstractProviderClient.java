@@ -460,6 +460,7 @@ public abstract class AbstractProviderClient implements ProviderClient {
             Object statsCtx = request.getMetadata().get(GatewayMetadataKeys.STATS_CONTEXT);
             if (statsCtx instanceof RequestStatsContext ctx) {
                 ctx.setProviderApiKeyMasked(nextKey.apiKeyPrefix());
+                ctx.setProviderKeyId(nextKey.id());
             }
         }
 

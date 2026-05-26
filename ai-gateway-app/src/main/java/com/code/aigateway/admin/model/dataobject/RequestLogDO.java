@@ -43,6 +43,12 @@ public class RequestLogDO {
     /** 本次请求使用的提供商 API Key（脱敏，前8后4） */
     private String providerApiKeyMasked;
 
+    /** 本次请求使用的 provider_api_key 记录 ID */
+    private Long providerKeyId;
+
+    /** 提供商 API Key 备注（查询时 JOIN 获取，非存储字段） */
+    private String providerApiKeyRemark;
+
     /** 候选路由数 */
     private Integer candidateCount;
 

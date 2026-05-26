@@ -140,6 +140,7 @@ public abstract class AbstractGatewayService {
         context.setFinalProviderType(routeResult.getProviderType().name());
         context.setFinalTargetModel(routeResult.getTargetModel());
         context.setProviderApiKeyMasked(routeResult.getUsedApiKeyPrefix());
+        context.setProviderKeyId(routeResult.getProviderKeyId());
         // 记录 Key 选择策略和原因到 trace details
         TraceDetails details = getOrCreateTraceDetails(context);
         details.setKeySelectionStrategy(routeResult.getKeySelectionStrategy() != null

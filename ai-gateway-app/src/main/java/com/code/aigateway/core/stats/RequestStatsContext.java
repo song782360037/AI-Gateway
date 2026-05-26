@@ -55,6 +55,9 @@ public class RequestStatsContext {
     /** 本次请求使用的提供商 API Key（脱敏，前8后4） */
     private String providerApiKeyMasked;
 
+    /** 本次请求使用的 provider_api_key 记录 ID，用于日志查询时关联备注 */
+    private Long providerKeyId;
+
     /** 鉴权状态：DISABLED / PASSED / FAILED */
     private String authStatus;
 

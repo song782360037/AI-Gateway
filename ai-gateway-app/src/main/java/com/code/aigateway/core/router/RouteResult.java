@@ -89,4 +89,10 @@ public class RouteResult {
      */
     @JsonIgnore
     private String usedApiKeyPrefix;
+
+    /**
+     * 本次请求选中的 provider_api_key 记录 ID。
+     */
+    @JsonIgnore
+    private Long providerKeyId;
 }

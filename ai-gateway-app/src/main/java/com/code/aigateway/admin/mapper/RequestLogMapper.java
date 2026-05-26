@@ -24,6 +24,9 @@ public interface RequestLogMapper {
             @Result(property = "requestPath", column = "request_path"),
             @Result(property = "httpMethod", column = "http_method"),
             @Result(property = "apiKeyPrefix", column = "api_key_prefix"),
+            @Result(property = "providerApiKeyMasked", column = "provider_api_key_masked"),
+            @Result(property = "providerKeyId", column = "provider_key_id"),
+            @Result(property = "providerApiKeyRemark", column = "provider_api_key_remark"),
             @Result(property = "candidateCount", column = "candidate_count"),
             @Result(property = "attemptCount", column = "attempt_count"),
             @Result(property = "failoverCount", column = "failover_count"),
@@ -51,28 +54,32 @@ public interface RequestLogMapper {
             @Result(property = "createTime", column = "create_time")
     })
     @Select("""
-            SELECT id, request_id, alias_model, target_model, provider_code, provider_type,
-                   response_protocol, request_path, http_method, api_key_prefix,
-                   candidate_count, attempt_count, failover_count, retry_count, circuit_open_skipped_count,
-                   rate_limit_triggered, upstream_http_status, upstream_error_type, terminal_stage,
-                   thinking_enabled, thinking_depth, thinking_mapped, trace_details_json, first_token_latency_ms,
-                   is_stream, prompt_tokens, cached_input_tokens, completion_tokens, total_tokens, duration_ms,
-                   status, error_code, error_message, source_ip, create_time
-            FROM request_log
-            WHERE id = #{id}
+            SELECT rl.id, rl.request_id, rl.alias_model, rl.target_model, rl.provider_code, rl.provider_type,
+                   rl.response_protocol, rl.request_path, rl.http_method, rl.api_key_prefix, rl.provider_api_key_masked, rl.provider_key_id,
+                   rl.candidate_count, rl.attempt_count, rl.failover_count, rl.retry_count, rl.circuit_open_skipped_count,
+                   rl.rate_limit_triggered, rl.upstream_http_status, rl.upstream_error_type, rl.terminal_stage,
+                   rl.thinking_enabled, rl.thinking_depth, rl.thinking_mapped, rl.trace_details_json, rl.first_token_latency_ms,
+                   rl.is_stream, rl.prompt_tokens, rl.cached_input_tokens, rl.completion_tokens, rl.total_tokens, rl.duration_ms,
+                   rl.status, rl.error_code, rl.error_message, rl.source_ip, rl.create_time,
+                   pak.remark AS provider_api_key_remark
+            FROM request_log rl
+            LEFT JOIN provider_api_key pak ON rl.provider_key_id = pak.id
+            WHERE rl.id = #{id}
             """)
     RequestLogDO selectById(@Param("id") Long id);
 
     @Select("""
-            SELECT id, request_id, alias_model, target_model, provider_code, provider_type,
-                   response_protocol, request_path, http_method, api_key_prefix,
-                   candidate_count, attempt_count, failover_count, retry_count, circuit_open_skipped_count,
-                   rate_limit_triggered, upstream_http_status, upstream_error_type, terminal_stage,
-                   thinking_enabled, thinking_depth, thinking_mapped, trace_details_json, first_token_latency_ms,
-                   is_stream, prompt_tokens, cached_input_tokens, completion_tokens, total_tokens, duration_ms,
-                   status, error_code, error_message, source_ip, create_time
-            FROM request_log
-            WHERE request_id = #{requestId}
+            SELECT rl.id, rl.request_id, rl.alias_model, rl.target_model, rl.provider_code, rl.provider_type,
+                   rl.response_protocol, rl.request_path, rl.http_method, rl.api_key_prefix, rl.provider_api_key_masked, rl.provider_key_id,
+                   rl.candidate_count, rl.attempt_count, rl.failover_count, rl.retry_count, rl.circuit_open_skipped_count,
+                   rl.rate_limit_triggered, rl.upstream_http_status, rl.upstream_error_type, rl.terminal_stage,
+                   rl.thinking_enabled, rl.thinking_depth, rl.thinking_mapped, rl.trace_details_json, rl.first_token_latency_ms,
+                   rl.is_stream, rl.prompt_tokens, rl.cached_input_tokens, rl.completion_tokens, rl.total_tokens, rl.duration_ms,
+                   rl.status, rl.error_code, rl.error_message, rl.source_ip, rl.create_time,
+                   pak.remark AS provider_api_key_remark
+            FROM request_log rl
+            LEFT JOIN provider_api_key pak ON rl.provider_key_id = pak.id
+            WHERE rl.request_id = #{requestId}
             LIMIT 1
             """)
     @ResultMap("requestLogResultMap")
@@ -84,7 +91,7 @@ public interface RequestLogMapper {
     @Insert("""
             INSERT INTO request_log (
                 request_id, alias_model, target_model, provider_code, provider_type,
-                response_protocol, request_path, http_method, api_key_prefix, provider_api_key_masked,
+                response_protocol, request_path, http_method, api_key_prefix, provider_api_key_masked, provider_key_id,
                 candidate_count, attempt_count, failover_count, retry_count, circuit_open_skipped_count,
                 rate_limit_triggered, upstream_http_status, upstream_error_type, terminal_stage,
                 thinking_enabled, thinking_depth, thinking_mapped, trace_details_json, first_token_latency_ms,
@@ -92,7 +99,7 @@ public interface RequestLogMapper {
                 status, error_code, error_message, source_ip, create_time
             ) VALUES (
                 #{requestId}, #{aliasModel}, #{targetModel}, #{providerCode}, #{providerType},
-                #{responseProtocol}, #{requestPath}, #{httpMethod}, #{apiKeyPrefix}, #{providerApiKeyMasked},
+                #{responseProtocol}, #{requestPath}, #{httpMethod}, #{apiKeyPrefix}, #{providerApiKeyMasked}, #{providerKeyId},
                 #{candidateCount}, #{attemptCount}, #{failoverCount}, #{retryCount}, #{circuitOpenSkippedCount},
                 #{rateLimitTriggered}, #{upstreamHttpStatus}, #{upstreamErrorType}, #{terminalStage},
                 #{thinkingEnabled}, #{thinkingDepth}, #{thinkingMapped}, #{traceDetailsJson}, #{firstTokenLatencyMs},
@@ -121,19 +128,21 @@ public interface RequestLogMapper {
      */
     @Select("""
             <script>
-            SELECT id, request_id, alias_model, target_model, provider_code, provider_type,
-                   response_protocol, request_path, http_method, api_key_prefix,
-                   candidate_count, attempt_count, failover_count, retry_count, circuit_open_skipped_count,
-                   rate_limit_triggered, upstream_http_status, upstream_error_type, terminal_stage,
-                   thinking_enabled, thinking_depth, thinking_mapped, trace_details_json, first_token_latency_ms,
-                   is_stream, prompt_tokens, cached_input_tokens, completion_tokens, total_tokens, duration_ms,
-                   status, error_code, error_message, source_ip, create_time
-            FROM request_log
+            SELECT rl.id, rl.request_id, rl.alias_model, rl.target_model, rl.provider_code, rl.provider_type,
+                   rl.response_protocol, rl.request_path, rl.http_method, rl.api_key_prefix, rl.provider_api_key_masked, rl.provider_key_id,
+                   rl.candidate_count, rl.attempt_count, rl.failover_count, rl.retry_count, rl.circuit_open_skipped_count,
+                   rl.rate_limit_triggered, rl.upstream_http_status, rl.upstream_error_type, rl.terminal_stage,
+                   rl.thinking_enabled, rl.thinking_depth, rl.thinking_mapped, rl.trace_details_json, rl.first_token_latency_ms,
+                   rl.is_stream, rl.prompt_tokens, rl.cached_input_tokens, rl.completion_tokens, rl.total_tokens, rl.duration_ms,
+                   rl.status, rl.error_code, rl.error_message, rl.source_ip, rl.create_time,
+                   pak.remark AS provider_api_key_remark
+            FROM request_log rl
+            LEFT JOIN provider_api_key pak ON rl.provider_key_id = pak.id
             WHERE 1=1
             <if test='startTime != null'>
-                AND create_time &gt;= #{startTime}
+                AND rl.create_time &gt;= #{startTime}
             </if>
-            ORDER BY create_time DESC
+            ORDER BY rl.create_time DESC
             LIMIT #{limit}
             </script>
             """)

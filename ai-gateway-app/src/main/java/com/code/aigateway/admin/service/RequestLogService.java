@@ -71,6 +71,8 @@ public class RequestLogService {
         rsp.setRequestPath(record.getRequestPath());
         rsp.setHttpMethod(record.getHttpMethod());
         rsp.setApiKeyPrefix(record.getApiKeyPrefix());
+        rsp.setProviderApiKeyMasked(record.getProviderApiKeyMasked());
+        rsp.setProviderApiKeyRemark(record.getProviderApiKeyRemark());
         rsp.setCandidateCount(record.getCandidateCount());
         rsp.setAttemptCount(record.getAttemptCount());
         rsp.setFailoverCount(record.getFailoverCount());

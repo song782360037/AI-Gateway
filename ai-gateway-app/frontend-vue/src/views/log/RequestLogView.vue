@@ -145,7 +145,12 @@
           align="center"
         >
           <template #default="{ row }">
-            <span v-if="row.providerApiKeyMasked" style="font-family: monospace; font-size: 12px">{{ row.providerApiKeyMasked }}</span>
+            <template v-if="row.providerApiKeyRemark">
+              <el-tooltip :content="row.providerApiKeyMasked || ''" placement="top" :disabled="!row.providerApiKeyMasked">
+                <span style="font-size: 13px">{{ row.providerApiKeyRemark }}</span>
+              </el-tooltip>
+            </template>
+            <span v-else-if="row.providerApiKeyMasked" style="font-family: monospace; font-size: 12px">{{ row.providerApiKeyMasked }}</span>
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
