@@ -51,6 +51,13 @@ public class StreamEncodeContext {
     /** done 事件是否已处理（用于判断 usage_only 是否需要补发 message_delta） */
     private boolean doneProcessed;
 
+    /**
+     * 延迟的 stop_reason（用于 OpenAI usage 延迟到达场景）。
+     * <p>当 done 事件未携带 usage 时，暂存 stop_reason，待 usage_only 事件到达后
+     * 合并到唯一的 message_delta 中发送，避免发出两个 message_delta 违反 Anthropic 协议。</p>
+     */
+    private String deferredStopReason;
+
     /** OpenAI Responses 专属流状态 */
     private final ResponsesStreamState responsesState = new ResponsesStreamState();
 
@@ -130,6 +137,8 @@ public class StreamEncodeContext {
     public void setOutputTokensSent(boolean outputTokensSent) { this.outputTokensSent = outputTokensSent; }
     public boolean isDoneProcessed() { return doneProcessed; }
     public void setDoneProcessed(boolean doneProcessed) { this.doneProcessed = doneProcessed; }
+    public String getDeferredStopReason() { return deferredStopReason; }
+    public void setDeferredStopReason(String deferredStopReason) { this.deferredStopReason = deferredStopReason; }
     public ResponsesStreamState responses() { return responsesState; }
 
     // ===================== OpenAI Responses 流状态 =====================

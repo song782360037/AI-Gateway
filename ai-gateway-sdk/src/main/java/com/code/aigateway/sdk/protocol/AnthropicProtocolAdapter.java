@@ -141,16 +141,9 @@ public class AnthropicProtocolAdapter extends AbstractProtocolAdapter {
         if (UnifiedStreamEvent.TYPE_USAGE_ONLY.equals(event.getType())) {
             // message_start 未发送时，仅触发 message_start
             // message_start 已发送、done 已处理但 message_delta 尚未携带真实 usage 时，
-            // 补发 message_delta 携带完整 usage（解决 OpenAI Chat Completions 的 usage 延迟到达问题）
+            // 补发 message_delta 携带完整 usage 和 stop_reason（解决 OpenAI Chat Completions 的 usage 延迟到达问题）
             if (ctx.isDoneProcessed() && !ctx.isOutputTokensSent() && event.getUsage() != null) {
-                // delta 为空：stop_reason 已在之前的 done 事件的 message_delta 中发送过
-                Map<String, Object> delta = new LinkedHashMap<>();
-                Map<String, Object> payload = new LinkedHashMap<>();
-                payload.put("type", "message_delta");
-                payload.put("delta", delta);
-                payload.put("usage", buildUsageForDelta(event.getUsage(), ctx));
-                events.add(EncodedEvent.named("message_delta", ctx.toJson(payload)));
-                ctx.setOutputTokensSent(true);
+                events.add(buildDeferredMessageDelta(ctx, event.getUsage()));
             }
             return events;
         }
@@ -179,7 +172,13 @@ public class AnthropicProtocolAdapter extends AbstractProtocolAdapter {
 
     @Override
     public List<EncodedEvent> terminalStreamEvents(StreamEncodeContext ctx) {
-        return List.of(EncodedEvent.named("message_stop", ctx.toJson(Map.of("type", "message_stop"))));
+        List<EncodedEvent> events = new ArrayList<>();
+        // 兜底：done 已处理但 message_delta 尚未发出（usage 从未到达），补发 message_delta
+        if (ctx.isDoneProcessed() && !ctx.isOutputTokensSent()) {
+            events.add(buildDeferredMessageDelta(ctx, null));
+        }
+        events.add(EncodedEvent.named("message_stop", ctx.toJson(Map.of("type", "message_stop"))));
+        return events;
     }
 
     // ===================== 错误编码 =====================
@@ -232,23 +231,44 @@ public class AnthropicProtocolAdapter extends AbstractProtocolAdapter {
             events.add(buildContentBlockStop(closedIndex, ctx));
         }
 
-        // message_delta 事件（stop_reason 在 delta 中，usage 在顶层）
-        Map<String, Object> delta = new LinkedHashMap<>();
-        delta.put("stop_reason", mapStopReason(event.getFinishReason()));
-        delta.put("stop_sequence", null);
+        ctx.setDoneProcessed(true);
 
+        if (event.getUsage() != null && event.getUsage().getOutputTokens() != null) {
+            // 已有完整 usage，直接发送 message_delta
+            Map<String, Object> delta = new LinkedHashMap<>();
+            delta.put("stop_reason", mapStopReason(event.getFinishReason()));
+            delta.put("stop_sequence", null);
+
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("type", "message_delta");
+            payload.put("delta", delta);
+            payload.put("usage", buildUsageForDelta(event.getUsage(), ctx));
+
+            ctx.setOutputTokensSent(true);
+            events.add(EncodedEvent.named("message_delta", ctx.toJson(payload)));
+        } else {
+            // usage 尚未到达（OpenAI stream_options.include_usage 场景），
+            // 暂存 stop_reason，待 usage_only 事件到达后合并为唯一的 message_delta
+            ctx.setDeferredStopReason(mapStopReason(event.getFinishReason()));
+        }
+        return events;
+    }
+
+    /**
+     * 构建延迟的 message_delta 事件（用于 usage 延迟到达或终端兜底场景）。
+     * <p>从 ctx 读取暂存的 stop_reason，合并 usage 后生成唯一的 message_delta，
+     * 同时标记 outputTokensSent 防止重复发送。</p>
+     */
+    private EncodedEvent buildDeferredMessageDelta(StreamEncodeContext ctx, UnifiedUsage usage) {
+        Map<String, Object> delta = new LinkedHashMap<>();
+        delta.put("stop_reason", ctx.getDeferredStopReason() != null ? ctx.getDeferredStopReason() : "end_turn");
+        delta.put("stop_sequence", null);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("type", "message_delta");
         payload.put("delta", delta);
-        payload.put("usage", buildUsageForDelta(event.getUsage(), ctx));
-
-        if (event.getUsage() != null && event.getUsage().getOutputTokens() != null) {
-            ctx.setOutputTokensSent(true);
-        }
-        ctx.setDoneProcessed(true);
-
-        events.add(EncodedEvent.named("message_delta", ctx.toJson(payload)));
-        return events;
+        payload.put("usage", buildUsageForDelta(usage, ctx));
+        ctx.setOutputTokensSent(true);
+        return EncodedEvent.named("message_delta", ctx.toJson(payload));
     }
 
     /**
@@ -265,11 +285,11 @@ public class AnthropicProtocolAdapter extends AbstractProtocolAdapter {
             result.put("cache_read_input_tokens", usage.getCachedInputTokens() != null ? usage.getCachedInputTokens() : 0);
             result.put("cache_creation_input_tokens", usage.getCacheCreationInputTokens() != null ? usage.getCacheCreationInputTokens() : 0);
         } else {
-            // 兜底：上游未返回 usage 时输出完整字段（0 值）
-            result.put("input_tokens", 0);
+            // 兜底：上游未返回 usage 时从 ctx 读取真实值（ctx 值由 buildMessageStart 回写）
+            result.put("input_tokens", ctx.getInputTokens());
             result.put("output_tokens", 0);
-            result.put("cache_read_input_tokens", 0);
-            result.put("cache_creation_input_tokens", 0);
+            result.put("cache_read_input_tokens", ctx.getCachedInputTokens() != null ? ctx.getCachedInputTokens() : 0);
+            result.put("cache_creation_input_tokens", ctx.getCacheCreationInputTokens() != null ? ctx.getCacheCreationInputTokens() : 0);
         }
         return result;
     }

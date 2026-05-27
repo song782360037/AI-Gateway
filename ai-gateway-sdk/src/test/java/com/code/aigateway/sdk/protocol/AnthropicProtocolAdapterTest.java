@@ -406,7 +406,7 @@ class AnthropicProtocolAdapterTest {
         }
 
         @Test
-        @DisplayName("done 之后 usage_only 到达，补发 message_delta 携带完整 usage")
+        @DisplayName("done 之后 usage_only 到达，补发 message_delta 携带完整 usage 和 stop_reason")
         void encodeStreamEvent_usageOnly_afterDone_sendsMessageDelta() {
             // 先发一个 text_delta 以生成 message_start 并打开 content block
             adapter.encodeStreamEvent(UnifiedStreamEvent.textDelta("Hello"), ctx);
@@ -424,12 +424,34 @@ class AnthropicProtocolAdapterTest {
 
             List<EncodedEvent> events = adapter.encodeStreamEvent(usageEvent, ctx);
 
-            // 应补发一个 message_delta 携带完整 usage
+            // 应补发一个 message_delta 携带完整 usage 和 stop_reason
             assertThat(events).hasSize(1);
             assertThat(events.get(0).eventName()).isEqualTo("message_delta");
             assertThat(events.get(0).data()).contains("message_delta");
             assertThat(events.get(0).data()).contains("\"output_tokens\":10");
             assertThat(events.get(0).data()).contains("\"cache_read_input_tokens\":50");
+            assertThat(events.get(0).data()).contains("\"stop_reason\":\"end_turn\"");
+        }
+
+        @Test
+        @DisplayName("done(finishReason=length) 之后 usage_only 到达，补发 message_delta 携带 max_tokens")
+        void encodeStreamEvent_usageOnly_afterDone_length_sendsMaxTokens() {
+            adapter.encodeStreamEvent(UnifiedStreamEvent.textDelta("Hello"), ctx);
+            // done 携带 finishReason=length（映射为 max_tokens）
+            adapter.encodeStreamEvent(UnifiedStreamEvent.done("length"), ctx);
+
+            UnifiedStreamEvent usageEvent = new UnifiedStreamEvent();
+            usageEvent.setType(UnifiedStreamEvent.TYPE_USAGE_ONLY);
+            UnifiedUsage lateUsage = new UnifiedUsage();
+            lateUsage.setOutputTokens(5);
+            lateUsage.setInputTokens(60);
+            usageEvent.setUsage(lateUsage);
+
+            List<EncodedEvent> events = adapter.encodeStreamEvent(usageEvent, ctx);
+
+            assertThat(events).hasSize(1);
+            assertThat(events.get(0).eventName()).isEqualTo("message_delta");
+            assertThat(events.get(0).data()).contains("\"stop_reason\":\"max_tokens\"");
         }
 
         @Test
@@ -545,7 +567,7 @@ class AnthropicProtocolAdapterTest {
         }
 
         @Test
-        @DisplayName("done 事件生成 message_delta + 关闭打开的块")
+        @DisplayName("done 事件（无 usage）仅关闭打开的块，message_delta 延迟发送")
         void encodeStreamEvent_done() {
             // 先打开一个 text 块（同时触发 message_start）
             adapter.encodeStreamEvent(UnifiedStreamEvent.textDelta("Hi"), ctx);
@@ -553,9 +575,26 @@ class AnthropicProtocolAdapterTest {
             UnifiedStreamEvent done = UnifiedStreamEvent.done("stop");
             List<EncodedEvent> events = adapter.encodeStreamEvent(done, ctx);
 
-            // 应包含 content_block_stop + message_delta
-            assertThat(events).hasSizeGreaterThanOrEqualTo(1);
-            assertThat(events.get(events.size() - 1).eventName()).isEqualTo("message_delta");
+            // 无 usage 时仅发送 content_block_stop，message_delta 延迟到 usage_only 或 terminal 时发送
+            assertThat(events).hasSize(1);
+            assertThat(events.get(0).eventName()).isEqualTo("content_block_stop");
+        }
+
+        @Test
+        @DisplayName("done 事件（有 usage）发送 content_block_stop + message_delta")
+        void encodeStreamEvent_done_withUsage() {
+            adapter.encodeStreamEvent(UnifiedStreamEvent.textDelta("Hi"), ctx);
+
+            UnifiedUsage doneUsage = new UnifiedUsage();
+            doneUsage.setOutputTokens(10);
+            doneUsage.setInputTokens(50);
+            UnifiedStreamEvent done = UnifiedStreamEvent.done("stop", doneUsage);
+            List<EncodedEvent> events = adapter.encodeStreamEvent(done, ctx);
+
+            assertThat(events).hasSize(2);
+            assertThat(events.get(0).eventName()).isEqualTo("content_block_stop");
+            assertThat(events.get(1).eventName()).isEqualTo("message_delta");
+            assertThat(events.get(1).data()).contains("\"output_tokens\":10");
         }
 
         @Test
@@ -565,6 +604,36 @@ class AnthropicProtocolAdapterTest {
 
             assertThat(events).hasSize(1);
             assertThat(events.get(0).eventName()).isEqualTo("message_stop");
+        }
+
+        @Test
+        @DisplayName("terminalStreamEvents 兜底：done 已处理但 message_delta 未发送时补发")
+        void terminalStreamEvents_fallbackMessageDelta() {
+            // 模拟：done 已处理但 usage 从未到达（message_delta 被延迟）
+            ctx.setDoneProcessed(true);
+            ctx.setDeferredStopReason("end_turn");
+
+            List<EncodedEvent> events = adapter.terminalStreamEvents(ctx);
+
+            // 应包含 message_delta（兜底）+ message_stop
+            assertThat(events).hasSize(2);
+            assertThat(events.get(0).eventName()).isEqualTo("message_delta");
+            assertThat(events.get(0).data()).contains("\"stop_reason\":\"end_turn\"");
+            assertThat(events.get(1).eventName()).isEqualTo("message_stop");
+        }
+
+        @Test
+        @DisplayName("terminalStreamEvents 兜底：延迟 stop_reason 为 max_tokens 时正确编码")
+        void terminalStreamEvents_fallbackMessageDelta_maxTokens() {
+            ctx.setDoneProcessed(true);
+            ctx.setDeferredStopReason("max_tokens");
+
+            List<EncodedEvent> events = adapter.terminalStreamEvents(ctx);
+
+            assertThat(events).hasSize(2);
+            assertThat(events.get(0).eventName()).isEqualTo("message_delta");
+            assertThat(events.get(0).data()).contains("\"stop_reason\":\"max_tokens\"");
+            assertThat(events.get(1).eventName()).isEqualTo("message_stop");
         }
     }
 
