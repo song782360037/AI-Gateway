@@ -77,6 +77,7 @@ public class OpenAiProviderClient extends AbstractProviderClient {
     @Override
     public Mono<UnifiedResponse> chat(UnifiedRequest request) {
         Map<String, Object> requestBody = buildRequestBody(request, false);
+        logRequestBodySize(requestBody);
         return withKeyDegradedRetry(request, config -> {
             Mono<JsonNode> responseMono = buildWebClient(config, extractCorrelationId(request))
                     .post()
@@ -102,6 +103,7 @@ public class OpenAiProviderClient extends AbstractProviderClient {
     @Override
     public Flux<UnifiedStreamEvent> streamChat(UnifiedRequest request) {
         Map<String, Object> requestBody = buildRequestBody(request, true);
+        logRequestBodySize(requestBody);
         AtomicBoolean firstTokenReceived = new AtomicBoolean(false);
 
         return withStreamKeyDegradedRetry(request, config -> {
@@ -331,8 +333,9 @@ public class OpenAiProviderClient extends AbstractProviderClient {
 
         if (request.getTools() != null && !request.getTools().isEmpty()) {
             body.put("tools", buildTools(request.getTools()));
-            log.info("[OpenAI-Request] model={}, stream={}, 转发 tools 数量={}, toolChoice={}",
-                    request.getModel(), stream, request.getTools().size(), request.getToolChoice());
+            log.info("[OpenAI-Request] model={}, stream={}, 转发 tools 数量={}, toolChoice={}, messages数={}",
+                    request.getModel(), stream, request.getTools().size(), request.getToolChoice(),
+                    request.getMessages() != null ? request.getMessages().size() : 0);
         } else {
             log.warn("[OpenAI-Request] model={}, stream={}, 未检测到 tools, request.tools={}",
                     request.getModel(), stream, request.getTools());
@@ -468,7 +471,13 @@ public class OpenAiProviderClient extends AbstractProviderClient {
         if (!"specific".equals(toolChoice.getType())) {
             return toolChoice.getType();
         }
-        return Map.of("type", "function", "function", Map.of("name", toolChoice.getToolName()));
+        // 使用 LinkedHashMap 避免 Map.of 在 toolName 为 null 时抛 NPE
+        Map<String, Object> function = new LinkedHashMap<>();
+        function.put("name", toolChoice.getToolName() != null ? toolChoice.getToolName() : "");
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("type", "function");
+        map.put("function", function);
+        return map;
     }
 
     private Map<String, Object> buildResponseFormat(UnifiedResponseFormat format) {
@@ -490,16 +499,35 @@ public class OpenAiProviderClient extends AbstractProviderClient {
     private List<Map<String, Object>> buildToolCalls(List<UnifiedToolCall> toolCalls) {
         List<Map<String, Object>> result = new ArrayList<>();
         for (UnifiedToolCall tc : toolCalls) {
-            result.add(Map.of(
-                    "id", tc.getId(),
-                    "type", tc.getType() == null ? "function" : tc.getType(),
-                    "function", Map.of(
-                            "name", tc.getToolName(),
-                            "arguments", tc.getArgumentsJson() == null ? "{}" : tc.getArgumentsJson()
-                    )
-            ));
+            Map<String, Object> function = new LinkedHashMap<>();
+            function.put("name", tc.getToolName() != null ? tc.getToolName() : "");
+            function.put("arguments", tc.getArgumentsJson() != null ? tc.getArgumentsJson() : "{}");
+
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("id", tc.getId() != null ? tc.getId() : "");
+            map.put("type", tc.getType() != null ? tc.getType() : "function");
+            map.put("function", function);
+            result.add(map);
         }
         return result;
+    }
+
+    private void logRequestBodySize(Map<String, Object> requestBody) {
+        // 日志级别不够时跳过序列化，避免热路径额外开销
+        if (!log.isInfoEnabled()) return;
+        try {
+            byte[] bytes = objectMapper.writeValueAsBytes(requestBody);
+            String sizeStr = String.format("%.1fKB", bytes.length / 1024.0);
+            int toolsCount = 0;
+            Object tools = requestBody.get("tools");
+            if (tools instanceof List<?> list) toolsCount = list.size();
+            log.info("[OpenAI-Request] 请求体大小: {} bytes ({}), tools数量={}", bytes.length, sizeStr, toolsCount);
+            if (bytes.length > 1024 * 1024) {
+                log.warn("[OpenAI-Request] 请求体超过 1MB ({}), 可能超出上游限制", sizeStr);
+            }
+        } catch (JsonProcessingException e) {
+            log.warn("[OpenAI-Request] 序列化请求体失败: {}", e.getMessage());
+        }
     }
 
     private String resolveImageUrl(UnifiedPart part) {
@@ -650,9 +678,11 @@ public class OpenAiProviderClient extends AbstractProviderClient {
                     int toolIndex = tcDelta.has("index") ? tcDelta.get("index").asInt() : 0;
                     JsonNode fn = tcDelta.path("function");
 
-                    // tool_call 开始（含 name 和 id）
-                    if (fn.has("name")) {
-                        String toolName = fn.path("name").asText();
+                    // tool_call 开始（含非空 name 和 id）
+                    // 注意：DeepSeek 等上游在参数增量 chunk 中可能发送 name:""，
+                    // 需检查 name 非空，避免将增量误判为新的 tool_call 开始
+                    String toolName = fn.has("name") ? fn.path("name").asText() : "";
+                    if (!toolName.isEmpty()) {
                         log.info("[OpenAI-Stream] 检测到 tool_call 开始: toolIndex={}, id={}, name={}",
                                 toolIndex, textOrNull(tcDelta.get("id")), toolName);
                         UnifiedStreamEvent tcEvent = new UnifiedStreamEvent();
@@ -672,7 +702,7 @@ public class OpenAiProviderClient extends AbstractProviderClient {
                             events.add(argEvent);
                         }
                     }
-                    // tool_call 参数增量（后续 chunk，无 name）
+                    // tool_call 参数增量（后续 chunk，无 name 或 name 为空）
                     else if (fn.has("arguments")) {
                         UnifiedStreamEvent tcEvent = new UnifiedStreamEvent();
                         tcEvent.setType("tool_call_delta");

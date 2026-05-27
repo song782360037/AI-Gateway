@@ -76,7 +76,9 @@ public class FailoverStrategy {
                         index, candidate.getProviderName(), candidate.getTargetModel(), correlationId);
                 long attemptStart = System.currentTimeMillis();
                 int retryStart = recorder.retryCount();
-                return callFunction.apply(candidate)
+                // 用 Mono.defer 包裹 callFunction，确保同步异常被转为响应式 error，
+                // 否则 onErrorResume 不会被挂上，导致异常穿透 failover 链
+                return Mono.defer(() -> callFunction.apply(candidate))
                         .doOnNext(result -> {
                             if (index > 0) {
                                 log.info("[故障转移] 候选 #{} 成功, provider={}, correlationId={}",
@@ -181,7 +183,9 @@ public class FailoverStrategy {
         long attemptStart = System.currentTimeMillis();
         int retryStart = recorder.retryCount();
         AtomicBoolean emitted = new AtomicBoolean(false);
-        return callFunction.apply(candidate)
+        // 用 Flux.defer 包裹 callFunction，确保同步异常被转为响应式 error，
+        // 否则 onErrorResume 不会被挂上，导致异常穿透 failover 链
+        return Flux.defer(() -> callFunction.apply(candidate))
                 .doOnNext(ignored -> {
                     if (emitted.compareAndSet(false, true)) {
                         recorder.record(index, candidate, "STREAMING", null, null, null,
@@ -231,7 +235,8 @@ public class FailoverStrategy {
                                                  RequestStatsContext context) {
         long attemptStart = System.currentTimeMillis();
         int retryStart = recorder.retryCount();
-        return callFunction.apply(candidate)
+        // 用 Mono.defer 包裹，确保同步异常被转为响应式 error
+        return Mono.defer(() -> callFunction.apply(candidate))
                 .doOnNext(result -> recorder.record(0, candidate, "SUCCESS", null, null, null,
                         recorder.retryDelta(retryStart), attemptStart))
                 .doOnError(ex -> recorder.record(0, candidate, "FAILED",
